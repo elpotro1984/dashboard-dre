@@ -78,18 +78,6 @@ export function planejamentoCategoriaHref(
 // redesenhada). O ciclo e a trilha ficaram — o que não existe mais é a tela.
 
 /**
- * URL da tela de uma VIAGEM.
- *
- * O id é uuid e vem de `criarViagem` — não existe segmento "nova": a viagem é
- * gravada ANTES de abrir, porque a tela precisa de uma linha para pendurar as
- * paradas e a conversa com a IA. Um "nova" aqui colidiria com o uuid e
- * obrigaria a tela a existir em dois estados.
- */
-export function viagemHref(companyId: string, year: number, viagemId: string): string {
-  return `/orcamento/empresa/${companyId}/${year}/viagens/${viagemId}`;
-}
-
-/**
  * URL da Prévia do orçamento — a DRE da empresa preenchida com os valores
  * orçados. Não é um método (não entra em WORKSPACE_TABS); é a leitura do
  * resultado, com rota própria.

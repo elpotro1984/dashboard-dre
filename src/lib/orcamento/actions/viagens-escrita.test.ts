@@ -21,7 +21,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 
-const ARQUIVOS = ["viagens-grade.ts", "viagens.ts"];
+// Só a GRADE: `viagens.ts` (a tela avulsa) saiu em 09/10/2026 junto com a tela
+// que a usava. Toda escrita de viagem passa por aqui agora.
+const ARQUIVOS = ["viagens-grade.ts"];
 
 /** Os verbos que criam, alteram ou apagam orçamento. Ler não entra. */
 const VERBOS = [
@@ -72,9 +74,10 @@ test("toda action de ESCRITA de viagem confere o setor, ou é admin-only", () =>
 
   // Se este número cair, alguma action de escrita saiu do radar do teste (nome que
   // não começa por um dos verbos, por exemplo) em vez de o módulo ter encolhido.
+  // Eram 9 quando a tela avulsa existia; com ela fora, as 4 da grade são todas.
   assert.ok(
-    checadas.length >= 8,
-    `esperava ao menos 8 actions de escrita, achei ${checadas.length}: ${checadas.join(", ")}`,
+    checadas.length >= 4,
+    `esperava ao menos 4 actions de escrita, achei ${checadas.length}: ${checadas.join(", ")}`,
   );
 });
 
