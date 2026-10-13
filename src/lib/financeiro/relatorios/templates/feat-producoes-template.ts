@@ -19,7 +19,7 @@ IMPLICAÇÃO CRÍTICA PARA A LEITURA: se o fechamento de um evento estiver atras
 REGRA DE INTERPRETAÇÃO (anti-conclusão precipitada):
 - NÃO afirme que houve "baixa performance operacional" apenas com base no resultado do DRE — o resultado pode estar incompleto por fechamentos pendentes.
 - Trate um resultado abaixo do esperado como POSSIVELMENTE afetado por fechamentos pendentes; comunique isso como hipótese/ponto de atenção, sem alarmismo e sem cravar causa.
-- O input NÃO informa se há eventos pendentes de fechamento. Logo, você pode RECOMENDAR verificar o status de fechamentos, mas NÃO pode afirmar que existem fechamentos pendentes nem quantos.
+- Só afirme que existem fechamentos pendentes (e quantos) com base em feat_eventos.eventos_em_aberto_detalhe (Hub Feat). Se esse campo estiver ausente ou null, você pode RECOMENDAR verificar o status de fechamentos, mas NÃO pode afirmar que existem fechamentos pendentes nem quantos.
 
 Analise a Feat Produções considerando, a partir dos dados do DRE:
 - receita/margem reconhecida no dashboard DRE;
@@ -47,17 +47,18 @@ Este bloco é um cadastro GERENCIAL de projetos/eventos da Feat (orçamento de e
 - eventos_em_aberto: eventos que ocorreram mas AINDA NÃO tiveram o fechamento/apuração de margem feito — resultado POTENCIAL ainda não consolidado.
 - eventos_previstos_nao_realizados: eventos que estavam no orçamento mas NÃO ocorreram — explicam parte do desvio entre previsto e realizado.
 - eventos_realizados: total de eventos já fechados.
-- eventos_em_aberto_detalhe: lista dos eventos com fechamento em aberto (nome do projeto + resultado_previsto orçado de cada um).
-- previsto_em_aberto_total: soma do resultado previsto dos eventos em aberto.
+- eventos_em_aberto_detalhe: lista dos eventos com fechamento em aberto AGORA, vinda do Hub Feat (tela Tabulação): nome do evento + resultado_previsto (margem PROJETADA no fechamento do evento) + imposto_lancado (false = o imposto ainda não foi lançado, então a projeção está antes dos impostos). É a situação no momento da geração do relatório, NÃO até a referência — por isso pode divergir de eventos_em_aberto (que vem do cadastro gerencial). Para falar de fechamentos pendentes, use esta lista.
+- previsto_em_aberto_total: soma do resultado projetado dos eventos de eventos_em_aberto_detalhe (a "Expectativa em aberto" do Hub Feat).
+- Quando eventos_em_aberto_detalhe, previsto_em_aberto_total e resultado_acumulado_projetado vierem null, o Hub Feat não respondeu nesta geração: NÃO comente fechamentos em aberto, NÃO cite projeção e NÃO estime valores.
 - resultado_acumulado_atual: Resultado do Exercício ACUMULADO do DRE até a referência (o mesmo número do "Acumulado do Ano > Resultado"). Base já consolidada.
-- resultado_acumulado_projetado: PROJEÇÃO GERENCIAL = resultado_acumulado_atual (DRE acumulado) + previsto_em_aberto_total. NÃO é resultado realizado — é uma estimativa que só se confirma após a conclusão dos fechamentos e a apuração das margens.
+- resultado_acumulado_projetado: PROJEÇÃO GERENCIAL = resultado_acumulado_atual (DRE acumulado) + previsto_em_aberto_total (expectativa em aberto do Hub Feat). NÃO é resultado realizado — é uma estimativa que só se confirma após a conclusão dos fechamentos e a apuração das margens.
 - resultado_acumulado_previsto_orcamento: Resultado do Exercício acumulado ORÇADO do DRE (Acumulado do Ano > Resultado previsto).
 - percentual_atingimento_projecao: quanto a projeção (resultado_acumulado_projetado) representa do orçado acumulado, em % (ex.: 92,2% do orçamento). Pode ser citado para mostrar quão perto a projeção fica da meta orçamentária — sempre lembrando que é projeção, não realizado.
 
 COMO INTERPRETAR (anti-alarmismo, tom executivo e equilibrado):
 1. Se total_realizado < total_previsto, NÃO trate a diferença como perda definitiva. Parte dela pode ser margem de "eventos_em_aberto" ainda não consolidada e/ou "eventos_previstos_nao_realizados".
-2. Quando "eventos_em_aberto" > 0, sinalize que há eventos com fechamento pendente — parte do resultado ainda pode ser consolidada — e recomende priorizar a tabulação/apuração das margens pendentes. Quando útil, CITE os eventos de "eventos_em_aberto_detalhe" pelo nome e o resultado_previsto de cada um (ex.: "o FESTIVAL DE VERÃO tem resultado previsto de R$ 300.000,00, ainda dependente do fechamento para virar resultado realizado").
-3. Ao mencionar a projeção, use "resultado_acumulado_projetado" deixando EXPLÍCITO que é projeção gerencial baseada no orçamento dos eventos em aberto, NÃO resultado consolidado/garantido (ex.: "considerando o previsto dos eventos em aberto, o acumulado poderia alcançar R$ X — leitura gerencial, não resultado realizado").
+2. Quando "eventos_em_aberto_detalhe" tiver eventos, sinalize que há eventos com fechamento pendente — parte do resultado ainda pode ser consolidada — e recomende priorizar a tabulação/apuração das margens pendentes. Quando útil, CITE os eventos de "eventos_em_aberto_detalhe" pelo nome e o resultado_previsto de cada um (ex.: "o FESTIVAL DE VERÃO tem resultado projetado de R$ 300.000,00, ainda dependente do fechamento para virar resultado realizado"). Se imposto_lancado for false, diga que o valor ainda está antes dos impostos.
+3. Ao mencionar a projeção, use "resultado_acumulado_projetado" deixando EXPLÍCITO que é projeção gerencial baseada na margem projetada dos eventos em aberto, NÃO resultado consolidado/garantido (ex.: "considerando o previsto dos eventos em aberto, o acumulado poderia alcançar R$ X — leitura gerencial, não resultado realizado").
 4. Quando "eventos_previstos_nao_realizados" > 0, explique que esses eventos geram desvio direto entre orçado e realizado, e sugira revisar se houve cancelamento, postergação ou mudança no planejamento comercial.
 5. Compare "eventos_previstos_orcamento" com "eventos_realizados_periodo" para explicar eventos realizados sem previsão orçamentária e/ou eventos previstos que não aconteceram. Um evento com resultado_previsto = 0 pode ser realizado, mas NÃO deve ser tratado como evento previsto em orçamento.
 6. Diferencie SEMPRE resultado previsto de resultado realizado; nunca trate previsto/projeção como receita já realizada. Reforce a importância de concluir os fechamentos para consolidar o resultado.

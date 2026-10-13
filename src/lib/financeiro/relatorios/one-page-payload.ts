@@ -22,6 +22,7 @@ import {
   type FeatContasReceberAbertoPayload,
 } from "./feat-contas-receber-aberto";
 import { buildFeatEventos, type FeatEventosPayload } from "./feat-eventos";
+import { fetchHubfeatFechamentosAbertos } from "./feat-fechamentos-hubfeat";
 import {
   buildHeroHoldingComparativo,
   type HoldingComparativoResult,
@@ -1837,6 +1838,8 @@ export async function buildOnePagePayload(
           referenciaLabel,
           ytdResultadoR,
           ytdResultadoB,
+          // Seção "Fechamentos em aberto": consulta o hubfeat a cada geração.
+          await fetchHubfeatFechamentosAbertos(),
         )
       : null;
 

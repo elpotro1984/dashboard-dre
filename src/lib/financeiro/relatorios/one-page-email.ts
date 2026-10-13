@@ -18,6 +18,12 @@ import type {
   PrevistoRealizadoItem,
 } from "@/components/financeiro/relatorios/OnePageReportPreview";
 import { FEAT_PERMUTA_OBSERVACAO } from "@/lib/financeiro/relatorios/feat-contas-receber-export";
+import {
+  FECHAMENTO_SEM_IMPOSTO,
+  fechamentosSubtitulo,
+  fechamentosVazio,
+  fechamentosVisiveis,
+} from "@/lib/financeiro/relatorios/feat-fechamentos-texto";
 import { svgToPng } from "@/lib/financeiro/relatorios/one-page-chart-png";
 import {
   columnsChartSvg,
@@ -1004,14 +1010,18 @@ function renderFeatEventos(block: FeatEventosBlock): string {
           (ev) => `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${C.grid};border-radius:6px;background:#fafafa;margin-bottom:6px;"><tr>
             <td style="font-family:${FF};font-size:12.5px;font-weight:600;color:${C.ink};padding:7px 10px;">${esc(
               ev.projeto,
-            )}</td>
+            )}${
+              ev.impostoLancado === false
+                ? `<span style="font-size:10.5px;font-weight:400;color:${C.sub};"> · ${esc(FECHAMENTO_SEM_IMPOSTO)}</span>`
+                : ""
+            }</td>
             <td style="font-family:${FM};font-size:12px;color:${C.body};padding:7px 10px;text-align:right;white-space:nowrap;">${esc(
               fmtMoneyFull(ev.resultadoPrevisto),
             )}</td>
           </tr></table>`,
         )
         .join("")
-    : `<div style="font-family:${FF};font-size:12px;color:${C.body};margin-top:6px;">Não há eventos com fechamento em aberto até o período selecionado.</div>`;
+    : `<div style="font-family:${FF};font-size:12px;color:${C.body};margin-top:6px;">${esc(fechamentosVazio(block))}</div>`;
 
   const projecaoRows = temAberto
     ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;margin-top:10px;">
@@ -1041,15 +1051,20 @@ function renderFeatEventos(block: FeatEventosBlock): string {
       </table>`
     : "";
 
-  const fechamentos = panel(
+  // Hubfeat fora do ar na geração → seção omitida (sem o espaçador também).
+  const fechamentos = !fechamentosVisiveis(block)
+    ? ""
+    : panel(
     `<div style="font-family:${FF};font-size:12px;font-weight:700;color:${C.ink};">Fechamentos em aberto</div>
      <div style="font-family:${FF};font-size:10px;color:${C.sub};margin-bottom:${
        temAberto ? "10px" : "0"
-     };">Eventos realizados sem fechamento concluído até ${esc(block.referenciaLabel)}.</div>
+     };">${esc(fechamentosSubtitulo(block))}</div>
      ${listaAberto}${projecaoRows}`,
   );
 
-  return `${sectionTitle("Eventos — Feat Produções")}${cards}${charts}<div style="height:12px;font-size:0;">&nbsp;</div>${fechamentos}`;
+  return `${sectionTitle("Eventos — Feat Produções")}${cards}${charts}${
+    fechamentos ? `<div style="height:12px;font-size:0;">&nbsp;</div>${fechamentos}` : ""
+  }`;
 }
 
 function agingSev(faixa: string): SevKey {

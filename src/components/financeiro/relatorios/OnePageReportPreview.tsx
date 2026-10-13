@@ -20,6 +20,13 @@ import {
   downloadFeatContasReceberXlsx,
   FEAT_PERMUTA_OBSERVACAO,
 } from "@/lib/financeiro/relatorios/feat-contas-receber-export";
+import {
+  FECHAMENTO_SEM_IMPOSTO,
+  fechamentosRotuloValor,
+  fechamentosSubtitulo,
+  fechamentosVazio,
+  fechamentosVisiveis,
+} from "@/lib/financeiro/relatorios/feat-fechamentos-texto";
 
 // ============================================================================
 // RELATÓRIO FINANCEIRO MENSAL — One Page Report (documento A4).
@@ -101,7 +108,7 @@ export interface AcaoCard {
 }
 
 // Quadro de eventos EXCLUSIVO da Feat Produções (alimentado por
-// company_feat_projetos). Valores em R$ cheios (não em "mil"). Só presente
+// company_feat_projetos; a seção "Fechamentos em aberto" vem do hubfeat). Valores em R$ cheios (não em "mil"). Só presente
 // quando a empresa analisada é a Feat Produções.
 export interface FeatEventosBlock {
   referenciaLabel: string;
@@ -118,13 +125,18 @@ export interface FeatEventosBlock {
   // previsto em aberto e projeção gerencial. A base é o Resultado do Exercício
   // acumulado do DRE (resultadoAcumuladoAtual), não a soma do realizado dos
   // eventos — projeção = resultadoAcumuladoAtual + previstoEmAbertoTotal.
-  eventosEmAbertoDetalhe: Array<{ projeto: string; resultadoPrevisto: number }>;
+  eventosEmAbertoDetalhe: Array<{ projeto: string; resultadoPrevisto: number; impostoLancado?: boolean }>;
   previstoEmAbertoTotal: number;
   resultadoAcumuladoAtual: number;
   resultadoAcumuladoProjetado: number;
   // Resultado acumulado orçado (Acumulado do Ano) + % de atingimento da projeção.
   resultadoAcumuladoPrevistoOrcamento: number | null;
   percentualAtingimentoProjecao: number | null;
+  // Origem da seção (ausentes em relatórios gravados antes do hubfeat).
+  // fechamentosDisponivel === false → hubfeat não respondeu; seção omitida.
+  fechamentosFonte?: "hubfeat";
+  fechamentosConsultadoEm?: string;
+  fechamentosDisponivel?: boolean;
 }
 
 export interface FeatAgingBucket {
@@ -3588,6 +3600,7 @@ function QuadroIndicadoresDre({ data }: { data: DreIndicatorsBlock }) {
 }
 
 function FechamentosEmAberto({ data }: { data: FeatEventosBlock }) {
+  if (!fechamentosVisiveis(data)) return null;
   const temAberto = data.eventosEmAbertoDetalhe.length > 0;
 
   return (
@@ -3596,12 +3609,12 @@ function FechamentosEmAberto({ data }: { data: FeatEventosBlock }) {
         Fechamentos em aberto
       </div>
       <div style={{ fontSize: 10, color: C.sub, marginBottom: temAberto ? 10 : 0 }}>
-        Eventos realizados sem fechamento concluído até {data.referenciaLabel}.
+        {fechamentosSubtitulo(data)}
       </div>
 
       {!temAberto ? (
         <div style={{ fontSize: 12, color: C.body, marginTop: 6 }}>
-          Não há eventos com fechamento em aberto até o período selecionado.
+          {fechamentosVazio(data)}
         </div>
       ) : (
         <>
@@ -3623,9 +3636,14 @@ function FechamentosEmAberto({ data }: { data: FeatEventosBlock }) {
               >
                 <span style={{ fontSize: 12.5, fontWeight: 600, color: C.ink }}>
                   {ev.projeto}
+                  {ev.impostoLancado === false ? (
+                    <span style={{ fontSize: 10.5, fontWeight: 400, color: C.sub }}>
+                      {" "}· {FECHAMENTO_SEM_IMPOSTO}
+                    </span>
+                  ) : null}
                 </span>
                 <span style={{ fontSize: 11, color: C.sub, whiteSpace: "nowrap" }}>
-                  Resultado previsto:{" "}
+                  {fechamentosRotuloValor(data)}:{" "}
                   <span style={{ fontFamily: FONT_MONO, color: C.body, fontWeight: 600 }}>
                     {fmtMoneyFull(ev.resultadoPrevisto)}
                   </span>
