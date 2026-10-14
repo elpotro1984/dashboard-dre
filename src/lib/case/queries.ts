@@ -598,6 +598,7 @@ export interface AgendaImportado {
   nps: number[];
   observacao: string | null;
   anexos: Array<{ nome: string; url: string }>;
+  comentarios: Array<{ autor: string | null; data: string; texto: string }>;
 }
 
 export async function getAgendaImportados(): Promise<AgendaImportado[]> {
@@ -605,7 +606,7 @@ export async function getAgendaImportados(): Promise<AgendaImportado[]> {
   const { data, error } = await db
     .from("case_agenda_importada")
     .select(
-      "id, origem_url, titulo_original, categoria, turma, local_name, local_city, unidade, intermediacao, event_date, event_date_fim, atracoes, nps, observacao, anexos",
+      "id, origem_url, titulo_original, categoria, turma, local_name, local_city, unidade, intermediacao, event_date, event_date_fim, atracoes, nps, observacao, anexos, comentarios",
     )
     .order("event_date", { ascending: true });
   // Tabela ausente (migration ainda não aplicada) não pode derrubar a agenda.

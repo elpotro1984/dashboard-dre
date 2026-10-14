@@ -427,6 +427,24 @@ function TrelloModal({ t, onClose }: { t: AgendaImportado | null; onClose: () =>
                 )}
               </section>
 
+              {t.comentarios.length > 0 && (
+                <section>
+                  <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+                    Comentários do Trello ({t.comentarios.length})
+                  </div>
+                  <ul className="space-y-2">
+                    {t.comentarios.map((cm, i) => (
+                      <li key={i} className="rounded-md border border-border bg-surface-2/40 p-3">
+                        <div className="mb-1 text-[11px] text-ink-muted">
+                          {cm.autor ?? "—"} · {dateBR(cm.data)}
+                        </div>
+                        <p className="whitespace-pre-line break-words text-xs leading-relaxed text-ink-secondary">{cm.texto}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+
               {t.observacao && (
                 <section className="rounded-md bg-surface-2/50 p-3">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Descrição do cartão</div>

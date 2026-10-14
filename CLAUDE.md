@@ -143,6 +143,7 @@ O controle antigo da agenda era o quadro do Trello "CASE SHOWS - EVENTOS". Os ev
 
 - O quadro não usa data nem campo do Trello: tudo vem do TÍTULO ("TIPO - TURMA - LOCAL - DATA - UNIDADE", com variações reais). A leitura é `trello-agenda.ts` (pura e testada); data sem ano não é chutada, vira "fora da importação".
 - Atração só por dois sinais confiáveis: checklist com nome de artista e anexo no padrão `CONTRATO_ATRAÇÃO - NOME`. Nome de anexo fora do padrão não vira dado.
+- **Os dados do contrato (fundo, horário, valores, repasses) estão nos COMENTÁRIOS do cartão, não na descrição** — que quase sempre só tem o NP. Vão em `comentarios` (jsonb) e aparecem no modal. O export do Trello traz só as ~1000 ações mais recentes do quadro, então comentário antigo pode faltar (3 de 65 na importação de 14/10/2026). Comentário de cartão duplicado descartado é juntado ao que fica.
 - `npx tsx --env-file=.env.local scripts/case-trello-import.ts <json> [desde]` mostra a prévia; `DRY=0` grava. Reimportar atualiza pelo id do cartão (`UNIQUE (origem, origem_id)`), não duplica.
 
 ### Case — aprovação antes da ClickSign (`src/lib/case/actions/stages.ts`)

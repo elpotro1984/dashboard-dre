@@ -21,6 +21,20 @@ export interface TrelloBoard {
   lists: Array<{ id: string; name: string; closed: boolean }>;
   cards: TrelloCard[];
   checklists: Array<{ id: string; name: string }>;
+  // O export do Trello traz só as ~1000 ações mais recentes do quadro, então
+  // comentário antigo pode não estar aqui.
+  actions?: Array<{
+    type: string;
+    date: string;
+    data?: { card?: { id?: string }; text?: string };
+    memberCreator?: { fullName?: string | null } | null;
+  }>;
+}
+
+export interface ComentarioTrello {
+  autor: string | null;
+  data: string;
+  texto: string;
 }
 
 export interface AgendaImportadaRow {
@@ -39,6 +53,9 @@ export interface AgendaImportadaRow {
   nps: number[];
   observacao: string | null;
   anexos: Array<{ nome: string; url: string }>;
+  // É nos comentários que o time escrevia os dados do contrato (fundo,
+  // horário, valores) — a descrição quase sempre só tem o NP.
+  comentarios: ComentarioTrello[];
 }
 
 export interface LeituraTitulo {
@@ -180,6 +197,19 @@ export function lerAtracoes(checklistNames: string[], anexos: string[]): string[
   return out;
 }
 
+/** Do mais antigo ao mais recente — o pedido de contrato vem primeiro. Repetido sai. */
+function ordenarComentarios(lista: ComentarioTrello[]): ComentarioTrello[] {
+  const vistos = new Set<string>();
+  return [...lista]
+    .sort((a, b) => a.data.localeCompare(b.data))
+    .filter((c) => {
+      const k = `${c.data}|${c.texto}`;
+      if (vistos.has(k)) return false;
+      vistos.add(k);
+      return true;
+    });
+}
+
 export interface ResultadoLeitura {
   linhas: AgendaImportadaRow[];
   ignorados: Array<{ titulo: string; motivo: string }>;
@@ -196,6 +226,16 @@ export function lerQuadro(board: TrelloBoard, desde: string): ResultadoLeitura {
   const linhas: AgendaImportadaRow[] = [];
   const ignorados: ResultadoLeitura["ignorados"] = [];
   const porChave = new Map<string, AgendaImportadaRow>();
+
+  const comentariosPorCartao = new Map<string, ComentarioTrello[]>();
+  for (const a of board.actions ?? []) {
+    const cardId = a.data?.card?.id;
+    const texto = a.data?.text?.trim();
+    if (a.type !== "commentCard" || !cardId || !texto) continue;
+    const lista = comentariosPorCartao.get(cardId) ?? [];
+    lista.push({ autor: a.memberCreator?.fullName ?? null, data: a.date, texto });
+    comentariosPorCartao.set(cardId, lista);
+  }
 
   for (const c of board.cards) {
     const lista = listas.get(c.idList);
@@ -223,15 +263,20 @@ export function lerQuadro(board: TrelloBoard, desde: string): ResultadoLeitura {
       nps: lerNps(c.desc),
       observacao: c.desc.trim() || null,
       anexos,
+      comentarios: ordenarComentarios(comentariosPorCartao.get(c.id) ?? []),
     };
 
     const chave = `${semAcento(limpa(c.name)).toLowerCase()}|${t.event_date}`;
     const anterior = porChave.get(chave);
     if (anterior) {
-      const peso = (r: AgendaImportadaRow) => r.anexos.length + r.atracoes.length + r.nps.length + (r.observacao ? 1 : 0);
+      const peso = (r: AgendaImportadaRow) =>
+        r.anexos.length + r.atracoes.length + r.nps.length + r.comentarios.length + (r.observacao ? 1 : 0);
       ignorados.push({ titulo: c.name, motivo: "cartão duplicado" });
-      if (peso(row) > peso(anterior)) linhas[linhas.indexOf(anterior)] = row;
-      porChave.set(chave, peso(row) > peso(anterior) ? row : anterior);
+      const [fica, sai] = peso(row) > peso(anterior) ? [row, anterior] : [anterior, row];
+      // O texto do cartão descartado não pode sumir junto com ele.
+      fica.comentarios = ordenarComentarios([...fica.comentarios, ...sai.comentarios]);
+      if (fica === row) linhas[linhas.indexOf(anterior)] = row;
+      porChave.set(chave, fica);
       continue;
     }
     porChave.set(chave, row);

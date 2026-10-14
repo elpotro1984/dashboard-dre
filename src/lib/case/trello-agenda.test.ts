@@ -139,6 +139,33 @@ test("quadro: período que termina depois do corte entra", () => {
   assert.equal(r.linhas.length, 1);
 });
 
+test("quadro: comentários do cartão vêm em ordem cronológica, só os de comentário", () => {
+  const b = board([card({ id: "a" })]);
+  b.actions = [
+    { type: "commentCard", date: "2026-06-02T10:00:00Z", data: { card: { id: "a" }, text: "Horário confirmado" }, memberCreator: { fullName: "Jéssica" } },
+    { type: "commentCard", date: "2026-06-01T10:00:00Z", data: { card: { id: "a" }, text: "GENTILEZA ELABORAR CONTRATO\nFundo: X" }, memberCreator: { fullName: "Yuri" } },
+    { type: "updateCard", date: "2026-06-03T10:00:00Z", data: { card: { id: "a" }, text: "não é comentário" } },
+    { type: "commentCard", date: "2026-06-04T10:00:00Z", data: { card: { id: "outro" }, text: "de outro cartão" } },
+  ];
+  const [linha] = lerQuadro(b, "2026-10-14").linhas;
+  assert.deepEqual(
+    linha.comentarios.map((c) => [c.autor, c.texto]),
+    [
+      ["Yuri", "GENTILEZA ELABORAR CONTRATO\nFundo: X"],
+      ["Jéssica", "Horário confirmado"],
+    ],
+  );
+});
+
+test("quadro: comentário do cartão duplicado descartado não se perde", () => {
+  const nome = "BAILE - TERCEIRÃO APOGEU - TERRAZZO - 27.11.2026 - VIVA JF";
+  const b = board([card({ id: "cheio", name: nome, desc: "NP 700" }), card({ id: "comentado", name: nome })]);
+  b.actions = [{ type: "commentCard", date: "2026-06-01T10:00:00Z", data: { card: { id: "comentado" }, text: "Dados do contrato" } }];
+  const r = lerQuadro(b, "2026-10-14");
+  assert.equal(r.linhas.length, 1);
+  assert.deepEqual(r.linhas[0].comentarios.map((c) => c.texto), ["Dados do contrato"]);
+});
+
 test("quadro: duplicado fica uma vez só, com o cartão mais completo", () => {
   const r = lerQuadro(
     board([
