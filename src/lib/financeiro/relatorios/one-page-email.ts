@@ -19,6 +19,11 @@ import type {
 } from "@/components/financeiro/relatorios/OnePageReportPreview";
 import { FEAT_PERMUTA_OBSERVACAO } from "@/lib/financeiro/relatorios/feat-contas-receber-export";
 import {
+  FEAT_CARD_PREVISTO_NOTA,
+  FEAT_CARD_PREVISTO_ROTULO,
+  FEAT_CARD_REALIZADO_NOTA,
+  FEAT_CARD_REALIZADO_ROTULO,
+  featCardRealizadoMeta,
   FECHAMENTO_SEM_IMPOSTO,
   fechamentosSubtitulo,
   fechamentosVazio,
@@ -948,13 +953,14 @@ function renderDividendosSocios(block: DividendosSociosBlock): string {
 function renderFeatEventos(block: FeatEventosBlock): string {
   const cards = grid(
     [
-      indicatorCard("Resultado total previsto", fmtMoneyFull(block.totalPrevisto), {
+      indicatorCard(FEAT_CARD_PREVISTO_ROTULO, fmtMoneyFull(block.totalPrevisto), {
         meta: `Número de eventos previstos: ${block.eventosPrevistosOrcamento}`,
+        hint: FEAT_CARD_PREVISTO_NOTA,
         footer: `Acumulado até ${block.referenciaLabel}`,
       }),
-      indicatorCard("Resultado total realizado", fmtMoneyFull(block.totalRealizado), {
-        meta: `Número de eventos realizados: ${block.eventosRealizadosPeriodo}`,
-        hint: `${block.eventosRealizados} fechamentos realizado(s) · ${block.eventosEmAberto} fechamentos em aberto`,
+      indicatorCard(FEAT_CARD_REALIZADO_ROTULO, fmtMoneyFull(block.totalRealizado), {
+        meta: featCardRealizadoMeta(block.eventosRealizados),
+        hint: FEAT_CARD_REALIZADO_NOTA,
         footer: `Acumulado até ${block.referenciaLabel}`,
       }),
     ],

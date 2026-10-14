@@ -7,6 +7,9 @@
 // não do mês de referência do relatório. O resto do bloco de eventos continua
 // lendo `company_feat_projetos`.
 //
+// + eventos anteriores ao hubfeat (EVENTOS_PRE_HUBFEAT_EM_ABERTO), fixos aqui.
+// − eventos não oficiais (EVENTOS_NAO_OFICIAIS), que não entram no relatório.
+//
 // Falha = null, e a seção some do relatório (decisão do dono): não há fallback
 // para a tabela manual, que mostraria número possivelmente velho sem ninguém
 // perceber.
@@ -30,6 +33,61 @@ export interface HubfeatFechamentosAbertos {
 }
 
 const TIMEOUT_MS = 20_000;
+
+// Eventos em aberto que NÃO existem no hubfeat porque aconteceram antes dele
+// (decisão do dono, 14/10/2026). Entram na seção junto com os do hubfeat.
+// FIXO NO CÓDIGO: quando o evento fechar, alguém precisa avisar para remover
+// daqui — senão ele continua aparecendo como em aberto.
+export const EVENTOS_PRE_HUBFEAT_EM_ABERTO: readonly HubfeatFechamentoEvento[] = [
+  { projeto: "FESTIVAL DE VERÃO", resultadoPrevisto: 733034.16, impostoLancado: true },
+];
+
+// Sem acento e sem caixa: tira as marcas combinantes (U+0300 a U+036F) que o
+// NFD separa da letra. Comparação por código, sem regex de faixa Unicode.
+function normalizaNome(nome: string): string {
+  return Array.from(nome.normalize("NFD"))
+    .filter((ch) => {
+      const c = ch.charCodeAt(0);
+      return c < 0x300 || c > 0x36f;
+    })
+    .join("")
+    .trim()
+    .toUpperCase();
+}
+
+/**
+ * Soma os eventos pré-hubfeat à lista do hubfeat. Se um dia o hubfeat passar a
+ * listar o mesmo evento (mesmo nome), vale o do hubfeat — nunca conta duas vezes.
+ */
+export function comEventosPreHubfeat(
+  r: HubfeatFechamentosAbertos,
+  extras: readonly HubfeatFechamentoEvento[] = EVENTOS_PRE_HUBFEAT_EM_ABERTO,
+): HubfeatFechamentosAbertos {
+  const nomes = new Set(r.eventos.map((e) => normalizaNome(e.projeto)));
+  const novos = extras.filter((e) => !nomes.has(normalizaNome(e.projeto)));
+  if (novos.length === 0) return r;
+  const eventos = [...r.eventos, ...novos.map((e) => ({ ...e }))];
+  return { ...r, eventos, total: round2(eventos.reduce((acc, e) => acc + e.resultadoPrevisto, 0)) };
+}
+
+// Eventos NÃO OFICIAIS: o resultado não aparece no relatório (decisão do dono,
+// 14/10/2026). Casa por trecho do nome, sem acento e sem caixa — o nome no
+// hubfeat pode ter sufixo (local, data).
+export const EVENTOS_NAO_OFICIAIS: readonly string[] = ["XIQUE XIQUE 2026"];
+
+/** Tira da lista (e do total) os eventos não oficiais. */
+export function semEventosNaoOficiais(
+  r: HubfeatFechamentosAbertos,
+  excluidos: readonly string[] = EVENTOS_NAO_OFICIAIS,
+): HubfeatFechamentosAbertos {
+  const trechos = excluidos.map(normalizaNome);
+  const eventos = r.eventos.filter((e) => {
+    const nome = normalizaNome(e.projeto);
+    return !trechos.some((t) => nome.includes(t));
+  });
+  if (eventos.length === r.eventos.length) return r;
+  return { ...r, eventos, total: round2(eventos.reduce((acc, e) => acc + e.resultadoPrevisto, 0)) };
+}
 
 interface RespostaHubfeat {
   consultado_em?: unknown;
@@ -94,8 +152,11 @@ export async function fetchHubfeatFechamentosAbertos(
       return null;
     }
     const parsed = parseHubfeatFechamentos(await res.json());
-    if (!parsed) console.warn("[feat-fechamentos-hubfeat] resposta em formato inesperado — seção omitida.");
-    return parsed;
+    if (!parsed) {
+      console.warn("[feat-fechamentos-hubfeat] resposta em formato inesperado — seção omitida.");
+      return null;
+    }
+    return semEventosNaoOficiais(comEventosPreHubfeat(parsed));
   } catch (err) {
     console.warn("[feat-fechamentos-hubfeat] falha ao consultar o hubfeat — seção omitida.", err);
     return null;

@@ -21,6 +21,11 @@ import {
   FEAT_PERMUTA_OBSERVACAO,
 } from "@/lib/financeiro/relatorios/feat-contas-receber-export";
 import {
+  FEAT_CARD_PREVISTO_NOTA,
+  FEAT_CARD_PREVISTO_ROTULO,
+  FEAT_CARD_REALIZADO_NOTA,
+  FEAT_CARD_REALIZADO_ROTULO,
+  featCardRealizadoMeta,
   FECHAMENTO_SEM_IMPOSTO,
   fechamentosRotuloValor,
   fechamentosSubtitulo,
@@ -2588,21 +2593,17 @@ function QuadroEventosFeat({
         }}
       >
         <FeatIndicador
-          label="Resultado total previsto"
+          label={FEAT_CARD_PREVISTO_ROTULO}
           valueLabel={fmtMoneyFull(data.totalPrevisto)}
           meta={`Número de eventos previstos: ${data.eventosPrevistosOrcamento}`}
+          hint={FEAT_CARD_PREVISTO_NOTA}
           footer={`Acumulado até ${data.referenciaLabel}`}
         />
         <FeatIndicador
-          label="Resultado total realizado"
+          label={FEAT_CARD_REALIZADO_ROTULO}
           valueLabel={fmtMoneyFull(data.totalRealizado)}
-          meta={`Número de eventos realizados: ${data.eventosRealizadosPeriodo}`}
-          hint={
-            <>
-              {data.eventosRealizados} fechamentos realizado(s) ·{" "}
-              {data.eventosEmAberto} fechamentos em aberto
-            </>
-          }
+          meta={featCardRealizadoMeta(data.eventosRealizados)}
+          hint={FEAT_CARD_REALIZADO_NOTA}
           footer={`Acumulado até ${data.referenciaLabel}`}
         />
       </div>

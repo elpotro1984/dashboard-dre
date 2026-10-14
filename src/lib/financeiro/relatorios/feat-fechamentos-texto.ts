@@ -50,3 +50,16 @@ export function fechamentosRotuloValor(block: FechamentosMeta): string {
 }
 
 export const FECHAMENTO_SEM_IMPOSTO = "sem imposto lançado";
+
+// Cards do topo do bloco de eventos (previsto × realizado) — mesmos textos na
+// tela e no e-mail. O previsto é o ORÇAMENTO ANUAL; o realizado é só o que já
+// foi apurado em fechamento concluído (os em aberto não entram).
+export const FEAT_CARD_PREVISTO_ROTULO = "Resultado total previsto (orçamento anual)";
+export const FEAT_CARD_PREVISTO_NOTA =
+  "Previsão do orçamento anual da empresa: soma do resultado orçado dos eventos.";
+export const FEAT_CARD_REALIZADO_ROTULO = "Resultado total realizado";
+export const FEAT_CARD_REALIZADO_NOTA =
+  "Total já apurado, só de eventos com fechamento realizado. Os fechamentos em aberto não compõem este valor.";
+export function featCardRealizadoMeta(fechamentosRealizados: number): string {
+  return `Fechamentos realizados: ${fechamentosRealizados}`;
+}
