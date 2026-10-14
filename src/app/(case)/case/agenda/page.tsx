@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { getCaseUser } from "@/lib/case/auth";
-import { getAgendaContracts } from "@/lib/case/queries";
+import { getAgendaContracts, getAgendaImportados } from "@/lib/case/queries";
 import { AgendaView } from "@/components/case/agenda-view";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,7 @@ export default async function CaseAgendaPage() {
   const ctx = await getCaseUser();
   if (!ctx) redirect("/login");
 
-  const contracts = await getAgendaContracts();
+  const [contracts, importados] = await Promise.all([getAgendaContracts(), getAgendaImportados()]);
 
   return (
     <div className="space-y-6">
@@ -20,7 +20,7 @@ export default async function CaseAgendaPage() {
           Um card por contrato, agrupado por mês do evento — dados do contratante, valores, status de pagamento no Omie e download dos contratos.
         </p>
       </div>
-      <AgendaView contracts={contracts} />
+      <AgendaView contracts={contracts} importados={importados} />
     </div>
   );
 }

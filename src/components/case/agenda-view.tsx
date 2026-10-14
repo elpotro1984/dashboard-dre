@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, Clock, MapPin, User, FileDown, FileText, PenLine, Loader2, AlertTriangle, CheckCircle2, Paperclip, Receipt } from "lucide-react";
+import { CalendarDays, Clock, MapPin, User, FileDown, FileText, PenLine, Loader2, AlertTriangle, CheckCircle2, Paperclip, Receipt, ExternalLink, Building2 } from "lucide-react";
 
 import { getContractAttachmentUrl, getSaleContractUrl, getContratoComprovantes } from "@/lib/case/actions/contracts";
 import { useToast } from "@/components/ui/toaster";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import type { AgendaContract } from "@/lib/case/queries";
+import type { AgendaContract, AgendaImportado } from "@/lib/case/queries";
 import type { CaseContractStatus } from "@/lib/case/types";
 
 const fmt = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -355,9 +355,135 @@ function DetalheModal({ c, onClose }: { c: AgendaContract | null; onClose: () =>
   );
 }
 
-export function AgendaView({ contracts }: { contracts: AgendaContract[] }) {
-  const [filter, setFilter] = useState<CaseContractStatus | "todos">("todos");
+const TRELLO_COLOR = { border: "border-l-teal-500", pill: "bg-teal-500/15 text-teal-700 dark:text-teal-300", dot: "bg-teal-500" };
+
+function tituloImportado(t: AgendaImportado): string {
+  const partes = [t.categoria, t.turma].filter(Boolean);
+  return partes.length > 0 ? partes.join(" - ") : t.titulo_original;
+}
+
+function periodoBR(t: AgendaImportado): string {
+  return t.event_date_fim ? `${dateBR(t.event_date)} a ${dateBR(t.event_date_fim)}` : dateBR(t.event_date);
+}
+
+/** Card de evento vindo do Trello: sem valores nem pagamentos — o controle antigo não os tinha. */
+function TrelloCompactCard({ t, onOpen }: { t: AgendaImportado; onOpen: () => void }) {
+  const atracoes = t.atracoes.join(", ");
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={`flex w-full flex-col gap-1.5 rounded-lg border border-border border-l-4 ${TRELLO_COLOR.border} bg-surface-1 p-3 text-left transition-colors hover:bg-surface-2/50`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <span className="text-[11px] text-ink-muted">{t.nps.length > 0 ? `NP ${t.nps.join(", ")}` : "Sem NP"}</span>
+        <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${TRELLO_COLOR.pill}`}>Trello</span>
+      </div>
+      <h3 className="line-clamp-2 text-sm font-bold leading-snug text-ink-primary" title={t.titulo_original}>
+        {tituloImportado(t)}
+      </h3>
+      <div className="flex items-center gap-1.5 text-xs text-ink-secondary">
+        <CalendarDays className="h-3.5 w-3.5 text-ink-muted" />
+        {periodoBR(t)}
+      </div>
+      <div className="truncate text-xs text-ink-muted" title={atracoes || undefined}>
+        {atracoes || "Atração não informada"}
+      </div>
+      <div className="mt-1 flex items-center justify-between gap-2 border-t border-border pt-1.5 text-[11px] text-ink-muted">
+        <span className="truncate">{t.local_name ?? "—"}</span>
+        <span className="shrink-0">{t.intermediacao ? "Intermédio" : t.unidade ?? ""}</span>
+      </div>
+    </button>
+  );
+}
+
+function TrelloModal({ t, onClose }: { t: AgendaImportado | null; onClose: () => void }) {
+  return (
+    <Dialog open={t !== null} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-[88vh] gap-0 overflow-y-auto p-0 sm:max-w-2xl">
+        {t && (
+          <>
+            <DialogHeader className={`border-b border-border border-l-4 ${TRELLO_COLOR.border} space-y-1 p-5 pr-10`}>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-medium text-ink-muted">{t.nps.length > 0 ? `NP ${t.nps.join(", ")}` : "Sem NP"}</span>
+                <span className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${TRELLO_COLOR.pill}`}>Importado do Trello</span>
+              </div>
+              <DialogTitle className="text-base text-ink-primary">{tituloImportado(t)}</DialogTitle>
+            </DialogHeader>
+
+            <div className="min-w-0 space-y-4 p-5">
+              <section className="space-y-1.5">
+                <InfoRow icon={<CalendarDays className="h-4 w-4" />}>{periodoBR(t)}</InfoRow>
+                <InfoRow icon={<User className="h-4 w-4" />}>
+                  {t.atracoes.length > 0 ? t.atracoes.join(", ") : <span className="text-ink-muted">Atração não informada no cartão</span>}
+                </InfoRow>
+                {(t.local_name || t.local_city) && (
+                  <InfoRow icon={<MapPin className="h-4 w-4" />}>{[t.local_name, t.local_city].filter(Boolean).join(" — ")}</InfoRow>
+                )}
+                {(t.unidade || t.intermediacao) && (
+                  <InfoRow icon={<Building2 className="h-4 w-4" />}>
+                    {[t.unidade, t.intermediacao ? "contrato de intermédio" : null].filter(Boolean).join(" · ")}
+                  </InfoRow>
+                )}
+              </section>
+
+              {t.observacao && (
+                <section className="rounded-md bg-surface-2/50 p-3">
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Descrição do cartão</div>
+                  <p className="mt-1 whitespace-pre-line text-xs text-ink-secondary">{t.observacao}</p>
+                </section>
+              )}
+
+              {t.anexos.length > 0 && (
+                <section>
+                  <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Anexos no Trello ({t.anexos.length})</div>
+                  <ul className="space-y-1">
+                    {t.anexos.map((a, i) => (
+                      <li key={i}>
+                        <a
+                          href={a.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex min-w-0 items-center gap-1.5 text-xs text-ink-secondary hover:text-ink-primary hover:underline"
+                          title={a.nome}
+                        >
+                          <Paperclip className="h-3.5 w-3.5 shrink-0 text-ink-muted" />
+                          <span className="truncate">{a.nome}</span>
+                        </a>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-1.5 text-[11px] text-ink-muted">Os arquivos continuam no Trello — é preciso estar logado lá para abrir.</p>
+                </section>
+              )}
+
+              <section className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
+                <span className="text-xs text-ink-muted">Evento do controle antigo: sem valores nem pagamentos no sistema.</span>
+                {t.origem_url && (
+                  <a
+                    href={t.origem_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-ink-secondary hover:bg-surface-2"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" /> Abrir no Trello
+                  </a>
+                )}
+              </section>
+            </div>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+type AgendaItem = { tipo: "contrato"; c: AgendaContract; data: string | null } | { tipo: "trello"; t: AgendaImportado; data: string };
+
+export function AgendaView({ contracts, importados = [] }: { contracts: AgendaContract[]; importados?: AgendaImportado[] }) {
+  const [filter, setFilter] = useState<CaseContractStatus | "todos" | "trello">("todos");
   const [selected, setSelected] = useState<AgendaContract | null>(null);
+  const [selectedTrello, setSelectedTrello] = useState<AgendaImportado | null>(null);
 
   const counts = useMemo(() => {
     const m = new Map<string, number>();
@@ -365,15 +491,22 @@ export function AgendaView({ contracts }: { contracts: AgendaContract[] }) {
     return m;
   }, [contracts]);
 
-  const filtered = filter === "todos" ? contracts : contracts.filter((c) => c.status === filter);
+  const filtered = useMemo<AgendaItem[]>(() => {
+    const doSistema: AgendaItem[] = contracts.map((c) => ({ tipo: "contrato", c, data: c.event_date }));
+    const doTrello: AgendaItem[] = importados.map((t) => ({ tipo: "trello", t, data: t.event_date }));
+    if (filter === "todos") return [...doSistema, ...doTrello];
+    if (filter === "trello") return doTrello;
+    return doSistema.filter((i) => i.tipo === "contrato" && i.c.status === filter);
+  }, [contracts, importados, filter]);
 
   const groups = useMemo(() => {
-    const m = new Map<string, AgendaContract[]>();
-    for (const c of filtered) {
-      const k = monthKey(c.event_date);
+    const m = new Map<string, AgendaItem[]>();
+    for (const item of filtered) {
+      const k = monthKey(item.data);
       if (!m.has(k)) m.set(k, []);
-      m.get(k)!.push(c);
+      m.get(k)!.push(item);
     }
+    m.forEach((items) => items.sort((a, b) => (a.data ?? "9999").localeCompare(b.data ?? "9999")));
     return Array.from(m.entries()).sort((a, b) => a[0].localeCompare(b[0]));
   }, [filtered]);
 
@@ -387,7 +520,7 @@ export function AgendaView({ contracts }: { contracts: AgendaContract[] }) {
       {/* Filtro por status */}
       <div className="flex flex-wrap gap-2">
         <button type="button" className={chip(filter === "todos")} onClick={() => setFilter("todos")}>
-          Todos ({contracts.length})
+          Todos ({contracts.length + importados.length})
         </button>
         {statusesPresent.map((s) => (
           <button key={s} type="button" className={chip(filter === s)} onClick={() => setFilter(s)}>
@@ -395,10 +528,16 @@ export function AgendaView({ contracts }: { contracts: AgendaContract[] }) {
             {STATUS_LABEL[s]} ({counts.get(s)})
           </button>
         ))}
+        {importados.length > 0 && (
+          <button type="button" className={chip(filter === "trello")} onClick={() => setFilter("trello")}>
+            <span className={`mr-1.5 inline-block h-2 w-2 rounded-full ${TRELLO_COLOR.dot}`} />
+            Importados do Trello ({importados.length})
+          </button>
+        )}
       </div>
 
       {groups.length === 0 ? (
-        <p className="rounded-lg border border-border bg-surface-1 p-6 text-sm text-ink-muted">Nenhum contrato para este filtro.</p>
+        <p className="rounded-lg border border-border bg-surface-1 p-6 text-sm text-ink-muted">Nenhum evento para este filtro.</p>
       ) : (
         groups.map(([key, items]) => (
           <div key={key}>
@@ -406,15 +545,20 @@ export function AgendaView({ contracts }: { contracts: AgendaContract[] }) {
               {monthLabel(key)} <span className="font-normal text-ink-muted">· {items.length}</span>
             </h2>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
-              {items.map((c) => (
-                <CompactCard key={c.id} c={c} onOpen={() => setSelected(c)} />
-              ))}
+              {items.map((item) =>
+                item.tipo === "contrato" ? (
+                  <CompactCard key={item.c.id} c={item.c} onOpen={() => setSelected(item.c)} />
+                ) : (
+                  <TrelloCompactCard key={item.t.id} t={item.t} onOpen={() => setSelectedTrello(item.t)} />
+                ),
+              )}
             </div>
           </div>
         ))
       )}
 
       <DetalheModal c={selected} onClose={() => setSelected(null)} />
+      <TrelloModal t={selectedTrello} onClose={() => setSelectedTrello(null)} />
     </div>
   );
 }

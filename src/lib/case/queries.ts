@@ -581,6 +581,41 @@ export async function getAgendaContracts(): Promise<AgendaContract[]> {
   });
 }
 
+/** Evento trazido do controle antigo (Trello) — só agenda, sem valores. */
+export interface AgendaImportado {
+  id: string;
+  origem_url: string | null;
+  titulo_original: string;
+  categoria: string | null;
+  turma: string | null;
+  local_name: string | null;
+  local_city: string | null;
+  unidade: string | null;
+  intermediacao: boolean;
+  event_date: string;
+  event_date_fim: string | null;
+  atracoes: string[];
+  nps: number[];
+  observacao: string | null;
+  anexos: Array<{ nome: string; url: string }>;
+}
+
+export async function getAgendaImportados(): Promise<AgendaImportado[]> {
+  const db = await getDb();
+  const { data, error } = await db
+    .from("case_agenda_importada")
+    .select(
+      "id, origem_url, titulo_original, categoria, turma, local_name, local_city, unidade, intermediacao, event_date, event_date_fim, atracoes, nps, observacao, anexos",
+    )
+    .order("event_date", { ascending: true });
+  // Tabela ausente (migration ainda não aplicada) não pode derrubar a agenda.
+  if (error) {
+    if (error.code !== "42P01") console.error("[case] agenda importada:", error.message);
+    return [];
+  }
+  return (data ?? []) as AgendaImportado[];
+}
+
 export type CaseClosingStatus =
   | "aguardando_evento"
   | "pendente_fechamento"
