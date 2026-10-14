@@ -397,6 +397,62 @@ function TrelloCompactCard({ t, onOpen }: { t: AgendaImportado; onOpen: () => vo
   );
 }
 
+/** Linha do tempo do cartão: comentários em caixa (é ali que estão os dados do contrato), atividades em linha. */
+function HistoricoTrelloSection({ historico, desde }: { historico: AgendaImportado["historico"]; desde: string | null }) {
+  const [soComentarios, setSoComentarios] = useState(false);
+  const comentarios = historico.filter((h) => h.tipo === "comentario").length;
+  const visiveis = soComentarios ? historico.filter((h) => h.tipo === "comentario") : historico;
+  if (historico.length === 0 && !desde) return null;
+
+  const chip = (ativo: boolean) =>
+    `rounded-full px-2 py-0.5 text-[11px] font-medium ${ativo ? "bg-ink-primary text-surface-1" : "border border-border text-ink-secondary hover:bg-surface-2"}`;
+
+  return (
+    <section>
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
+          Histórico do Trello · {comentarios} comentário{comentarios === 1 ? "" : "s"} · {historico.length - comentarios} atividade
+          {historico.length - comentarios === 1 ? "" : "s"}
+        </span>
+        {comentarios > 0 && comentarios < historico.length && (
+          <div className="flex gap-1.5">
+            <button type="button" className={chip(!soComentarios)} onClick={() => setSoComentarios(false)}>
+              Tudo
+            </button>
+            <button type="button" className={chip(soComentarios)} onClick={() => setSoComentarios(true)}>
+              Só comentários
+            </button>
+          </div>
+        )}
+      </div>
+      {desde && (
+        <p className="mb-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300">
+          O que aconteceu neste cartão antes de {dateBR(desde)} não veio no arquivo exportado — está só no Trello.
+        </p>
+      )}
+      <ol className="space-y-1.5">
+        {visiveis.map((h, i) =>
+          h.tipo === "comentario" ? (
+            <li key={i} className="rounded-md border border-border bg-surface-2/40 p-3">
+              <div className="mb-1 text-[11px] text-ink-muted">
+                <span className="font-medium text-ink-secondary">{h.autor ?? "—"}</span> comentou · {dateBR(h.data)}
+              </div>
+              <p className="whitespace-pre-line break-words text-xs leading-relaxed text-ink-secondary">{h.texto}</p>
+            </li>
+          ) : (
+            <li key={i} className="flex gap-2 px-1 text-[11px] leading-snug text-ink-muted">
+              <span className="shrink-0 tabular-nums">{dateBR(h.data)}</span>
+              <span className="min-w-0 break-words">
+                <span className="font-medium text-ink-secondary">{h.autor ?? "—"}</span> {h.texto}
+              </span>
+            </li>
+          ),
+        )}
+      </ol>
+    </section>
+  );
+}
+
 function TrelloModal({ t, onClose }: { t: AgendaImportado | null; onClose: () => void }) {
   return (
     <Dialog open={t !== null} onOpenChange={(o) => !o && onClose()}>
@@ -427,24 +483,6 @@ function TrelloModal({ t, onClose }: { t: AgendaImportado | null; onClose: () =>
                 )}
               </section>
 
-              {t.comentarios.length > 0 && (
-                <section>
-                  <div className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">
-                    Comentários do Trello ({t.comentarios.length})
-                  </div>
-                  <ul className="space-y-2">
-                    {t.comentarios.map((cm, i) => (
-                      <li key={i} className="rounded-md border border-border bg-surface-2/40 p-3">
-                        <div className="mb-1 text-[11px] text-ink-muted">
-                          {cm.autor ?? "—"} · {dateBR(cm.data)}
-                        </div>
-                        <p className="whitespace-pre-line break-words text-xs leading-relaxed text-ink-secondary">{cm.texto}</p>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              )}
-
               {t.observacao && (
                 <section className="rounded-md bg-surface-2/50 p-3">
                   <div className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Descrição do cartão</div>
@@ -474,6 +512,8 @@ function TrelloModal({ t, onClose }: { t: AgendaImportado | null; onClose: () =>
                   <p className="mt-1.5 text-[11px] text-ink-muted">Os arquivos continuam no Trello — é preciso estar logado lá para abrir.</p>
                 </section>
               )}
+
+              <HistoricoTrelloSection historico={t.historico} desde={t.historico_desde} />
 
               <section className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
                 <span className="text-xs text-ink-muted">Evento do controle antigo: sem valores nem pagamentos no sistema.</span>

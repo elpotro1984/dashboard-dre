@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { lerAtracoes, lerNps, lerQuadro, lerTitulo, type TrelloBoard } from "./trello-agenda";
+import { descreverAcao, lerAtracoes, lerNps, lerQuadro, lerTitulo, type TrelloAction, type TrelloBoard } from "./trello-agenda";
 
 test("padrão comum: TIPO - TURMA - LOCAL - DATA - UNIDADE", () => {
   const t = lerTitulo("BAILE - MED SUPREMA 33 - TERRAZZO - 15.08.2026 - VIVA JF");
@@ -139,31 +139,60 @@ test("quadro: período que termina depois do corte entra", () => {
   assert.equal(r.linhas.length, 1);
 });
 
-test("quadro: comentários do cartão vêm em ordem cronológica, só os de comentário", () => {
+test("quadro: histórico do cartão em ordem cronológica — comentários e atividades, nada de outro cartão", () => {
   const b = board([card({ id: "a" })]);
   b.actions = [
     { type: "commentCard", date: "2026-06-02T10:00:00Z", data: { card: { id: "a" }, text: "Horário confirmado" }, memberCreator: { fullName: "Jéssica" } },
     { type: "commentCard", date: "2026-06-01T10:00:00Z", data: { card: { id: "a" }, text: "GENTILEZA ELABORAR CONTRATO\nFundo: X" }, memberCreator: { fullName: "Yuri" } },
-    { type: "updateCard", date: "2026-06-03T10:00:00Z", data: { card: { id: "a" }, text: "não é comentário" } },
+    { type: "addAttachmentToCard", date: "2026-06-03T10:00:00Z", data: { card: { id: "a" }, attachment: { name: "CONTRATO.pdf" } }, memberCreator: { fullName: "Jéssica" } },
+    { type: "updateCard", date: "2026-06-03T11:00:00Z", data: { card: { id: "a" }, old: { pos: 1 } } },
     { type: "commentCard", date: "2026-06-04T10:00:00Z", data: { card: { id: "outro" }, text: "de outro cartão" } },
   ];
   const [linha] = lerQuadro(b, "2026-10-14").linhas;
   assert.deepEqual(
-    linha.comentarios.map((c) => [c.autor, c.texto]),
+    linha.historico.map((h) => [h.tipo, h.autor, h.texto]),
     [
-      ["Yuri", "GENTILEZA ELABORAR CONTRATO\nFundo: X"],
-      ["Jéssica", "Horário confirmado"],
+      ["comentario", "Yuri", "GENTILEZA ELABORAR CONTRATO\nFundo: X"],
+      ["comentario", "Jéssica", "Horário confirmado"],
+      ["atividade", "Jéssica", 'anexou "CONTRATO.pdf"'],
     ],
   );
 });
 
-test("quadro: comentário do cartão duplicado descartado não se perde", () => {
+test("atividades: texto em português para cada tipo que importa; reordenar não aparece", () => {
+  const t = (type: string, data: TrelloAction["data"]) => descreverAcao({ type, date: "2026-06-01T10:00:00Z", data })?.texto ?? null;
+  assert.equal(t("createCard", { list: { name: "NOVEMBRO - 2026" } }), 'criou o cartão em "NOVEMBRO - 2026"');
+  assert.equal(t("updateCard", { old: { idList: "x" }, listBefore: { name: "NOVEMBRO - 2026" }, listAfter: { name: "EVENTOS FINALIZADOS" } }), 'moveu de "NOVEMBRO - 2026" para "EVENTOS FINALIZADOS"');
+  assert.equal(t("updateCheckItemStateOnCard", { checkItem: { name: "Envio pra assinaturas", state: "complete" }, checklist: { name: "ATRAÇÕES" } }), 'concluiu "Envio pra assinaturas" (ATRAÇÕES)');
+  assert.equal(t("updateCheckItemStateOnCard", { checkItem: { name: "Salvar no drive", state: "incomplete" } }), 'reabriu "Salvar no drive"');
+  assert.equal(t("updateCard", { old: { desc: "" }, card: { desc: "NP 686" } }), "alterou a descrição para: NP 686");
+  assert.equal(t("updateCard", { old: { name: "CORPORATIVO - X" }, card: { name: "INTERMÉDIO - CORPORATIVO - X" } }), 'renomeou o cartão (antes: "CORPORATIVO - X")');
+  assert.equal(t("updateCard", { old: { closed: false }, card: { closed: true } }), "arquivou o cartão");
+  assert.equal(t("deleteAttachmentFromCard", { attachment: { name: "velho.pdf" } }), 'removeu o anexo "velho.pdf"');
+  assert.equal(t("updateChecklist", { old: { name: "DJ Felipe Castro" }, checklist: { name: "Ousasamba" } }), 'renomeou a checklist "DJ Felipe Castro" para "Ousasamba"');
+  assert.equal(t("updateCard", { old: { pos: 1 }, card: {} }), null);
+  assert.equal(t("addLabelToCard", {}), null);
+});
+
+test("quadro: cartão mais antigo que o arquivo é marcado como histórico cortado", () => {
+  // O id do Trello começa pelo instante de criação: 0x69000000 ≈ out/2025, 0x6b000000 ≈ nov/2026.
+  const antigo = "69000000aaaaaaaaaaaaaaaa";
+  const novo = "6b000000aaaaaaaaaaaaaaaa";
+  const b = board([card({ id: antigo }), card({ id: novo, name: "BAILE - X - Y - 01.12.2026 - VIVA JF" })]);
+  b.actions = [{ type: "createCard", date: "2026-04-07T13:30:08.895Z", data: { card: { id: novo }, list: { name: "DEZEMBRO - 2026" } } }];
+  const r = lerQuadro(b, "2026-10-14");
+  const porId = new Map(r.linhas.map((l) => [l.origem_id, l]));
+  assert.equal(porId.get(antigo)?.historico_desde, "2026-04-07");
+  assert.equal(porId.get(novo)?.historico_desde, null);
+});
+
+test("quadro: o que foi dito no cartão duplicado descartado não se perde", () => {
   const nome = "BAILE - TERCEIRÃO APOGEU - TERRAZZO - 27.11.2026 - VIVA JF";
   const b = board([card({ id: "cheio", name: nome, desc: "NP 700" }), card({ id: "comentado", name: nome })]);
   b.actions = [{ type: "commentCard", date: "2026-06-01T10:00:00Z", data: { card: { id: "comentado" }, text: "Dados do contrato" } }];
   const r = lerQuadro(b, "2026-10-14");
   assert.equal(r.linhas.length, 1);
-  assert.deepEqual(r.linhas[0].comentarios.map((c) => c.texto), ["Dados do contrato"]);
+  assert.deepEqual(r.linhas[0].historico.map((h) => h.texto), ["Dados do contrato"]);
 });
 
 test("quadro: duplicado fica uma vez só, com o cartão mais completo", () => {

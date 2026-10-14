@@ -31,7 +31,7 @@ async function main() {
     const [y, m, d] = l.event_date.split("-");
     const fim = l.event_date_fim ? ` a ${l.event_date_fim.split("-").reverse().join("/")}` : "";
     console.log(`${d}/${m}/${y}${fim} | ${l.categoria ?? "?"} | ${l.turma ?? "?"} | ${[l.local_name, l.local_city].filter(Boolean).join(" - ") || "?"} | ${l.unidade ?? "—"}${l.intermediacao ? " | intermédio" : ""}`);
-    console.log(`      atrações: ${l.atracoes.join(", ") || "—"} | NP: ${l.nps.join(", ") || "—"} | anexos: ${l.anexos.length} | comentários: ${l.comentarios.length}`);
+    console.log(`      atrações: ${l.atracoes.join(", ") || "—"} | NP: ${l.nps.join(", ") || "—"} | anexos: ${l.anexos.length} | comentários: ${l.historico.filter((h) => h.tipo === "comentario").length} | atividades: ${l.historico.filter((h) => h.tipo === "atividade").length}${l.historico_desde ? ` | histórico cortado antes de ${l.historico_desde}` : ""}`);
   }
   if (ignorados.length) {
     console.log(`\nFora da importação (${ignorados.length}):`);
