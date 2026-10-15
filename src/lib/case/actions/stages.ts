@@ -354,7 +354,7 @@ async function prepareForSignature(db: DB, userId: string, contractId: string): 
 
 /** Aprovação concedida: manda à ClickSign e registra quem aprovou. */
 async function approveAndSend(db: DB, userId: string, prepared: PreparedContract): Promise<SignatureResult> {
-  const { c, salePdf, artistaNomes } = prepared;
+  const { c, salePdf } = prepared;
   const contratante = pdfClienteData(c.case_clients, c.pdf_cliente);
 
   if (!clicksignEnabled()) {
@@ -376,7 +376,7 @@ async function approveAndSend(db: DB, userId: string, prepared: PreparedContract
       salePdf,
       `Contrato-Case-${c.contract_number}.pdf`,
       signers,
-      `Contrato de prestação de serviços artísticos — ${(c.atracao_nome ?? "").trim() || artistaNomes || c.case_bands?.name || c.event_name || `nº ${c.contract_number}`}. Por favor, assine.`,
+      "Contrato de prestação de serviços artísticos Case Shows. Por favor, assine.",
     );
     const now = new Date().toISOString();
     await db
