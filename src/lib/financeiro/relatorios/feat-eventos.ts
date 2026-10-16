@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { HubfeatFechamentosAbertos } from "./feat-fechamentos-hubfeat";
 
 // ============================================================================
 // Camada gerencial EXCLUSIVA da Feat Produções para o One Page Report.
@@ -9,6 +10,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 //   - Resultado realizado e previsto agrupados por tipo de evento;
 //   - Número de eventos REALIZADOS (fechamento = "Realizado") por tipo;
 //   - Contagem de eventos em aberto / previstos e não realizados / realizados.
+//
+// EXCEÇÃO: a seção "Fechamentos em aberto" (lista + projeção) NÃO vem desta
+// tabela — vem do hubfeat (tela Tabulação), consultado a cada geração e com a
+// situação de AGORA. Ver feat-fechamentos-hubfeat.ts.
 //
 // É um COMPLEMENTO gerencial: não toca DRE, Fluxo de Caixa, Omie nem Sheets, e
 // só é invocado para a empresa Feat Produções (gate no caller, por template).
@@ -37,6 +42,8 @@ interface ProjetoRow {
 export interface FeatEventoEmAberto {
   projeto: string;
   resultadoPrevisto: number;
+  /** False = imposto ainda não lançado no hubfeat (projeção antes dos impostos). */
+  impostoLancado?: boolean;
 }
 
 export interface FeatEventoResultadoTipo {
@@ -64,8 +71,9 @@ export interface FeatEventosPayload {
   eventosNaoRealizados: number;
   eventosRealizados: number;
   // ── Bloco "Fechamentos em aberto" ──────────────────────────────────────────
-  // Lista dos eventos com fechamento "Em aberto" até a referência (nome +
-  // resultado previsto), a soma do previsto em aberto e a PROJEÇÃO gerencial:
+  // FONTE: hubfeat (tela Tabulação > Expectativa em aberto), situação no momento
+  // da geração — não até a referência. Lista dos eventos ainda não fechados
+  // (nome + resultado projetado), a soma e a PROJEÇÃO gerencial:
   //   resultado acumulado ATUAL (Resultado do Exercício acumulado do DRE, o
   //   mesmo valor da Acumulado do Ano) + soma do previsto em aberto.
   // É estimativa orçamentária, NÃO resultado realizado.
@@ -80,6 +88,13 @@ export interface FeatEventosPayload {
   // orçamento acumulado (não dá pra calcular o %).
   resultadoAcumuladoPrevistoOrcamento: number | null;
   percentualAtingimentoProjecao: number | null;
+  // Opcionais: relatórios gravados antes da integração não têm estes campos e
+  // continuam renderizando como eram (seção da tabela manual).
+  fechamentosFonte?: "hubfeat";
+  /** ISO — quando o hubfeat foi consultado. */
+  fechamentosConsultadoEm?: string;
+  /** False = o hubfeat não respondeu na geração; a seção não aparece. */
+  fechamentosDisponivel?: boolean;
 }
 
 // Resumo enviado à IA (subconjunto numérico do payload acima).
@@ -99,15 +114,17 @@ export interface FeatEventosResumoIA {
   eventos_previstos_nao_realizados: number;
   eventos_realizados: number;
   // Detalhe dos eventos em aberto + projeção gerencial (não é resultado realizado).
+  // Fonte: hubfeat, situação atual. Null = hubfeat indisponível na geração.
   eventos_em_aberto_detalhe: Array<{
     projeto: string;
     resultado_previsto: number;
-  }>;
-  previsto_em_aberto_total: number;
+    imposto_lancado: boolean;
+  }> | null;
+  previsto_em_aberto_total: number | null;
   // Base da projeção = Resultado do Exercício acumulado do DRE (NÃO a soma do
   // realizado dos eventos). Mesmo valor da Acumulado do Ano > Resultado.
   resultado_acumulado_atual: number;
-  resultado_acumulado_projetado: number;
+  resultado_acumulado_projetado: number | null;
   // Resultado acumulado ORÇADO + % de atingimento da projeção sobre o orçado.
   resultado_acumulado_previsto_orcamento: number | null;
   percentual_atingimento_projecao: number | null;
@@ -147,6 +164,8 @@ export async function buildFeatEventos(
   // Resultado do Exercício acumulado ORÇADO do DRE (Acumulado do Ano > Resultado
   // previsto). Usado para o % de atingimento da projeção. Null quando ausente.
   resultadoAcumuladoOrcado: number | null,
+  // Fechamentos em aberto vindos do hubfeat. Null = indisponível → seção omitida.
+  fechamentosHubfeat: HubfeatFechamentosAbertos | null,
 ): Promise<FeatEventosResult | null> {
   const { data, error } = await supabase
     .from("company_feat_projetos")
@@ -174,8 +193,6 @@ export async function buildFeatEventos(
   let eventosRealizados = 0;
   let eventosPrevistosOrcamento = 0;
   let eventosRealizadosPeriodo = 0;
-  let previstoEmAbertoTotal = 0;
-  const eventosEmAbertoDetalhe: FeatEventoEmAberto[] = [];
 
   const previstoPorTipo = new Map<string, number>();
   const realizadoPorTipo = new Map<string, number>();
@@ -222,11 +239,6 @@ export async function buildFeatEventos(
         break;
       case FECHAMENTO_EM_ABERTO:
         eventosEmAberto += 1;
-        previstoEmAbertoTotal += previsto;
-        eventosEmAbertoDetalhe.push({
-          projeto: (r.projeto ?? "").trim() || "(sem nome)",
-          resultadoPrevisto: round2(previsto),
-        });
         break;
       case FECHAMENTO_NAO_REALIZADO:
         eventosNaoRealizados += 1;
@@ -249,11 +261,14 @@ export async function buildFeatEventos(
     }));
 
   // Projeção gerencial: Resultado do Exercício acumulado do DRE (base já
-  // exibida no relatório/dashboard) + soma do previsto dos eventos em aberto.
-  // NÃO é resultado realizado — depende da conclusão dos fechamentos.
+  // exibida no relatório/dashboard) + expectativa dos eventos em aberto no
+  // hubfeat. NÃO é resultado realizado — depende da conclusão dos fechamentos.
   const totalRealizadoRounded = round2(totalRealizado);
   const resultadoAcumuladoAtualRounded = round2(resultadoAcumuladoAtual);
-  const previstoEmAbertoRounded = round2(previstoEmAbertoTotal);
+  const fechamentosDisponivel = fechamentosHubfeat !== null;
+  const eventosEmAbertoDetalhe: FeatEventoEmAberto[] =
+    fechamentosHubfeat?.eventos.map((e) => ({ ...e })) ?? [];
+  const previstoEmAbertoRounded = round2(fechamentosHubfeat?.total ?? 0);
   const resultadoAcumuladoProjetado = round2(
     resultadoAcumuladoAtualRounded + previstoEmAbertoRounded,
   );
@@ -263,7 +278,7 @@ export async function buildFeatEventos(
   const orcadoRounded =
     resultadoAcumuladoOrcado === null ? null : round2(resultadoAcumuladoOrcado);
   const percentualAtingimentoProjecao =
-    orcadoRounded !== null && orcadoRounded !== 0
+    fechamentosDisponivel && orcadoRounded !== null && orcadoRounded !== 0
       ? round2((resultadoAcumuladoProjetado / orcadoRounded) * 100)
       : null;
 
@@ -284,6 +299,9 @@ export async function buildFeatEventos(
     resultadoAcumuladoProjetado,
     resultadoAcumuladoPrevistoOrcamento: orcadoRounded,
     percentualAtingimentoProjecao,
+    fechamentosFonte: "hubfeat",
+    fechamentosConsultadoEm: fechamentosHubfeat?.consultadoEm,
+    fechamentosDisponivel,
   };
 
   // Limita a lista enviada à IA para não inflar tokens; o quadro visual lista
@@ -300,15 +318,16 @@ export async function buildFeatEventos(
     eventos_em_aberto: eventosEmAberto,
     eventos_previstos_nao_realizados: eventosNaoRealizados,
     eventos_realizados: eventosRealizados,
-    eventos_em_aberto_detalhe: eventosEmAbertoDetalhe
-      .slice(0, IA_MAX_EVENTOS)
-      .map((e) => ({
-        projeto: e.projeto,
-        resultado_previsto: e.resultadoPrevisto,
-      })),
-    previsto_em_aberto_total: previstoEmAbertoRounded,
+    eventos_em_aberto_detalhe: fechamentosDisponivel
+      ? eventosEmAbertoDetalhe.slice(0, IA_MAX_EVENTOS).map((e) => ({
+          projeto: e.projeto,
+          resultado_previsto: e.resultadoPrevisto,
+          imposto_lancado: e.impostoLancado !== false,
+        }))
+      : null,
+    previsto_em_aberto_total: fechamentosDisponivel ? previstoEmAbertoRounded : null,
     resultado_acumulado_atual: resultadoAcumuladoAtualRounded,
-    resultado_acumulado_projetado: resultadoAcumuladoProjetado,
+    resultado_acumulado_projetado: fechamentosDisponivel ? resultadoAcumuladoProjetado : null,
     resultado_acumulado_previsto_orcamento: orcadoRounded,
     percentual_atingimento_projecao: percentualAtingimentoProjecao,
   };

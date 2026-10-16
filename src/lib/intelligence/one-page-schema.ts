@@ -141,20 +141,23 @@ export const FeatEventosResumoSchema = z.object({
   eventos_em_aberto: z.number(),
   eventos_previstos_nao_realizados: z.number(),
   eventos_realizados: z.number(),
-  // Detalhe dos eventos em aberto (nome + resultado previsto) + projeção
-  // gerencial: resultado_acumulado_atual (= realizado) + previsto_em_aberto_total.
+  // Detalhe dos eventos em aberto (nome + resultado projetado) + projeção
+  // gerencial: resultado_acumulado_atual (DRE) + previsto_em_aberto_total.
   // A projeção NÃO é resultado realizado — depende da conclusão dos fechamentos.
+  // Fonte: hubfeat (situação atual). Null = hubfeat indisponível na geração.
   eventos_em_aberto_detalhe: z
     .array(
       z.object({
         projeto: z.string().min(1).max(200),
         resultado_previsto: z.number(),
+        imposto_lancado: z.boolean().optional(),
       }),
     )
-    .max(30),
-  previsto_em_aberto_total: z.number(),
+    .max(30)
+    .nullable(),
+  previsto_em_aberto_total: z.number().nullable(),
   resultado_acumulado_atual: z.number(),
-  resultado_acumulado_projetado: z.number(),
+  resultado_acumulado_projetado: z.number().nullable(),
   // Resultado acumulado orçado (Acumulado do Ano > Resultado previsto) e o % de
   // atingimento da projeção sobre ele. Null quando não há orçamento acumulado.
   resultado_acumulado_previsto_orcamento: z.number().nullable(),
@@ -165,9 +168,6 @@ export const FeatContasReceberAbertoSchema = z.object({
   referencia: z.string().min(1).max(80),
   total_em_aberto: z.number(),
   total_em_atraso: z.number(),
-  // Parcela dos totais acima que vem de PERMUTA (Nota Fiscal = "PERMUTA").
-  permuta_em_aberto: z.number(),
-  permuta_em_atraso: z.number(),
   percentual_em_atraso: z.number(),
   titulos_em_aberto: z.number(),
   titulos_em_atraso: z.number(),

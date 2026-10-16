@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { getCaseUser } from "@/lib/case/auth";
-import { getAgendaContracts } from "@/lib/case/queries";
+import { getAgendaContracts, getAgendaImportados } from "@/lib/case/queries";
 import { AgendaView } from "@/components/case/agenda-view";
 
 export const dynamic = "force-dynamic";
@@ -10,17 +10,10 @@ export default async function CaseAgendaPage() {
   const ctx = await getCaseUser();
   if (!ctx) redirect("/login");
 
-  const contracts = await getAgendaContracts();
+  const [contracts, importados] = await Promise.all([getAgendaContracts(), getAgendaImportados()]);
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold text-ink-primary">Agenda de Contratos</h1>
-        <p className="text-sm text-ink-muted">
-          Um card por contrato, agrupado por mês do evento — dados do contratante, valores, status de pagamento no Omie e download dos contratos.
-        </p>
-      </div>
-      <AgendaView contracts={contracts} />
-    </div>
-  );
+  // "Hoje" no fuso de São Paulo, calculado no servidor para o client não divergir na hidratação.
+  const hoje = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
+
+  return <AgendaView contracts={contracts} importados={importados} hoje={hoje} />;
 }
