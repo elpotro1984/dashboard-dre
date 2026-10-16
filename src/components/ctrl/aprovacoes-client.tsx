@@ -2,11 +2,12 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Eye, MessageSquare, Paperclip, Reply, X } from "lucide-react";
+import { Check, Eye, MessageSquare, Paperclip, Reply, RotateCcw, X } from "lucide-react";
 
 import {
   approveRequest,
   rejectRequest,
+  reopenRejectedRequest,
   batchApproveRequests,
   getRequestAttachmentUrl,
 } from "@/lib/ctrl/actions/requests";
@@ -605,6 +606,22 @@ export function AprovacoesClient({ requests, ctrlRoles, ownSectorIds = [], force
                               <X className="h-4 w-4" />
                             </button>
                           </>
+                        )}
+
+                        {/* Reabrir uma REPROVADA: só admin, e só aqui (a aba
+                            Rejeitadas). Devolve à fila de aprovação para reavaliar
+                            — às vezes é só editar algo. Aprovada não tem este botão. */}
+                        {req.status === "rejeitado" && hasRole("admin") && (
+                          <button
+                            type="button"
+                            onClick={() => handleAction(() => reopenRejectedRequest(req.id))}
+                            disabled={isPending}
+                            title="Reabrir para aprovação"
+                            aria-label="Reabrir para aprovação"
+                            className={`${ACTION_BTN} bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50`}
+                          >
+                            <RotateCcw className="h-4 w-4" />
+                          </button>
                         )}
 
                         {/* Não-aprovador (ex.: o próprio solicitante) responde aqui;

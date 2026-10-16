@@ -2067,6 +2067,169 @@ export async function rejectRequest(requestId: string, reason: string) {
   return { ok: true };
 }
 
+// ─── Reabrir requisição REPROVADA (admin) ────────────────────────────────────
+//
+// Devolve uma requisição `rejeitado` à fila de Aprovações, reiniciando o fluxo
+// pelo COMEÇO da alçada dela (gerente; diretor quando o roteamento é forçado —
+// setor Diretoria / solicitante especial). Pedido do dono (16/10/2026): "às
+// vezes é só editar alguma coisa". SÓ reprovadas — aprovada (ou qualquer outro
+// estado) nunca volta por aqui, o próprio status é o guard. Não recalcula
+// orçamento: restaura o estado anterior à rejeição com o tier gravado; uma
+// edição de campo de orçamento depois reavalia pelo `rerouteAfterAdminEdit`.
+export async function reopenRejectedRequest(requestId: string) {
+  const ctx = await requireCtrlRole("admin");
+  const supabase = createAdminClientIfAvailable() ?? (await createClient());
+
+  const { data: req } = await supabase
+    .from("ctrl_requests")
+    .select(
+      "id, request_number, created_by, status, is_rateio, sector_id, expense_type_id, amount, org_id, ctrl_sectors(name), creator:users!ctrl_requests_created_by_fkey(name, email)",
+    )
+    .eq("id", requestId)
+    .maybeSingle();
+  if (!req) return { error: "Requisição não encontrada." };
+
+  // Multiempresa: não reabrir requisição de outra empresa que não a ativa.
+  if (ctx.orgId && req.org_id && req.org_id !== ctx.orgId)
+    return { error: "Requisição de outra empresa." };
+
+  // SÓ reprovadas. Aprovada nunca volta por aqui (pedido explícito).
+  if (req.status !== "rejeitado")
+    return {
+      error: `Status atual: ${req.status}. Só é possível devolver requisições reprovadas.`,
+    };
+
+  const now = new Date().toISOString();
+  const directorOnly = req.created_by === APPROVAL_ROUTING.directorOnly.requesterId;
+  const forceDirectorParent =
+    !req.is_rateio &&
+    (directorOnly || req.sector_id === APPROVAL_ROUTING.directorSector.sectorId);
+
+  // Parent PRIMEIRO, com a trava `status = rejeitado` no próprio UPDATE: dois
+  // admins clicando ao mesmo tempo, só o primeiro casa (o segundo volta sem
+  // reabrir de novo nem duplicar histórico/notificação).
+  const { data: flipped, error: updErr } = await supabase
+    .from("ctrl_requests")
+    .update({
+      status: forceDirectorParent ? "pendente_diretor" : "pendente",
+      approved_by: null,
+      approved_at: null,
+      rejected_at: null,
+      complement_return_status: null,
+      updated_at: now,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any)
+    .eq("id", requestId)
+    .eq("status", "rejeitado")
+    .select("id");
+  if (updErr) return { error: updErr.message };
+  if (!flipped || flipped.length === 0)
+    return { error: "A requisição não está mais reprovada." };
+
+  // Rateio: cada parcela foi rejeitada junto (um setor rejeita tudo); volta cada
+  // uma ao começo da SUA alçada e limpa o aval gerencial anterior.
+  const parcelNotifs: Array<{
+    sectorId: string;
+    sectorName: string;
+    amount: number;
+    stage: "gerente" | "diretor";
+  }> = [];
+  if (req.is_rateio) {
+    const { data: parcels } = await supabase
+      .from("ctrl_request_sectors")
+      .select("id, sector_id, amount, ctrl_sectors(name)")
+      .eq("request_id", requestId);
+    for (const p of parcels ?? []) {
+      const forceDirector =
+        directorOnly || (p.sector_id as string) === APPROVAL_ROUTING.directorSector.sectorId;
+      await supabase
+        .from("ctrl_request_sectors")
+        .update({
+          status: forceDirector ? "pendente_diretor" : "pendente",
+          manager_approved_by: null,
+          manager_approved_at: null,
+          updated_at: now,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any)
+        .eq("id", p.id as string);
+      parcelNotifs.push({
+        sectorId: p.sector_id as string,
+        sectorName:
+          (Array.isArray(p.ctrl_sectors) ? p.ctrl_sectors[0] : p.ctrl_sectors)?.name ?? "Setor",
+        amount: Number(p.amount),
+        stage: forceDirector ? "diretor" : "gerente",
+      });
+    }
+  }
+
+  // Trilha: reusa o enum existente `editado` (o comentário carrega o sentido);
+  // inventar valor novo no enum ctrl_history_action exigiria migration.
+  await supabase.from("ctrl_history").insert({
+    request_id: requestId,
+    user_id: ctx.id,
+    action: "editado",
+    comment: `Requisição reaberta para aprovação por ${ctx.name ?? ctx.email}.`,
+    metadata: { reopened_from: "rejeitado", by_roles: ctx.ctrlRoles },
+  });
+
+  // Avisa os aprovadores (best-effort) que há algo de volta na fila.
+  const sectorName =
+    (Array.isArray(req.ctrl_sectors) ? req.ctrl_sectors[0] : req.ctrl_sectors)?.name ?? "Setor";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const creatorRaw = (req as any).creator;
+  const creator = (Array.isArray(creatorRaw) ? creatorRaw[0] : creatorRaw) as
+    | { name: string | null; email: string | null }
+    | null;
+  const requesterName = creator?.name ?? creator?.email ?? "Solicitante";
+
+  if (req.is_rateio) {
+    for (const n of parcelNotifs) {
+      await notifyPendingApproval({
+        requestId,
+        requestNumber: req.request_number as number,
+        requesterName,
+        sectorId: n.sectorId,
+        sectorName: n.sectorName,
+        amount: n.amount,
+        stage: n.stage,
+      });
+    }
+  } else {
+    let explicitApproverIds: string[] | undefined;
+    if (directorOnly) {
+      explicitApproverIds = [APPROVAL_ROUTING.directorOnly.directorId];
+    } else if (
+      !forceDirectorParent &&
+      req.expense_type_id === APPROVAL_ROUTING.expenseTypeManager.expenseTypeId
+    ) {
+      explicitApproverIds = [APPROVAL_ROUTING.expenseTypeManager.managerId];
+    }
+    await notifyPendingApproval({
+      requestId,
+      requestNumber: req.request_number as number,
+      requesterName,
+      sectorId: req.sector_id as string,
+      sectorName,
+      amount: Number(req.amount),
+      stage: forceDirectorParent ? "diretor" : "gerente",
+      explicitApproverIds,
+    });
+  }
+
+  await notifyRequester({
+    userId: req.created_by as string,
+    requestId,
+    requestNumber: req.request_number as number,
+    title: "Requisição reaberta",
+    message: `Sua requisição #${req.request_number} foi reaberta para aprovação por ${ctx.name ?? ctx.email}.`,
+    type: "aprovacao",
+  });
+
+  revalidatePath("/ctrl/requisicoes");
+  revalidatePath("/ctrl/aprovacoes");
+  return { ok: true };
+}
+
 // ─── Request Info (pedir complementação) ─────────────────────────────────────
 
 export async function requestInfo(requestId: string, question: string) {

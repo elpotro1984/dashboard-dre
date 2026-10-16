@@ -286,7 +286,7 @@ export const MANUAL_SECTIONS: ManualSection[] = [
             tone: "critico",
             where: "Aprovações › Rejeitadas",
             meaning:
-              "Encerrada por um aprovador, sempre com motivo registrado. Para seguir com a despesa, crie uma nova requisição corrigida.",
+              "Encerrada por um aprovador, sempre com motivo registrado. O administrador pode reabri-la para aprovação (botão na aba Rejeitadas) quando é só corrigir algo — ela volta ao início do fluxo de aprovação. Só reprovadas podem ser reabertas; aprovadas, não.",
           },
         ],
       },
