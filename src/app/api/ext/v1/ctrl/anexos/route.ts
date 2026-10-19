@@ -5,6 +5,7 @@ import { safeFileName } from "@/lib/ext-api/requisicoes";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
 
 const BUCKET = "ctrl-attachments";
 

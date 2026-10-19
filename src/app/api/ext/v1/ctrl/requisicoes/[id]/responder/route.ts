@@ -5,6 +5,7 @@ import { extError, withExtCtrl } from "@/lib/ext-api/handler";
 import { getOwnRequest } from "@/lib/ext-api/requisicoes-db";
 
 export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
 
 // Resposta do solicitante a um pedido de complemento (aprovador) ou de
 // informação de pagamento (contas a pagar). A rota decide qual pelo estado da

@@ -12,6 +12,7 @@ import { extError, withExtCtrl } from "@/lib/ext-api/handler";
 import { getOwnRequest } from "@/lib/ext-api/requisicoes-db";
 
 export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
 
 function ok<T, K extends string>(r: ({ [P in K]?: T } & { error?: string }) | { error: string }, key: K): T | null {
   return "error" in r && r.error ? null : ((r as Record<K, T>)[key] ?? null);
