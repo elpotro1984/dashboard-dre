@@ -5,6 +5,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClientIfAvailable } from "@/lib/supabase/admin";
 import { requireCaseUser } from "@/lib/case/auth";
+import { CONTRATADO_SIGNER } from "@/lib/case/contract-config";
+import { lerSignatarios, type Signatario } from "@/lib/case/signatarios";
 
 const ATTACHMENT_BUCKET = "case-attachments";
 
@@ -95,6 +97,35 @@ export async function getContratoComprovantes(
     }
   }
   return { titulos };
+}
+
+/**
+ * Quem já assinou e quem falta, lido NA HORA da ClickSign — o banco só guarda o
+ * status do documento inteiro, então esta é a única fonte por pessoa.
+ */
+export async function getSignatarios(
+  contractId: string,
+): Promise<{ signatarios: Signatario[] } | { error: string }> {
+  await requireCaseUser();
+  const db = await getDb();
+  const { data: contract } = await db
+    .from("case_contracts")
+    .select("clicksign_document_key")
+    .eq("id", contractId)
+    .single();
+  const key = (contract as { clicksign_document_key: string | null } | null)?.clicksign_document_key;
+  if (!key) return { error: "Contrato sem documento na ClickSign." };
+
+  const { getDocument, clicksignEnabled } = await import("@/lib/case/clicksign");
+  if (!clicksignEnabled()) return { error: "ClickSign não configurada." };
+  try {
+    const signatarios = lerSignatarios(await getDocument(key), CONTRATADO_SIGNER.email);
+    if (signatarios.length === 0) return { error: "A ClickSign não devolveu os signatários deste contrato." };
+    return { signatarios };
+  } catch (e) {
+    console.error("[case/signatarios]", e);
+    return { error: e instanceof Error ? e.message : "Falha ao consultar a ClickSign." };
+  }
 }
 
 /** Reenvia o e-mail de assinatura ClickSign para o cliente. */

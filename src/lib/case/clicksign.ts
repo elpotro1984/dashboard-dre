@@ -136,6 +136,18 @@ export async function createSignatureRequest(
   };
 }
 
+/** Documento com os signatários e a assinatura de cada um (para saber quem falta). */
+export async function getDocument(documentKey: string): Promise<Record<string, unknown>> {
+  const token = process.env.CLICKSIGN_API_TOKEN;
+  if (!token) throw new Error("ClickSign não configurado (CLICKSIGN_API_TOKEN ausente).");
+  const url = `${BASE_URL}/api/v1/documents/${encodeURIComponent(documentKey)}?access_token=${encodeURIComponent(token)}`;
+  const res = await fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`ClickSign HTTP ${res.status} ao ler o documento: ${text.slice(0, 300)}`);
+  const json = (text ? JSON.parse(text) : {}) as Record<string, unknown>;
+  return (json.document as Record<string, unknown> | undefined) ?? {};
+}
+
 /** Reenvia o e-mail de assinatura para o signatário (notificação ClickSign). */
 export async function resendNotification(requestKey: string, message: string): Promise<void> {
   await csFetch("/api/v1/notifications", {
