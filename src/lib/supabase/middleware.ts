@@ -5,7 +5,7 @@ import { canAccessPathByProfile, defaultLandingFor } from "@/lib/auth/access";
 import { hasCaixaGrant } from "@/lib/auth/caixa";
 import { hasContratosGrant } from "@/lib/auth/contratos";
 import { canAccessOrcamento } from "@/lib/auth/orcamento";
-import { hasDpGrant } from "@/lib/auth/dp";
+import { isDpGestorPath, resolveDpRole } from "@/lib/auth/dp";
 import { hasVbGrant } from "@/lib/auth/vb";
 import { getSupabaseEnv } from "@/lib/supabase/env";
 import type { UserProfileType } from "@/lib/supabase/types";
@@ -132,7 +132,8 @@ export async function updateSession(request: NextRequest) {
     // Módulo VB (Viva Bank): só a concessão. Sem override de admin.
     const canVb = hasVbGrant(profileData?.user_module_roles);
     // Módulo Departamento Pessoal (sigiloso): só a concessão, como o VB.
-    const canDp = hasDpGrant(profileData?.user_module_roles);
+    const dpRole = resolveDpRole(profileData?.user_module_roles, user.email);
+    const canDp = dpRole !== null;
     // Modulo Caixa: concessao OU admin (modelo do Case/Contratos).
     const canCaixa =
       hasCaixaGrant(profileData?.user_module_roles) || userProfile === "admin";
@@ -179,6 +180,13 @@ export async function updateSession(request: NextRequest) {
         canOrcamento,
         canDp,
       );
+      supabaseResponse = NextResponse.redirect(url);
+    } else if (isDpGestorPath(pathname) && dpRole !== "gestor") {
+      // Configurações e de-para de empresas do DP são só do GESTOR: o analista
+      // entra no módulo, mas não nas telas que decidem o que cada um enxerga.
+      // A página repete a trava (requireDpGestor).
+      const url = request.nextUrl.clone();
+      url.pathname = "/dp";
       supabaseResponse = NextResponse.redirect(url);
     }
   }

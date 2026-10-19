@@ -1,10 +1,10 @@
 import { redirect } from "next/navigation";
 
 import { DpCentrosCustoClient } from "@/components/dp/centros-custo-client";
-import { DpEmpresaSelect } from "@/components/dp/empresa-select";
 import { DpNaoInstalado } from "@/components/dp/nao-instalado";
 import { getDpUser } from "@/lib/dp/auth";
-import { getDpCargosPagina, listDpEmpresasComQuadro } from "@/lib/dp/cargos-queries";
+import { getDpCargosPagina } from "@/lib/dp/cargos-queries";
+import { getDpEmpresaAtiva } from "@/lib/dp/empresa-ativa";
 import { DpNaoInstaladoError } from "@/lib/dp/queries";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -15,14 +15,13 @@ export const dynamic = "force-dynamic";
  * trata como coisas diferentes). O padrão de cada pessoa vem da linha da
  * tabela salarial; a exceção é feita na ficha.
  */
-export default async function DpCentrosCustoPage({ searchParams }: { searchParams: { empresa?: string } }) {
+export default async function DpCentrosCustoPage() {
   const user = await getDpUser();
   if (!user) redirect("/");
   const db = createAdminClient();
   try {
-    const empresas = await listDpEmpresasComQuadro(db);
-    const escolhida =
-      empresas.find((e) => e.id === searchParams.empresa) ?? empresas.slice().sort((a, b) => b.ativos - a.ativos)[0] ?? null;
+    // Empresa ativa = seletor do topo, recortado pelo que esta pessoa pode ver.
+    const { ativa: escolhida } = await getDpEmpresaAtiva(db, user);
     const pagina = escolhida ? await getDpCargosPagina(db, escolhida.id) : null;
 
     // Uso de cada centro: linhas da tabela que o têm como padrão e pessoas que caem nele.
@@ -51,7 +50,7 @@ export default async function DpCentrosCustoPage({ searchParams }: { searchParam
               se fazem na ficha.
             </p>
           </div>
-          {escolhida && <DpEmpresaSelect empresas={empresas} value={escolhida.id} />}
+          {escolhida && <span className="text-sm font-medium text-ink-muted">{escolhida.name}</span>}
         </div>
         {escolhida && pagina ? (
           <DpCentrosCustoClient
@@ -62,7 +61,7 @@ export default async function DpCentrosCustoPage({ searchParams }: { searchParam
             ativos={pagina.enquadramento.length}
           />
         ) : (
-          <p className="text-sm text-ink-muted">Nenhuma empresa ativa encontrada.</p>
+          <p className="text-sm text-ink-muted">Nenhuma empresa liberada para você no Departamento Pessoal.</p>
         )}
       </div>
     );

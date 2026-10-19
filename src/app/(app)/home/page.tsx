@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { HomeView } from "@/components/app/home-view";
 import { getCurrentSessionContext } from "@/lib/auth/session";
 import { listarAlertasExperiencia, type DpAlertaExperienciaComEmpresa } from "@/lib/dp/alertas";
+import { escopoDp } from "@/lib/dp/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   deriveCtrlCaps,
@@ -48,8 +49,11 @@ export default async function HomePage() {
   // concessão do módulo — nome de colaborador não aparece para mais ninguém.
   // Falha na leitura nunca derruba a tela inicial.
   let dpExperiencia: DpAlertaExperienciaComEmpresa[] | null = null;
-  if (modules?.dp) {
-    dpExperiencia = await listarAlertasExperiencia(createAdminClient()).catch(() => null);
+  if (modules?.dp && profile) {
+    // Recortado pelo escopo do DP: a analista só vê o alerta das empresas dela.
+    dpExperiencia = await escopoDp(profile.id, modules.dp.role)
+      .then((escopo) => listarAlertasExperiencia(createAdminClient(), escopo))
+      .catch(() => null);
   }
 
   return (

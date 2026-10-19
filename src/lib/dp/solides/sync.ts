@@ -7,7 +7,7 @@ import { parseDetail, parseListItem, type DpColaboradorFicha } from "@/lib/dp/so
 
 // ============================================================================
 // Sincronização Sólides → dp_colaboradores. Chamada pelo cron diário e pelo
-// botão "Sincronizar agora" (sempre depois de requireDpUser()).
+// botão "Sincronizar agora" (sempre depois de requireDpGestor()).
 //
 // Relê TODAS as fichas a cada execução, de propósito: o updated_at da Sólides
 // só tem a DATA, então "buscar só o que mudou" perderia a segunda alteração do

@@ -13,6 +13,9 @@ export const ACTIVE_COMPANY_IDS_COOKIE = "active_company_ids";
 // da org. O chamador valida o slug contra as empresas que o usuário realmente
 // pode acessar (ctrl_user_orgs / admin) antes de usar.
 export const ACTIVE_CTRL_ORG_COOKIE = "active_ctrl_org";
+// Empresa ativa do Departamento Pessoal (id de companies). Validada na leitura
+// contra as empresas que a pessoa pode ver — ver @/lib/dp/empresa-ativa.
+export const ACTIVE_DP_EMPRESA_COOKIE = "active_dp_empresa";
 
 export type ActiveModule = "dre" | "ctrl" | "case" | "viagens" | "vb" | "caixa" | "dp";
 
@@ -45,6 +48,12 @@ export async function readActiveSegmentSlug(): Promise<string | null> {
 export async function readActiveCtrlOrgSlug(): Promise<string | null> {
   const store = await cookies();
   return store.get(ACTIVE_CTRL_ORG_COOKIE)?.value ?? null;
+}
+
+/** Empresa ativa do DP (id) do cookie, ou null. O chamador valida o acesso. */
+export async function readActiveDpEmpresa(): Promise<string | null> {
+  const store = await cookies();
+  return store.get(ACTIVE_DP_EMPRESA_COOKIE)?.value ?? null;
 }
 
 /**

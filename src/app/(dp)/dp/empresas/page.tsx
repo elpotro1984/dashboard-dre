@@ -1,7 +1,10 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 
 import { DpEmpresasClient } from "@/components/dp/empresas-client";
 import { DpNaoInstalado } from "@/components/dp/nao-instalado";
+import { DP_CONFIG_PATH } from "@/lib/auth/dp";
 import { getDpUser } from "@/lib/dp/auth";
 import { origensParaMapear } from "@/lib/dp/empresa";
 import { DpNaoInstaladoError, listDpColaboradores, listDpCompanies, listDpRegras } from "@/lib/dp/queries";
@@ -12,6 +15,9 @@ export const dynamic = "force-dynamic";
 export default async function DpEmpresasPage() {
   const user = await getDpUser();
   if (!user) redirect("/");
+  // Só o gestor: o de-para decide de que empresa cada pessoa é — e, por tabela,
+  // quem a analista enxerga. O middleware já redireciona; isto é a 2ª trava.
+  if (user.role !== "gestor") redirect("/dp");
   const db = createAdminClient();
   let loaded;
   try {
@@ -26,6 +32,9 @@ export default async function DpEmpresasPage() {
 
   return (
     <div className="mx-auto max-w-5xl space-y-4">
+      <Link href={DP_CONFIG_PATH} className="inline-flex items-center gap-1 text-sm text-ink-muted hover:text-ink-primary">
+        <ArrowLeft className="h-4 w-4" /> Configurações
+      </Link>
       <div>
         <h1 className="text-xl font-semibold text-ink-primary">Empresas (de-para da Sólides)</h1>
         <p className="text-sm text-ink-muted">

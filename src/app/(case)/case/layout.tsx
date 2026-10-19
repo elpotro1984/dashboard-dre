@@ -29,7 +29,7 @@ export default async function CaseLayout({ children }: { children: React.ReactNo
   const vbRole = modules.vb?.role ?? null;
   const canCaixa = Boolean(modules.caixa);
   const orcamentoPapel = modules.orcamento?.papel ?? null;
-  const canDp = Boolean(modules.dp);
+  const dpRole = modules.dp?.role ?? null;
 
   // Segmentos para o shell — fonte única compartilhada (resolveUserSegments):
   // admin vê todos; os demais recebem a UNIÃO de user_segment_access com os
@@ -49,7 +49,7 @@ export default async function CaseLayout({ children }: { children: React.ReactNo
     canViagens,
     vbRole !== null,
     canCaixa,
-    canDp,
+    dpRole !== null,
   );
 
   const unreadNotifications = profile?.id
@@ -72,7 +72,7 @@ export default async function CaseLayout({ children }: { children: React.ReactNo
       vbRole={vbRole}
       canCaixa={canCaixa}
       orcamentoPapel={orcamentoPapel}
-      canDp={canDp}
+      dpRole={dpRole}
       segments={segments}
       activeModule={activeModule}
       availableModules={availableModules}

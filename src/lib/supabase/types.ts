@@ -1,3 +1,5 @@
+import type { DpRole } from "@/lib/auth/dp";
+
 // ─── DRE roles (módulo financeiro) ────────────────────────────────────────────
 export type DreRole = "admin" | "gestor_hero" | "gestor_unidade";
 
@@ -75,7 +77,7 @@ export interface ModuleAccess {
    * Módulo Departamento Pessoal (sigiloso). Concessão em user_module_roles
    * (module='dp') — ver `@/lib/auth/dp`. Admin NÃO recebe automaticamente.
    */
-  dp: Record<string, never> | null;
+  dp: { role: DpRole } | null;
 }
 
 // ─── Perfil unificado (novo modelo) ──────────────────────────────────────────
@@ -152,6 +154,8 @@ export interface UnifiedProfile {
    * `@/lib/auth/dp`. Admin NÃO enxerga sem a linha.
    */
   can_dp: boolean;
+  /** Papel no DP (gestor | analista), ou null — ver `@/lib/auth/dp`. */
+  dp_role: DpRole | null;
   /**
    * Já viu o tour guiado de boas-vindas. Como `can_contratos`, NÃO é coluna de
    * `users`: é derivada da linha em `user_module_roles` (module='tour') — ver

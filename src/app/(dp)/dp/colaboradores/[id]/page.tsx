@@ -7,6 +7,7 @@ import { DpNaoInstalado } from "@/components/dp/nao-instalado";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDateTimeBR, formatDayBR, todayBR } from "@/lib/ctrl/datetime";
 import { getDpUser } from "@/lib/dp/auth";
+import { podeVerEmpresa } from "@/lib/dp/escopo";
 import { rotuloLinha } from "@/lib/dp/cargos";
 import { getDpCargosPagina, listDpAjustes, rotuloCentro } from "@/lib/dp/cargos-queries";
 import { MOTIVO_SEM_EMPRESA } from "@/lib/dp/empresa";
@@ -64,7 +65,10 @@ export default async function DpColaboradorPage({ params }: { params: { id: stri
     if (error instanceof DpNaoInstaladoError) return <DpNaoInstalado />;
     throw error;
   }
-  if (!c) notFound();
+  // Fora do escopo = "não existe" (notFound), não "acesso negado": a analista não
+  // fica sabendo nem que a pessoa existe em outra empresa. Antes do registro de
+  // acesso, para a tentativa não virar uma "visita" à ficha.
+  if (!c || !podeVerEmpresa(user, c.empresa.companyId)) notFound();
 
   // A ficha mostra salário, CPF e endereço: toda abertura fica registrada, ANTES
   // de ler os acessos — assim a própria visita aparece na lista.

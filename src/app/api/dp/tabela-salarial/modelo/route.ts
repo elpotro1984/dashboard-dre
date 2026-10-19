@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 
 import { getDpUser } from "@/lib/dp/auth";
+import { podeVerEmpresa } from "@/lib/dp/escopo";
 import { getDpTabela, listDpCargosSolidesDaEmpresa } from "@/lib/dp/cargos-queries";
 import { DpNaoInstaladoError } from "@/lib/dp/queries";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -22,6 +23,8 @@ export async function GET(request: Request) {
   if (!user) return NextResponse.json({ error: "Acesso negado." }, { status: 403 });
 
   const companyId = new URL(request.url).searchParams.get("companyId") ?? "";
+  // A planilha leva os salários da tabela: a analista só baixa a das empresas dela.
+  if (!podeVerEmpresa(user, companyId)) return NextResponse.json({ error: "Você não tem acesso a esta empresa." }, { status: 403 });
   const db = createAdminClient();
   const { data: company } = await db.from("companies").select("id, name").eq("id", companyId).maybeSingle();
   if (!company) return NextResponse.json({ error: "Empresa não encontrada." }, { status: 400 });

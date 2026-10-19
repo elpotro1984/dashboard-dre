@@ -45,17 +45,21 @@ import {
   DP_CARGOS_PATH,
   DP_CENTROS_PATH,
   DP_COLABORADORES_PATH,
-  DP_EMPRESAS_PATH,
+  DP_CONFIG_PATH,
   DP_INDICADORES_PATH,
   DP_NAV_KEY_CARGOS,
   DP_NAV_KEY_CENTROS,
   DP_NAV_KEY_COLABORADORES,
-  DP_NAV_KEY_EMPRESAS,
+  DP_NAV_KEY_CONFIG,
   DP_NAV_KEY_INDICADORES,
   DP_NAV_KEY_OVERVIEW,
   DP_NAV_KEY_SIMULACOES,
   DP_PATH,
   DP_SIMULACOES_PATH,
+  DP_FOLHA_GRUPO_PATH,
+  DP_FOLHA_PATH,
+  DP_NAV_KEY_FOLHA,
+  DP_NAV_KEY_FOLHA_GRUPO,
 } from "@/lib/auth/dp";
 import {
   VB_NAV_KEY_OMIE,
@@ -277,6 +281,8 @@ export interface NavItem {
    * herda.
    */
   dpAccess?: boolean;
+  /** Item só do GESTOR do DP (Configurações): o analista não vê. */
+  dpGestorOnly?: boolean;
   /**
    * Item visível a QUALQUER usuário logado (ex.: Chamados/Suporte). Ignora
    * dreRoles/ctrlRoles e as whitelists de franqueado/CSC.
@@ -294,6 +300,7 @@ export type NavGroupId =
   | "contratos"
   | "vb"
   | "dp"
+  | "dp_grupo"
   | "plataforma"
   | "suporte";
 
@@ -420,17 +427,28 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   {
     // Módulo Departamento Pessoal (sigiloso). Concedido em user_module_roles
     // (module='dp'); admin não enxerga sem a linha — ver @/lib/auth/dp.
+    // O trabalho da EMPRESA ATIVA (seletor no topo, como no Compras).
     id: "dp",
     label: "DEPARTAMENTO PESSOAL",
     items: [
-      { key: DP_NAV_KEY_OVERVIEW, title: "Visão geral", icon: IdCard, scope: "global", href: DP_PATH, dpAccess: true },
+      { key: DP_NAV_KEY_FOLHA, title: "Folha do mês", icon: Wallet, scope: "global", href: DP_FOLHA_PATH, dpAccess: true },
       { key: DP_NAV_KEY_COLABORADORES, title: "Colaboradores", icon: Users, scope: "global", href: DP_COLABORADORES_PATH, dpAccess: true },
-      { key: DP_NAV_KEY_INDICADORES, title: "Indicadores", icon: BarChart3, scope: "global", href: DP_INDICADORES_PATH, dpAccess: true },
       { key: DP_NAV_KEY_CARGOS, title: "Cargos e salários", icon: Sliders, scope: "global", href: DP_CARGOS_PATH, dpAccess: true },
       { key: DP_NAV_KEY_CENTROS, title: "Centros de custo", icon: Target, scope: "global", href: DP_CENTROS_PATH, dpAccess: true },
       { key: DP_NAV_KEY_SIMULACOES, title: "Simulações", icon: Calculator, scope: "global", href: DP_SIMULACOES_PATH, dpAccess: true },
-      // De-para unidade/departamento da Sólides → empresa do Control Hub.
-      { key: DP_NAV_KEY_EMPRESAS, title: "Empresas (de-para)", icon: GitMerge, scope: "global", href: DP_EMPRESAS_PATH, dpAccess: true },
+    ],
+  },
+  {
+    // Painéis comuns: IGNORAM o seletor de empresa e consolidam as empresas que
+    // a pessoa pode ver (gestor = todas; analista = as liberadas para ela).
+    // Configurações é só do gestor (o de-para de empresas mora lá dentro).
+    id: "dp_grupo",
+    label: "DP · VISÃO DO GRUPO",
+    items: [
+      { key: DP_NAV_KEY_OVERVIEW, title: "Visão geral", icon: IdCard, scope: "global", href: DP_PATH, dpAccess: true },
+      { key: DP_NAV_KEY_INDICADORES, title: "Indicadores", icon: BarChart3, scope: "global", href: DP_INDICADORES_PATH, dpAccess: true },
+      { key: DP_NAV_KEY_FOLHA_GRUPO, title: "Folha do grupo", icon: Landmark, scope: "global", href: DP_FOLHA_GRUPO_PATH, dpAccess: true },
+      { key: DP_NAV_KEY_CONFIG, title: "Configurações", icon: Cog, scope: "global", href: DP_CONFIG_PATH, dpAccess: true, dpGestorOnly: true },
     ],
   },
   {

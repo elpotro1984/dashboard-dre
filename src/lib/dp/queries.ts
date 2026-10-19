@@ -8,15 +8,17 @@ import {
   type DpEmpresaResolvida,
   type DpRegraOrigem,
 } from "@/lib/dp/empresa";
+import { podeVerEmpresa, type DpEscopo } from "@/lib/dp/escopo";
 import type { DpCampoRastreado, DpEventoTipo } from "@/lib/dp/historico";
 import type { DpIndicadorEntrada } from "@/lib/dp/indicadores";
 import type { DpBeneficioSolides, DpDependente, DpEndereco } from "@/lib/dp/solides/parse";
 
-// Leituras das telas do DP. Todas com o admin client DEPOIS de getDpUser():
-// mesmo enquadramento do Caixa — quem tem o módulo vê o grupo inteiro, e o
-// embed/lookup de `companies` sob a RLS do usuário depende de vínculo por
-// empresa, que não é a regra daqui. A RLS de dp_* (dp_has_access) segue como
-// segunda linha para qualquer leitura com o client do usuário.
+// Leituras das telas do DP. Todas com o admin client DEPOIS de getDpUser(), e
+// RECORTADAS pelo escopo de quem pede (@/lib/dp/escopo: gestor vê o grupo,
+// analista só as empresas liberadas). O recorte é do app porque o espelho não
+// tem coluna de empresa — ela é resolvida na leitura pelo de-para. A RLS de
+// dp_* (dp_has_access, só gestor) segue como segunda linha para qualquer
+// leitura com o client do usuário: analista lendo direto vê zero.
 
 type AdminClient = ReturnType<typeof createAdminClient>;
 
@@ -263,20 +265,42 @@ export async function listDpEventosDoColaborador(db: AdminClient, solidesId: num
   return (data ?? []).map(toEvento);
 }
 
-export async function listDpEventosRecentes(db: AdminClient, desdeIso: string, limit = 50): Promise<DpEventoRecente[] | null> {
-  const { data, error } = await db
-    .from("dp_colaborador_eventos")
-    .select(`${EVENTO_COLUMNS}, dp_colaboradores(id, nome)`)
-    .gte("detectado_em", desdeIso)
-    .order("detectado_em", { ascending: false })
-    .limit(limit);
+/**
+ * Movimentações recentes, recortadas pelo ESCOPO: a empresa de cada evento é a
+ * empresa ATUAL da pessoa (mesma regra das telas). Para a analista a leitura
+ * busca mais linhas antes de recortar, senão as 50 mais recentes do grupo
+ * poderiam ser todas de outras empresas e a lista dela viria vazia.
+ */
+export async function listDpEventosRecentes(
+  db: AdminClient,
+  desdeIso: string,
+  escopo: DpEscopo,
+  limit = 50,
+): Promise<DpEventoRecente[] | null> {
+  const [{ data, error }, ctx] = await Promise.all([
+    db
+      .from("dp_colaborador_eventos")
+      .select(`${EVENTO_COLUMNS}, dp_colaboradores(id, nome, unidade_id, departamento_id)`)
+      .gte("detectado_em", desdeIso)
+      .order("detectado_em", { ascending: false })
+      .limit(escopo.empresas === null ? limit : 1000),
+    contexto(db),
+  ]);
   if (ausente(error)) return null;
   check(error, "dp_colaborador_eventos");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (data ?? []).map((r: any) => {
+  return (data ?? []).flatMap((r: any) => {
     const colab = Array.isArray(r.dp_colaboradores) ? r.dp_colaboradores[0] : r.dp_colaboradores;
-    return { ...toEvento(r), colaboradorId: colab?.id ?? null, nome: colab?.nome ?? null };
-  });
+    const empresa = resolverEmpresa(
+      {
+        unidadeId: colab?.unidade_id == null ? null : Number(colab.unidade_id),
+        departamentoId: colab?.departamento_id == null ? null : Number(colab.departamento_id),
+      },
+      ctx.idx,
+    );
+    if (!podeVerEmpresa(escopo, empresa.companyId)) return [];
+    return [{ ...toEvento(r), colaboradorId: colab?.id ?? null, nome: colab?.nome ?? null }];
+  }).slice(0, limit);
 }
 
 export async function listDpAcessos(db: AdminClient, colaboradorId: string, limit = 20): Promise<DpAcessoRow[] | null> {
@@ -311,7 +335,7 @@ export async function registrarAcessoFicha(db: AdminClient, userId: string, cola
  * salário de cada pessoa até lá só para somar seria expor o dado individual
  * sem necessidade. Esta roda no servidor e só os totais saem da página.
  */
-export async function listDpIndicadorEntradas(db: AdminClient): Promise<DpIndicadorEntrada[]> {
+export async function listDpIndicadorEntradas(db: AdminClient, escopo: DpEscopo): Promise<DpIndicadorEntrada[]> {
   const [{ data, error }, ctx] = await Promise.all([
     db
       .from("dp_colaboradores")
@@ -319,7 +343,7 @@ export async function listDpIndicadorEntradas(db: AdminClient): Promise<DpIndica
     contexto(db),
   ]);
   check(error, "dp_colaboradores");
-  return (data ?? []).map((r) => {
+  return (data ?? []).flatMap((r) => {
     const empresa = resolverEmpresa(
       {
         unidadeId: r.unidade_id === null ? null : Number(r.unidade_id),
@@ -327,7 +351,9 @@ export async function listDpIndicadorEntradas(db: AdminClient): Promise<DpIndica
       },
       ctx.idx,
     );
-    return {
+    // Recorte no SERVIDOR: salário de empresa fora do escopo nem entra na soma.
+    if (!podeVerEmpresa(escopo, empresa.companyId)) return [];
+    return [{
       ativo: Boolean(r.ativo),
       companyName: empresa.companyId ? ctx.names.get(empresa.companyId) ?? null : null,
       tipoContrato: r.tipo_contrato,
@@ -335,6 +361,6 @@ export async function listDpIndicadorEntradas(db: AdminClient): Promise<DpIndica
       dataAdmissao: r.data_admissao,
       dataDesligamento: r.data_desligamento,
       desligadoDetectadoEm: r.desligado_detectado_em,
-    };
+    }];
   });
 }

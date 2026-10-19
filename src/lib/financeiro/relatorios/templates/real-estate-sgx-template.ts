@@ -7,19 +7,20 @@ import { NO_VIVA_CAPABILITIES, type ReportTemplate } from "./report-template-typ
 const SGX_SYSTEM_CONTEXT = `CONTEXTO DA EMPRESA — SGX (Real Estate):
 A SGX possui ativos imobiliários geradores de receita por LOCAÇÕES e, em paralelo, PROJETOS imobiliários em desenvolvimento (terrenos, obras, canteiros, despesas pré-operacionais).
 
-Separe a análise em duas frentes SEMPRE que o DRE fornecido permitir:
-- Resultado 1 — Locações: receitas de aluguel menos despesas dos imóveis locados.
-- Resultado 2 — Projetos: receitas/despesas vinculadas a projetos futuros, terrenos, obras e desenvolvimento.
-- Resultado Consolidado = Locações + Projetos + Administrativo (se existir).
+A separação por frente JÁ ESTÁ MAPEADA e os números oficiais de cada frente chegam no input (campo "indicadores_relatorio"): Resultado com Locações, Resultado Operacional, Resultado Projetos e Resultado Final. Analise SEMPRE as duas frentes usando esses números:
+- Resultado — Locações: receitas de aluguel menos despesas dos imóveis locados.
+- Resultado — Projetos: receitas e despesas vinculadas a projetos, terrenos, obras e desenvolvimento.
+- Resultado Final (consolidado) = Locações + Operacional + Projetos.
 
 O relatório deve responder:
 - A operação de locações está se sustentando? Os imóveis alugados geram resultado positivo?
-- Os projetos estão consumindo caixa dentro do esperado?
-- O resultado consolidado está pressionado pela operação recorrente (locações) ou pelos projetos em desenvolvimento?
+- Qual é o RESULTADO DOS PROJETOS no período e como ele se comporta?
+- O resultado final está pressionado pela operação recorrente (locações) ou pelos projetos em desenvolvimento?
 
 REGRAS:
 - NÃO use conceitos de Franquias Viva (VVR, FEE disponível, margem média de eventos, sobrevivência de caixa) — eles não se aplicam à SGX.
-- Se o DRE fornecido NÃO permitir separar com segurança Locações de Projetos, analise o resultado consolidado e registre em pontosAtencao/leituraPorIndicador que a separação por frente depende de mapeamento de contas a confirmar. NÃO invente a divisão nem números.`;
+- Fale do RESULTADO DOS PROJETOS diretamente, como um número do período (o valor está no input). É PROIBIDO dizer que a separação por frente, o resultado dos projetos ou o consolidado "depende de mapeamento de contas", "está a confirmar" ou "ainda precisa ser detalhado" — o mapeamento está CONFIRMADO. Nunca inclua ressalva desse tipo no diagnóstico nem em nenhum outro campo.
+- NÃO invente números: use os valores do input exatamente como vierem.`;
 
 export const realEstateSgxTemplate: ReportTemplate = {
   id: "real-estate-sgx",
@@ -87,6 +88,11 @@ export const realEstateSgxTemplate: ReportTemplate = {
     ],
     // 4 cards numa única linha (grade de 4 colunas — default).
     kpiColumns: 4,
+    // A IA lê as MESMAS linhas do quadro (campo `indicadores_relatorio` do input)
+    // como leitura oficial do período — é o que a deixa falar do Resultado dos
+    // Projetos (e das demais frentes) com o número real, sem ressalva de
+    // "mapeamento a confirmar". O mapeamento por frente está confirmado.
+    sendPrevistoRealizadoToAi: true,
     // Ordem por frente (Locações → Operacional → Projetos → Final). Despesas
     // entram como magnitude positiva (padrão do gráfico). Resultados derivados
     // via `minus`: "Resultado com Locações" = Receita (1) − Despesas (2);

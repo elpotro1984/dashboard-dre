@@ -2,7 +2,38 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { canAccessPathByProfile, defaultLandingFor } from "@/lib/auth/access";
-import { hasDpGrant, isDpPath } from "@/lib/auth/dp";
+import { dpBloqueado, hasDpGrant, isDpGestorPath, isDpPath, resolveDpRole } from "@/lib/auth/dp";
+
+test("resolveDpRole: gestor prevalece; analista sozinho é analista", () => {
+  assert.equal(resolveDpRole([{ module: "dp", role: "analista" }]), "analista");
+  assert.equal(
+    resolveDpRole([
+      { module: "dp", role: "analista" },
+      { module: "dp", role: "gestor" },
+    ]),
+    "gestor",
+  );
+  assert.equal(resolveDpRole([{ module: "vb", role: "gestor" }]), null);
+});
+
+test("e-mail bloqueado não entra no DP nem com linha de gestor (sem caixa)", () => {
+  const rows = [{ module: "dp", role: "gestor" }];
+  assert.equal(resolveDpRole(rows, "carol@quokka.net.br"), null);
+  assert.equal(resolveDpRole(rows, "  Carol@Quokka.NET.br "), null);
+  assert.equal(hasDpGrant(rows, "carol@quokka.net.br"), false);
+  assert.equal(dpBloqueado("carol@quokka.net.br"), true);
+  assert.equal(dpBloqueado(""), false);
+  assert.equal(resolveDpRole(rows, "lucas@quokka.net.br"), "gestor");
+});
+
+test("isDpGestorPath: Configurações e de-para de empresas; telas da empresa não", () => {
+  assert.equal(isDpGestorPath("/dp/configuracoes"), true);
+  assert.equal(isDpGestorPath("/dp/configuracoes/acessos"), true);
+  assert.equal(isDpGestorPath("/dp/empresas"), true);
+  assert.equal(isDpGestorPath("/dp/cargos"), false);
+  assert.equal(isDpGestorPath("/dp/colaboradores"), false);
+  assert.equal(isDpGestorPath("/dp/configuracoesx"), false);
+});
 
 test("hasDpGrant: só a linha module='dp' com papel conhecido concede", () => {
   assert.equal(hasDpGrant(null), false);

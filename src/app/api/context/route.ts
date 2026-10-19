@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 
 import {
   ACTIVE_CTRL_ORG_COOKIE,
+  ACTIVE_DP_EMPRESA_COOKIE,
   ACTIVE_MODULE_COOKIE,
   ACTIVE_SEGMENT_COOKIE,
   CONTEXT_COOKIE_OPTIONS,
@@ -15,6 +16,8 @@ interface ContextUpdateBody {
   segmentSlug?: string;
   /** Empresa ativa do Compras (slug de ctrl_orgs). Validado na leitura. */
   ctrlOrgSlug?: string;
+  /** Empresa ativa do Departamento Pessoal (id). Validada na leitura. */
+  dpEmpresaId?: string;
 }
 
 export async function POST(request: Request) {
@@ -58,6 +61,16 @@ export async function POST(request: Request) {
     // O slug é validado na leitura (getCtrlOrgContext cai na 1ª empresa se o
     // usuário não tiver acesso ao slug), então aqui basta o formato.
     store.set(ACTIVE_CTRL_ORG_COOKIE, body.ctrlOrgSlug, CONTEXT_COOKIE_OPTIONS);
+  }
+
+  if (body.dpEmpresaId !== undefined) {
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (typeof body.dpEmpresaId !== "string" || !uuid.test(body.dpEmpresaId)) {
+      return NextResponse.json({ error: "Empresa invalida" }, { status: 400 });
+    }
+    // Aqui basta o formato: getDpEmpresaAtiva ignora empresa que a pessoa não
+    // pode ver (o cookie vem do navegador e nunca é obedecido sem conferência).
+    store.set(ACTIVE_DP_EMPRESA_COOKIE, body.dpEmpresaId, CONTEXT_COOKIE_OPTIONS);
   }
 
   return NextResponse.json({ ok: true });

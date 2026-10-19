@@ -8,7 +8,6 @@ import type { FilterTableSnapshot } from "@/components/data-table/filter-logic";
 import { formatDayBR } from "@/lib/ctrl/datetime";
 import type { DpColaboradorRow } from "@/lib/dp/queries";
 
-const SEM_EMPRESA = "Sem empresa";
 const situacao = (r: DpColaboradorRow) => (r.ativo ? "Ativo" : "Desligado");
 
 /**
@@ -18,7 +17,12 @@ const situacao = (r: DpColaboradorRow) => (r.ativo ? "Ativo" : "Desligado");
  */
 const INITIAL: FilterTableSnapshot = { values: { situacao: ["Ativo"] }, ranges: {}, sortKey: "nome", sortDir: "asc" };
 
-export function DpColaboradoresClient({ rows }: { rows: DpColaboradorRow[] }) {
+/**
+ * A lista já chega recortada pelo servidor (uma empresa, ou o balde "sem
+ * empresa" do gestor) — por isso não há coluna Empresa. No balde sem empresa
+ * entra a Unidade da Sólides, que é o que o de-para precisa.
+ */
+export function DpColaboradoresClient({ rows, semEmpresa = false }: { rows: DpColaboradorRow[]; semEmpresa?: boolean }) {
   const [visible, setVisible] = useState<DpColaboradorRow[]>(() => rows.filter((r) => r.ativo));
 
   // Memoizado: a FilterTable recalcula tudo quando `columns` muda de identidade.
@@ -35,14 +39,16 @@ export function DpColaboradoresClient({ rows }: { rows: DpColaboradorRow[] }) {
           </Link>
         ),
       },
-      {
-        key: "empresa",
-        label: "Empresa",
-        plain: (r) => r.companyName ?? SEM_EMPRESA,
-        sortVal: (r) => (r.companyName ?? "￿").toLowerCase(),
-        cell: (r) =>
-          r.companyName ?? <span className="text-amber-700 dark:text-amber-400">{SEM_EMPRESA}</span>,
-      },
+      ...(semEmpresa
+        ? [
+            {
+              key: "unidade",
+              label: "Unidade (Sólides)",
+              plain: (r: DpColaboradorRow) => r.unidadeNome ?? "—",
+              sortVal: (r: DpColaboradorRow) => (r.unidadeNome ?? "").toLowerCase(),
+            },
+          ]
+        : []),
       {
         key: "departamento",
         label: "Departamento",
@@ -75,20 +81,18 @@ export function DpColaboradoresClient({ rows }: { rows: DpColaboradorRow[] }) {
         cell: (r) => (r.ativo ? "Ativo" : <span className="text-ink-muted">Desligado</span>),
       },
     ],
-    [],
+    [semEmpresa],
   );
-
-  const semEmpresa = visible.filter((r) => !r.companyName).length;
 
   return (
     <div className="space-y-3">
       <p className="text-sm text-ink-muted">
         {visible.length} de {rows.length} colaboradores na tela
-        {semEmpresa > 0 && (
+        {semEmpresa && (
           <>
             {" · "}
             <Link href="/dp/empresas" className="text-amber-700 hover:underline dark:text-amber-400">
-              {semEmpresa} sem empresa
+              fazer o de-para de empresas
             </Link>
           </>
         )}
@@ -101,7 +105,9 @@ export function DpColaboradoresClient({ rows }: { rows: DpColaboradorRow[] }) {
         initialState={INITIAL}
         emptyMessage={
           rows.length === 0
-            ? "Nenhum colaborador ainda. Use “Sincronizar agora” para trazer o cadastro da Sólides."
+            ? semEmpresa
+              ? "Todos os colaboradores têm empresa definida."
+              : "Nenhum colaborador nesta empresa. Se a Sólides ainda não foi sincronizada, a sincronização fica na Visão geral."
             : "Nenhum colaborador corresponde aos filtros."
         }
       />

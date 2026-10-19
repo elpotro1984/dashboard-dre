@@ -16,6 +16,7 @@ import {
 } from "@/components/app/navigation";
 import { ModuleTourButton } from "@/components/app/tour/module-tour-button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import type { DpRole } from "@/lib/auth/dp";
 import type { CtrlRole, DreRole, OrcamentoPapel, Segment, VbRole } from "@/lib/supabase/types";
 import { cn } from "@/lib/utils";
 
@@ -38,7 +39,7 @@ interface NavLinksProps {
    */
   orcamentoPapel?: OrcamentoPapel | null;
   /** Módulo Departamento Pessoal (grupo DP, sigiloso). Só a concessão; admin não herda. */
-  canDp?: boolean;
+  dpRole?: DpRole | null;
   segments: Segment[];
   activeSegmentSlug: string | null;
   collapsed?: boolean;
@@ -238,7 +239,7 @@ interface BuildInput {
   vbRole?: VbRole | null;
   canCaixa?: boolean;
   orcamentoPapel?: OrcamentoPapel | null;
-  canDp?: boolean;
+  dpRole?: DpRole | null;
   segments: Segment[];
   activeSegmentSlug: string | null;
   isFranqueado?: boolean;
@@ -285,7 +286,7 @@ function buildGroups({
   vbRole,
   canCaixa,
   orcamentoPapel,
-  canDp,
+  dpRole,
   segments,
   activeSegmentSlug,
   isFranqueado,
@@ -306,7 +307,7 @@ function buildGroups({
     const items: RenderItem[] = [];
 
     for (const item of group.items) {
-      if (!isItemVisible(item, dreRole, ctrlSet, Boolean(canCase), Boolean(canViagens), Boolean(canViagensAprovar), Boolean(canContratos), isFranqueado, isCsc, canBiValidation, ctrlFullView, vbRole ?? null, Boolean(canCaixa), orcamentoPapel ?? null, Boolean(canDp))) continue;
+      if (!isItemVisible(item, dreRole, ctrlSet, Boolean(canCase), Boolean(canViagens), Boolean(canViagensAprovar), Boolean(canContratos), isFranqueado, isCsc, canBiValidation, ctrlFullView, vbRole ?? null, Boolean(canCaixa), orcamentoPapel ?? null, dpRole ?? null)) continue;
 
       const href = resolveHref(item, slug);
       if (!href) continue;
@@ -338,7 +339,7 @@ function isItemVisible(
   vbRole: VbRole | null = null,
   canCaixa: boolean = false,
   orcamentoPapel: OrcamentoPapel | null = null,
-  canDp: boolean = false,
+  dpRole: DpRole | null = null,
 ): boolean {
   // Item aberto a qualquer usuário logado (ex.: Chamados/Suporte). Vem antes de
   // tudo — ignora dreRole/ctrlRole e as whitelists de franqueado/CSC.
@@ -355,7 +356,7 @@ function isItemVisible(
 
   // Departamento Pessoal (sigiloso): só a concessão, como o VB. Decidido antes
   // das whitelists de franqueado/CSC; admin não herda.
-  if (item.dpAccess) return canDp;
+  if (item.dpAccess) return dpRole !== null && (!item.dpGestorOnly || dpRole === "gestor");
 
   // Caixa: módulo próprio, concedido por usuário (ou admin). Como o Contratos,
   // é decidido ANTES de FRANQUEADO_NAV_KEYS/CSC_NAV_KEYS — o módulo é liberável

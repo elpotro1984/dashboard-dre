@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { CtrlOrgSwitcher } from "@/components/app/ctrl-org-switcher";
+import { DpEmpresaSwitcher } from "@/components/app/dp-empresa-switcher";
 import { Logo, LogoFull } from "@/components/app/logo";
 import { NavLinks, visibleNavKeys } from "@/components/app/nav-links";
 import { NotificationsLink } from "@/components/app/notifications-link";
@@ -17,6 +18,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { BI_VALIDATION_PATH } from "@/lib/auth/bi-validation";
 import type { ActiveModule } from "@/lib/context/active-context";
 import type { ModuleDefinition } from "@/lib/context/modules";
+import type { DpRole } from "@/lib/auth/dp";
 import type { CtrlRole, DreRole, OrcamentoPapel, Segment, UserProfileType, VbRole } from "@/lib/supabase/types";
 import { tourAudienceForProfile, type TourModuleId } from "@/lib/tour";
 
@@ -39,13 +41,16 @@ interface AppShellProps {
   /** Papel no módulo Orçamento — grupo ORÇAMENTO no menu; null sem acesso. */
   orcamentoPapel?: OrcamentoPapel | null;
   /** Módulo Departamento Pessoal (sigiloso) — grupo DP no menu. Só a concessão. */
-  canDp?: boolean;
+  dpRole?: DpRole | null;
   segments: Segment[];
   activeModule: ActiveModule;
   availableModules: ModuleDefinition[];
   activeSegmentSlug: string | null;
   /** Empresas do Compras do usuário (multiempresa) — alimenta o seletor no topo. */
   ctrlOrgs?: { id: string; nome: string; slug: string }[];
+  /** Empresas do DP que a pessoa pode ver (só o layout do DP passa). */
+  dpEmpresas?: { id: string; name: string; ativos: number }[];
+  activeDpEmpresaId?: string | null;
   /** Slug da empresa ativa do Compras. */
   activeCtrlOrgSlug?: string | null;
   contractsOnly?: boolean;
@@ -85,7 +90,7 @@ export function AppShell({
   vbRole,
   canCaixa,
   orcamentoPapel,
-  canDp,
+  dpRole,
   segments,
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   activeModule,
@@ -93,6 +98,8 @@ export function AppShell({
   availableModules,
   activeSegmentSlug,
   ctrlOrgs,
+  dpEmpresas,
+  activeDpEmpresaId,
   activeCtrlOrgSlug,
   contractsOnly,
   isFranqueado,
@@ -156,7 +163,7 @@ export function AppShell({
         vbRole,
         canCaixa,
         orcamentoPapel,
-        canDp,
+        dpRole,
         segments,
         activeSegmentSlug,
         contractsOnly,
@@ -175,7 +182,7 @@ export function AppShell({
       vbRole,
       canCaixa,
       orcamentoPapel,
-      canDp,
+      dpRole,
       segments,
       activeSegmentSlug,
       contractsOnly,
@@ -197,7 +204,7 @@ export function AppShell({
       vbRole={vbRole}
       canCaixa={canCaixa}
       orcamentoPapel={orcamentoPapel}
-      canDp={canDp}
+      dpRole={dpRole}
       segments={segments}
       activeSegmentSlug={activeSegmentSlug}
       collapsed={!mobile && collapsed}
@@ -296,6 +303,8 @@ export function AppShell({
                   gatear por `activeModule` aqui: ele reflete o cookie do último
                   módulo aberto, não a rota — e escondia o seletor no Compras. */}
               <CtrlOrgSwitcher orgs={ctrlOrgs ?? []} activeSlug={activeCtrlOrgSlug ?? null} />
+              {/* Empresa ativa do DP: só o layout do DP passa a lista (mesma regra do Compras). */}
+              <DpEmpresaSwitcher empresas={dpEmpresas ?? []} activeId={activeDpEmpresaId ?? null} />
               {/* Sino: módulo Compras (padrão) ou, para quem só valida
                   relatórios BI (perfil CSC, sem Compras), a própria tela de
                   Validação Relatório — onde a pendência é resolvida. */}

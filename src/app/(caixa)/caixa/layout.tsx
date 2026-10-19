@@ -31,7 +31,7 @@ export default async function CaixaLayout({ children }: { children: React.ReactN
   const vbRole = modules.vb?.role ?? null;
   const canCaixa = Boolean(modules.caixa);
   const orcamentoPapel = modules.orcamento?.papel ?? null;
-  const canDp = Boolean(modules.dp);
+  const dpRole = modules.dp?.role ?? null;
 
   const segments = await resolveUserSegments(supabase, {
     isAdmin: dreRole === "admin",
@@ -48,7 +48,7 @@ export default async function CaixaLayout({ children }: { children: React.ReactN
     canViagens,
     vbRole !== null,
     canCaixa,
-    canDp,
+    dpRole !== null,
   );
 
   const unreadNotifications = profile?.id
@@ -68,7 +68,7 @@ export default async function CaixaLayout({ children }: { children: React.ReactN
       vbRole={vbRole}
       canCaixa={canCaixa}
       orcamentoPapel={orcamentoPapel}
-      canDp={canDp}
+      dpRole={dpRole}
       segments={segments}
       activeModule={activeModule}
       availableModules={availableModules}

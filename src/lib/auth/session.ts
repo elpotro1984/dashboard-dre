@@ -5,7 +5,7 @@ import { createAdminClientIfAvailable } from "@/lib/supabase/admin";
 import { hasContratosGrant } from "@/lib/auth/contratos";
 import { hasCaixaGrant } from "@/lib/auth/caixa";
 import { resolveOrcamentoPapel } from "@/lib/auth/orcamento";
-import { hasDpGrant } from "@/lib/auth/dp";
+import { resolveDpRole } from "@/lib/auth/dp";
 import { deriveCtrlRoles, deriveDreRole } from "@/lib/auth/derive-roles";
 import { resolveVbRole } from "@/lib/auth/vb";
 import { hasSeenTour } from "@/lib/tour/seen";
@@ -189,7 +189,7 @@ async function loadSessionContext(): Promise<SessionContext> {
 
   // Módulo Departamento Pessoal (sigiloso): só a concessão, como o VB. Sem
   // override de admin, de propósito — ver @/lib/auth/dp.
-  const canDp = hasDpGrant(moduleRoleRows);
+  const dpRole = resolveDpRole(moduleRoleRows, profileRow.email);
 
   // Módulo Caixa: concessão em user_module_roles OU admin (modelo do Case e do
   // Contratos, não o do VB) — ver @/lib/auth/caixa.
@@ -232,7 +232,8 @@ async function loadSessionContext(): Promise<SessionContext> {
     vb_role: vbRole,
     can_caixa: canCaixa,
     orcamento_papel: orcamentoPapel,
-    can_dp: canDp,
+    can_dp: dpRole !== null,
+    dp_role: dpRole,
     // Tour guiado de boas-vindas: linha em user_module_roles (module='tour'),
     // pelo mesmo motivo do módulo Contratos — sem coluna nova, sem migration.
     tour_seen: hasSeenTour(moduleRoleRows),
@@ -256,7 +257,7 @@ async function loadSessionContext(): Promise<SessionContext> {
     vb: vbRole ? { role: vbRole } : null,
     caixa: canCaixa ? {} : null,
     orcamento: orcamentoPapel ? { papel: orcamentoPapel } : null,
-    dp: canDp ? {} : null,
+    dp: dpRole ? { role: dpRole } : null,
   };
 
   return { supabase, user, profile, modules };

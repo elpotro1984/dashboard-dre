@@ -3,15 +3,16 @@
 import { revalidatePath } from "next/cache";
 
 import { DP_PATH } from "@/lib/auth/dp";
-import { requireDpUser } from "@/lib/dp/auth";
+import { exigirEmpresa, requireDpEmpresa, requireDpUser } from "@/lib/dp/auth";
 import { chaveNome } from "@/lib/dp/cargos";
 import { indexarRegras, resolverEmpresa } from "@/lib/dp/empresa";
 import { listDpRegras } from "@/lib/dp/queries";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 // Base cadastral do DP: exceções manuais por pessoa (linha da tabela salarial e
-// centro de custo) e o cadastro de centros de custo. Toda action passa por
-// requireDpUser() e grava com o admin client.
+// centro de custo) e o cadastro de centros de custo. Toda action confere a
+// concessão E a empresa no escopo de quem clica (requireDpEmpresa, ou
+// exigirEmpresa sobre a empresa resolvida da pessoa) e grava com o admin client.
 
 export type DpCadastroResult<T = undefined> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -74,6 +75,8 @@ export async function salvarAjusteColaborador(input: {
     const user = await requireDpUser();
     const admin = createAdminClient();
     const { solidesId, companyId } = await empresaDoColaborador(admin, input.colaboradorId);
+    // Analista só mexe em quem é das empresas dela (e nunca em quem está sem empresa).
+    exigirEmpresa(user, companyId);
     if ((input.linhaId || input.centroId) && !companyId) {
       throw new Error("Defina a empresa desta pessoa (de-para de empresas) antes de criar exceções.");
     }
@@ -122,7 +125,7 @@ export async function salvarCentroCusto(input: {
   nome: string;
 }): Promise<DpCadastroResult<{ id: string }>> {
   try {
-    const user = await requireDpUser();
+    const user = await requireDpEmpresa(input.companyId);
     const admin = createAdminClient();
     const nome = texto(input.nome, 120);
     if (!nome) throw new Error("Informe o nome do centro de custo.");
@@ -160,7 +163,7 @@ export async function salvarCentroCusto(input: {
  */
 export async function excluirCentroCusto(input: { companyId: string; id: string }): Promise<DpCadastroResult> {
   try {
-    await requireDpUser();
+    await requireDpEmpresa(input.companyId);
     const { error } = await createAdminClient().from("dp_centros_custo").delete().eq("id", input.id).eq("company_id", input.companyId);
     if (error) throw error;
     revalidar();
@@ -173,7 +176,7 @@ export async function excluirCentroCusto(input: { companyId: string; id: string 
 /** Centro de custo PADRÃO de uma linha da tabela salarial (null = sem padrão). */
 export async function definirCentroDaLinha(input: { companyId: string; linhaId: string; centroId: string | null }): Promise<DpCadastroResult> {
   try {
-    const user = await requireDpUser();
+    const user = await requireDpEmpresa(input.companyId);
     const admin = createAdminClient();
     if (input.centroId) {
       const { data } = await admin.from("dp_centros_custo").select("id").eq("id", input.centroId).eq("company_id", input.companyId).maybeSingle();

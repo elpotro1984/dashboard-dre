@@ -8,28 +8,35 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDateTimeBR } from "@/lib/ctrl/datetime";
 import { listarAlertasExperiencia } from "@/lib/dp/alertas";
 import { getDpUser } from "@/lib/dp/auth";
+import { recortarPorEmpresa } from "@/lib/dp/escopo";
 import { descreverEvento } from "@/lib/dp/historico";
 import { DpNaoInstaladoError, lastDpSyncRun, listDpColaboradores, listDpEventosRecentes } from "@/lib/dp/queries";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
 
-/** Visão geral do Departamento Pessoal: o quadro ativo por empresa, vindo da Sólides. */
+/**
+ * Visão geral do Departamento Pessoal: o quadro ativo por empresa, vindo da
+ * Sólides. É painel do GRUPO (ignora o seletor de empresa do topo), mas sempre
+ * recortado pelo escopo: a analista vê só as empresas dela, e "sem empresa
+ * definida" e a sincronização são só do gestor.
+ */
 export default async function DpOverviewPage() {
   const user = await getDpUser();
   if (!user) redirect("/");
 
   // Admin client depois do gate — ver @/lib/dp/queries.
   const db = createAdminClient();
+  const gestor = user.role === "gestor";
   let loaded;
   try {
     const desde = new Date(Date.now() - 30 * 86_400_000).toISOString();
     loaded = await Promise.all([
-      listDpColaboradores(db),
-      lastDpSyncRun(db),
-      listDpEventosRecentes(db, desde),
+      listDpColaboradores(db).then((rows) => recortarPorEmpresa(user, rows, (r) => r.empresa.companyId)),
+      gestor ? lastDpSyncRun(db) : Promise.resolve(null),
+      listDpEventosRecentes(db, desde, user),
       // Coluna da base cadastral ausente (migration 20261002150000) não derruba a Visão geral.
-      listarAlertasExperiencia(db).catch(() => null),
+      listarAlertasExperiencia(db, user).catch(() => null),
     ]);
   } catch (error) {
     if (error instanceof DpNaoInstaladoError) return <DpNaoInstalado />;
@@ -48,16 +55,17 @@ export default async function DpOverviewPage() {
       <div>
         <h1 className="text-xl font-semibold text-ink-primary">Departamento Pessoal</h1>
         <p className="text-sm text-ink-muted">
-          Quadro do grupo, espelhado da Sólides. Módulo de acesso restrito — administradores não têm acesso automático.
+          {gestor ? "Quadro do grupo" : "Quadro das empresas liberadas a você"}, espelhado da Sólides. Módulo de acesso
+          restrito — administradores não têm acesso automático.
         </p>
       </div>
 
-      <DpSyncPanel lastRun={lastRun} />
+      {gestor && <DpSyncPanel lastRun={lastRun} />}
 
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className={`grid gap-3 ${gestor ? "sm:grid-cols-3" : "sm:grid-cols-2"}`}>
         <Stat label="Colaboradores ativos" value={ativos.length} href="/dp/colaboradores" />
         <Stat label="Empresas com quadro" value={empresas.length} />
-        <Stat label="Sem empresa definida" value={semEmpresa} href="/dp/empresas" alert={semEmpresa > 0} />
+        {gestor && <Stat label="Sem empresa definida" value={semEmpresa} href="/dp/empresas" alert={semEmpresa > 0} />}
       </div>
 
       {empresas.length > 0 && (

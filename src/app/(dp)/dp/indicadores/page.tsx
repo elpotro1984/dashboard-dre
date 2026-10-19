@@ -36,7 +36,8 @@ export default async function DpIndicadoresPage() {
 
   let rows;
   try {
-    rows = await listDpIndicadorEntradas(createAdminClient());
+    // Recortado no servidor pelo escopo: salário de empresa fora dele nem entra na soma.
+    rows = await listDpIndicadorEntradas(createAdminClient(), user);
   } catch (error) {
     if (error instanceof DpNaoInstaladoError) return <DpNaoInstalado />;
     throw error;
@@ -51,7 +52,10 @@ export default async function DpIndicadoresPage() {
     <div className="mx-auto max-w-7xl space-y-4">
       <div>
         <h1 className="text-xl font-semibold text-ink-primary">Indicadores do quadro</h1>
-        <p className="text-sm text-ink-muted">Colaboradores ativos na Sólides, por empresa.</p>
+        <p className="text-sm text-ink-muted">
+          Colaboradores ativos na Sólides, por empresa —{" "}
+          {user.empresas === null ? "todas as empresas do grupo" : `as ${user.empresas.length} empresa(s) liberadas a você`}.
+        </p>
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

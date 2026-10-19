@@ -7,6 +7,9 @@ import { resolveLayoutContext } from "@/lib/context/modules";
 import { resolveUserSegments } from "@/lib/context/user-segments";
 import { hasCtrlFullView } from "@/lib/ctrl/full-view";
 import { getUnreadNotificationsCount } from "@/lib/ctrl/notifications";
+import { getDpUser } from "@/lib/dp/auth";
+import { getDpEmpresaAtiva } from "@/lib/dp/empresa-ativa";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
  * Layout do módulo Departamento Pessoal (sigiloso). Espelha o do (vb): monta o
@@ -33,7 +36,7 @@ export default async function DpLayout({ children }: { children: React.ReactNode
   const vbRole = modules.vb?.role ?? null;
   const canCaixa = Boolean(modules.caixa);
   const orcamentoPapel = modules.orcamento?.papel ?? null;
-  const canDp = Boolean(modules.dp);
+  const dpRole = modules.dp?.role ?? null;
 
   const segments = await resolveUserSegments(supabase, {
     isAdmin: dreRole === "admin",
@@ -50,12 +53,17 @@ export default async function DpLayout({ children }: { children: React.ReactNode
     canViagens,
     vbRole !== null,
     canCaixa,
-    canDp,
+    dpRole !== null,
   );
 
   const unreadNotifications = profile?.id
     ? await getUnreadNotificationsCount(profile.id)
     : 0;
+
+  // Seletor de empresa do topo: só as empresas que esta pessoa pode ver. Falha
+  // na leitura (tabela ainda não instalada) some com o seletor, não com o módulo.
+  const dpUser = await getDpUser();
+  const dpEmpresas = dpUser ? await getDpEmpresaAtiva(createAdminClient(), dpUser).catch(() => null) : null;
 
   return (
     <AppShell
@@ -70,7 +78,9 @@ export default async function DpLayout({ children }: { children: React.ReactNode
       vbRole={vbRole}
       canCaixa={canCaixa}
       orcamentoPapel={orcamentoPapel}
-      canDp={canDp}
+      dpRole={dpRole}
+      dpEmpresas={dpEmpresas?.empresas ?? []}
+      activeDpEmpresaId={dpEmpresas?.ativa?.id ?? null}
       segments={segments}
       activeModule={activeModule}
       availableModules={availableModules}

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import { DP_PATH } from "@/lib/auth/dp";
-import { requireDpUser } from "@/lib/dp/auth";
+import { requireDpGestor } from "@/lib/dp/auth";
 import type { DpRegraOrigem } from "@/lib/dp/empresa";
 import { runDpSolidesSync, type DpSyncResult } from "@/lib/dp/solides/sync";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -14,10 +14,10 @@ function fail(error: unknown): { ok: false; error: string } {
   return { ok: false, error: error instanceof Error ? error.message : "Erro inesperado." };
 }
 
-/** Botão "Sincronizar agora". */
+/** Botão "Sincronizar agora" — só o gestor (a sincronização é do grupo inteiro). */
 export async function sincronizarSolides(): Promise<DpActionResult<DpSyncResult>> {
   try {
-    const user = await requireDpUser();
+    const user = await requireDpGestor();
     const result = await runDpSolidesSync(createAdminClient(), { trigger: "manual", userId: user.id });
     revalidatePath(DP_PATH, "layout");
     return result.ok ? { ok: true, data: result } : { ok: false, error: result.erro ?? "Falha na sincronização." };
@@ -27,7 +27,8 @@ export async function sincronizarSolides(): Promise<DpActionResult<DpSyncResult>
 }
 
 /**
- * De-para Sólides → empresa. `companyId` null REMOVE a regra (o colaborador
+ * De-para Sólides → empresa. Só o gestor: é a regra que decide de que empresa
+ * cada pessoa é — e, por tabela, quem a analista enxerga. `companyId` null REMOVE a regra (o colaborador
  * volta para "sem empresa"). O nome da Sólides é guardado junto para a tela
  * continuar legível mesmo se a unidade/departamento sumir de lá.
  */
@@ -38,7 +39,7 @@ export async function salvarRegraEmpresa(input: {
   companyId: string | null;
 }): Promise<DpActionResult> {
   try {
-    const user = await requireDpUser();
+    const user = await requireDpGestor();
     if (input.origem !== "unidade" && input.origem !== "departamento") throw new Error("Origem inválida.");
     if (!Number.isInteger(input.solidesId)) throw new Error("Código da Sólides inválido.");
     const admin = createAdminClient();

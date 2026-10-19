@@ -4,15 +4,16 @@ import { revalidatePath } from "next/cache";
 import * as XLSX from "xlsx";
 
 import { DP_CARGOS_PATH } from "@/lib/auth/dp";
-import { requireDpUser } from "@/lib/dp/auth";
+import { requireDpEmpresa } from "@/lib/dp/auth";
 import { chaveNome } from "@/lib/dp/cargos";
 import { getDpTabela } from "@/lib/dp/cargos-queries";
 import { lerPercentual, ordemEntre, parseTabelaPlanilha, planejarImportacao } from "@/lib/dp/tabela-salarial";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 // Escrita da tabela salarial e do de-para Sólides → linha. Toda action passa
-// por requireDpUser() e grava com o admin client — as tabelas dp_* não têm
-// policy de escrita.
+// por requireDpEmpresa(companyId) — concessão E a empresa no escopo de quem
+// clica (a analista só alcança as liberadas a ela) — e grava com o admin
+// client: as tabelas dp_* não têm policy de escrita. dp-escrita.test.ts cobra.
 
 export type DpCargoResult<T = undefined> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -52,7 +53,7 @@ function campos(input: { setor: string; cargo: string; salario: number }) {
   };
 }
 
-async function exigirEmpresa(admin: Admin, companyId: string) {
+async function empresaExiste(admin: Admin, companyId: string) {
   const { data } = await admin.from("companies").select("id").eq("id", companyId).maybeSingle();
   if (!data) throw new Error("Empresa não encontrada.");
 }
@@ -70,9 +71,9 @@ export async function criarLinha(input: {
   depoisDeId?: string | null;
 }): Promise<DpCargoResult<{ id: string }>> {
   try {
-    const user = await requireDpUser();
+    const user = await requireDpEmpresa(input.companyId);
     const admin = createAdminClient();
-    await exigirEmpresa(admin, input.companyId);
+    await empresaExiste(admin, input.companyId);
     const tabela = await getDpTabela(admin, input.companyId);
     const i = input.depoisDeId ? tabela.findIndex((l) => l.id === input.depoisDeId) : -1;
     const ordem =
@@ -100,7 +101,7 @@ export async function salvarLinha(input: {
   salario: number;
 }): Promise<DpCargoResult> {
   try {
-    const user = await requireDpUser();
+    const user = await requireDpEmpresa(input.companyId);
     const { error } = await createAdminClient()
       .from("dp_tabela_salarial")
       .update({ ...campos(input), updated_by: user.id, updated_at: new Date().toISOString() })
@@ -117,7 +118,7 @@ export async function salvarLinha(input: {
 /** Exclui a linha; quem estava vinculado a ela volta a "cargo sem linha na tabela" (cascata). */
 export async function excluirLinha(input: { companyId: string; id: string }): Promise<DpCargoResult> {
   try {
-    await requireDpUser();
+    await requireDpEmpresa(input.companyId);
     const { error } = await createAdminClient()
       .from("dp_tabela_salarial")
       .delete()
@@ -143,12 +144,12 @@ const CONFIRMACAO_APAGAR = "APAGAR";
  */
 export async function apagarTabela(input: { companyId: string; confirmacao: string }): Promise<DpCargoResult<{ apagadas: number }>> {
   try {
-    await requireDpUser();
+    await requireDpEmpresa(input.companyId);
     if (input.confirmacao.trim().toUpperCase() !== CONFIRMACAO_APAGAR) {
       throw new Error(`Digite ${CONFIRMACAO_APAGAR} para confirmar.`);
     }
     const admin = createAdminClient();
-    await exigirEmpresa(admin, input.companyId);
+    await empresaExiste(admin, input.companyId);
     const { data, error } = await admin.from("dp_tabela_salarial").delete().eq("company_id", input.companyId).select("id");
     if (error) throw error;
     revalidar();
@@ -161,7 +162,7 @@ export async function apagarTabela(input: { companyId: string; confirmacao: stri
 /** Sobe ou desce uma linha, trocando a ordem com a vizinha. */
 export async function moverLinha(input: { companyId: string; id: string; direcao: "cima" | "baixo" }): Promise<DpCargoResult> {
   try {
-    await requireDpUser();
+    await requireDpEmpresa(input.companyId);
     const admin = createAdminClient();
     const tabela = await getDpTabela(admin, input.companyId);
     const i = tabela.findIndex((l) => l.id === input.id);
@@ -186,7 +187,7 @@ export async function moverLinha(input: { companyId: string; id: string; direcao
 /** "Ordenar por setor e cargo" (número do fim do nome em ordem numérica): renumera no banco. */
 export async function ordenarTabela(input: { companyId: string }): Promise<DpCargoResult> {
   try {
-    await requireDpUser();
+    await requireDpEmpresa(input.companyId);
     const { error } = await createAdminClient().rpc("dp_ordenar_tabela", { p_company_id: input.companyId });
     if (error) throw error;
     revalidar();
@@ -206,11 +207,11 @@ export async function aplicarReajuste(input: {
   percentual: string;
 }): Promise<DpCargoResult<{ linhas: number; antes: number; depois: number; percentual: number }>> {
   try {
-    const user = await requireDpUser();
+    const user = await requireDpEmpresa(input.companyId);
     const lido = lerPercentual(input.percentual);
     if ("erro" in lido) throw new Error(lido.erro);
     const admin = createAdminClient();
-    await exigirEmpresa(admin, input.companyId);
+    await empresaExiste(admin, input.companyId);
     const { data, error } = await admin.rpc("dp_aplicar_reajuste", {
       p_company_id: input.companyId,
       p_percentual: lido.ok,
@@ -250,13 +251,13 @@ export interface DpImportacaoResultado {
  */
 export async function importarTabela(form: FormData): Promise<DpCargoResult<DpImportacaoResultado>> {
   try {
-    const user = await requireDpUser();
     const companyId = String(form.get("companyId") ?? "");
+    const user = await requireDpEmpresa(companyId);
     const file = form.get("file");
     if (!(file instanceof File)) throw new Error("Envie a planilha (.xlsx).");
     if (file.size > 5 * 1024 * 1024) throw new Error("Planilha maior que 5 MB.");
     const admin = createAdminClient();
-    await exigirEmpresa(admin, companyId);
+    await empresaExiste(admin, companyId);
 
     let data: unknown[][];
     try {
@@ -318,7 +319,7 @@ export async function vincularCargosSolides(input: {
   itens: Array<{ solidesCargoId: number; solidesCargoNome: string; linhaId: string | null }>;
 }): Promise<DpCargoResult<{ gravados: number }>> {
   try {
-    const user = await requireDpUser();
+    const user = await requireDpEmpresa(input.companyId);
     const admin = createAdminClient();
     if (input.itens.length === 0) return { ok: true, data: { gravados: 0 } };
     if (input.itens.length > 500) throw new Error("Lote grande demais.");

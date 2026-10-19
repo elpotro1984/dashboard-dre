@@ -1,11 +1,11 @@
 import { redirect } from "next/navigation";
 
-import { DpEmpresaSelect } from "@/components/dp/empresa-select";
 import { DpNaoInstalado } from "@/components/dp/nao-instalado";
 import { DpSimulacoesClient } from "@/components/dp/simulacoes-client";
 import { currentYearBR } from "@/lib/ctrl/datetime";
 import { getDpUser } from "@/lib/dp/auth";
-import { getDpCargosPagina, listDpEmpresasComQuadro } from "@/lib/dp/cargos-queries";
+import { getDpCargosPagina } from "@/lib/dp/cargos-queries";
+import { getDpEmpresaAtiva } from "@/lib/dp/empresa-ativa";
 import { lerEncargosDaEmpresa } from "@/lib/dp/encargos-dp";
 import { DpNaoInstaladoError } from "@/lib/dp/queries";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -17,17 +17,14 @@ export const dynamic = "force-dynamic";
  * enquadramento de quem está abaixo da tabela, com encargos. Nada é gravado —
  * o cenário vive na tela; a conta é a de @/lib/dp/simulacao.
  */
-export default async function DpSimulacoesPage({ searchParams }: { searchParams: { empresa?: string } }) {
+export default async function DpSimulacoesPage() {
   const user = await getDpUser();
   if (!user) redirect("/");
 
   const db = createAdminClient();
   try {
-    const empresas = await listDpEmpresasComQuadro(db);
-    const escolhida =
-      empresas.find((e) => e.id === searchParams.empresa) ??
-      empresas.slice().sort((a, b) => b.ativos - a.ativos)[0] ??
-      null;
+    // Empresa ativa = seletor do topo, recortado pelo que esta pessoa pode ver.
+    const { ativa: escolhida } = await getDpEmpresaAtiva(db, user);
     const ano = currentYearBR();
     const [pagina, encargos] = escolhida
       ? await Promise.all([getDpCargosPagina(db, escolhida.id), lerEncargosDaEmpresa(db, escolhida.id, ano)])
@@ -40,7 +37,7 @@ export default async function DpSimulacoesPage({ searchParams }: { searchParams:
             <h1 className="text-xl font-semibold text-ink-primary">Simulações</h1>
             <p className="text-sm text-ink-muted">Quanto custa uma decisão de pessoal antes de tomá-la.</p>
           </div>
-          {escolhida && <DpEmpresaSelect empresas={empresas} value={escolhida.id} />}
+          {escolhida && <span className="text-sm font-medium text-ink-muted">{escolhida.name}</span>}
         </div>
         {escolhida && pagina && encargos ? (
           <DpSimulacoesClient
@@ -59,7 +56,7 @@ export default async function DpSimulacoesPage({ searchParams }: { searchParams:
             encargos={encargos}
           />
         ) : (
-          <p className="text-sm text-ink-muted">Nenhuma empresa ativa encontrada.</p>
+          <p className="text-sm text-ink-muted">Nenhuma empresa liberada para você no Departamento Pessoal.</p>
         )}
       </div>
     );
