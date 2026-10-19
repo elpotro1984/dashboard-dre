@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { ExternalLink, FileDown, FileText, Loader2, Paperclip, PenLine, Plus, Receipt, Search } from "lucide-react";
 
-import { getContractAttachmentUrl, getSaleContractUrl, getContratoComprovantes } from "@/lib/case/actions/contracts";
+import { getContractAttachmentUrl, getSaleContractUrl, getContratoComprovantes, getSignatarios } from "@/lib/case/actions/contracts";
+import type { Signatario, SituacaoAssinatura } from "@/lib/case/signatarios";
 import { useToast } from "@/components/ui/toaster";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { DialogTitle } from "@/components/ui/dialog";
@@ -677,6 +678,73 @@ function DownloadButtons({ c }: { c: AgendaContract }) {
   );
 }
 
+const SITUACAO: Record<SituacaoAssinatura, { label: string; c: string; ink: string }> = {
+  assinou: { label: "Assinou", c: "#10B981", ink: "text-emerald-700 dark:text-emerald-300" },
+  aguardando: { label: "Falta assinar", c: "#F59E0B", ink: "text-amber-700 dark:text-amber-300" },
+  na_fila: { label: "Assina depois", c: "#9b9797", ink: "text-ink-muted" },
+};
+
+function dataHoraBRT(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo", day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function Assinaturas({ contractId }: { contractId: string }) {
+  const [estado, setEstado] = useState<{ lista: Signatario[] } | { erro: string } | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    setEstado(null);
+    getSignatarios(contractId).then((r) => {
+      if (vivo) setEstado("error" in r ? { erro: r.error } : { lista: r.signatarios });
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [contractId]);
+
+  if (!estado) {
+    return (
+      <p className="flex items-center gap-2 text-[13px] text-ink-muted">
+        <Loader2 className="h-4 w-4 animate-spin" /> Consultando a ClickSign…
+      </p>
+    );
+  }
+  if ("erro" in estado) {
+    return <p className="rounded-viva-sm bg-surface-2 px-3 py-2.5 text-[13px] text-ink-secondary">Não foi possível ver quem já assinou: {estado.erro}</p>;
+  }
+
+  const faltam = estado.lista.filter((s) => s.situacao !== "assinou").length;
+  return (
+    <div className="flex flex-col gap-2">
+      <span className={label}>
+        Assinaturas · {estado.lista.length - faltam} de {estado.lista.length}
+      </span>
+      <ul className="flex flex-col divide-y divide-border rounded-viva-sm border border-border bg-surface-0">
+        {estado.lista.map((s) => {
+          const meta = SITUACAO[s.situacao];
+          return (
+            <li key={s.email || s.nome} className="flex items-center justify-between gap-3 px-3 py-2">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <Dot c={meta.c} />
+                <div className="min-w-0">
+                  <div className="truncate text-[13px] font-semibold text-ink-primary">{s.nome}</div>
+                  <div className="text-xs text-ink-muted">{s.papel}</div>
+                </div>
+              </div>
+              <span className={`shrink-0 text-xs font-bold ${meta.ink}`}>
+                {meta.label}
+                {s.assinadoEm && <span className="font-normal text-ink-muted"> · {dataHoraBRT(s.assinadoEm)}</span>}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 function Stepper({ st }: { st: CaseContractStatus }) {
   const m = ST[st];
   return (
@@ -790,7 +858,11 @@ function ContratoSheet({ i, hoje, onClose }: { i: Extract<Item, { tipo: "contrat
               {m.step >= 0 && (
                 <section className="flex flex-col gap-3.5 rounded-viva-md bg-surface-1 px-5 py-[18px]">
                   <Stepper st={i.st} />
-                  <p className={`rounded-viva-sm px-3 py-2.5 text-[13px] font-semibold ${m.pill}`}>{m.next}</p>
+                  {i.st === "aguardando_assinatura" ? (
+                    <Assinaturas contractId={c.id} />
+                  ) : (
+                    <p className={`rounded-viva-sm px-3 py-2.5 text-[13px] font-semibold ${m.pill}`}>{m.next}</p>
+                  )}
                 </section>
               )}
 
