@@ -405,7 +405,13 @@ function variationCell(item: PrevistoRealizadoItem): { label: string; sev: SevKe
   if (item.previsto === 0) return { label: "—", sev: "neutral" };
   const pct = ((item.realizado - item.previsto) / Math.abs(item.previsto)) * 100;
   const nome = item.indicador.toLowerCase();
-  const inverte = nome.includes("custo") || nome.includes("despesa");
+  // Saídas (custo, despesa, imposto, tributo, dedução): acima do orçado é RUIM.
+  const inverte =
+    nome.includes("custo") ||
+    nome.includes("despesa") ||
+    nome.includes("imposto") ||
+    nome.includes("tribut") ||
+    nome.includes("dedu");
   const acima = pct >= 0;
   let sev: SevKey;
   if (inverte) sev = acima ? (pct > 10 ? "critical" : "attention") : "positive";
@@ -649,13 +655,13 @@ function renderTabelaDesempenho(data: OnePageReportPreviewData, showSemaforo: bo
         };color:${isResultado ? C.ink : C.body};padding:9px 10px;border-bottom:1px solid ${C.grid};">${esc(
           item.indicador,
         )}${suf ? `<span style="color:${C.tertiary};">${suf}</span>` : ""}</td>
-        <td style="font-family:${FM};font-size:12.5px;color:${C.sub};padding:9px 10px;text-align:right;border-bottom:1px solid ${C.grid};white-space:nowrap;">${esc(
-          fmtValueWithUnit(item.previsto, item.unidade),
-        )}</td>
         <td style="font-family:${FM};font-size:12.5px;font-weight:${
           isResultado ? 700 : 600
         };color:${realColor};padding:9px 10px;text-align:right;border-bottom:1px solid ${C.grid};white-space:nowrap;">${esc(
           fmtValueWithUnit(item.realizado, item.unidade),
+        )}</td>
+        <td style="font-family:${FM};font-size:12.5px;color:${C.sub};padding:9px 10px;text-align:right;border-bottom:1px solid ${C.grid};white-space:nowrap;">${esc(
+          fmtValueWithUnit(item.previsto, item.unidade),
         )}</td>
         <td style="padding:9px 10px;text-align:right;border-bottom:1px solid ${C.grid};">${sevBadge(
           v.label,
@@ -674,8 +680,8 @@ function renderTabelaDesempenho(data: OnePageReportPreviewData, showSemaforo: bo
 
   return `${sectionTitle("Desempenho do período vs orçamento")}${panel(
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
-      <thead><tr>${thCell("Indicador")}${thCell("Orçado", "right")}${thCell(
-        "Realizado",
+      <thead><tr>${thCell("Indicador")}${thCell("Realizado", "right")}${thCell(
+        "Orçado",
         "right",
       )}${thCell("Variação", "right")}</tr></thead>
       <tbody>${rows.join("")}</tbody>
@@ -1777,13 +1783,13 @@ function renderConsolidated(block: Consolidated): string {
         };color:${emph ? C.ink : C.body};padding:9px 10px;border-bottom:1px solid ${C.grid};">${esc(
           r.label,
         )}</td>
-        <td style="font-family:${FM};font-size:12.5px;color:${C.sub};padding:9px 10px;text-align:right;border-bottom:1px solid ${C.grid};white-space:nowrap;">${esc(
-          fmtMil(r.previsto),
-        )}</td>
         <td style="font-family:${FM};font-size:12.5px;font-weight:${
           emph ? 700 : 600
         };color:${realNeg ? SEV.critical.text : emph ? C.ink : C.body};padding:9px 10px;text-align:right;border-bottom:1px solid ${C.grid};white-space:nowrap;">${esc(
           fmtMil(r.realizado),
+        )}</td>
+        <td style="font-family:${FM};font-size:12.5px;color:${C.sub};padding:9px 10px;text-align:right;border-bottom:1px solid ${C.grid};white-space:nowrap;">${esc(
+          fmtMil(r.previsto),
         )}</td>
         <td style="padding:9px 10px;text-align:right;border-bottom:1px solid ${C.grid};">${sevBadge(
           varLabel,
@@ -1798,8 +1804,8 @@ function renderConsolidated(block: Consolidated): string {
 
   return `${sectionTitle(block.title)}${panel(
     `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;">
-      <thead><tr>${thCell("Indicador")}${thCell("Orçado", "right")}${thCell(
-        "Realizado",
+      <thead><tr>${thCell("Indicador")}${thCell("Realizado", "right")}${thCell(
+        "Orçado",
         "right",
       )}${thCell("Variação", "right")}</tr></thead>
       <tbody>${rows}</tbody>

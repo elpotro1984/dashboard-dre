@@ -958,7 +958,14 @@ function variationCell(
   const label = `${pct >= 0 ? "+" : ""}${fmtNum(pct)}%`;
   // Para custos/despesas, acima do orçado é ruim; demais, acima é bom.
   const nome = item.indicador.toLowerCase();
-  const inverte = nome.includes("custo") || nome.includes("despesa");
+  // Linhas de saída (custo, despesa, imposto, tributo, dedução): acima do
+  // orçado é RUIM. Inclui impostos/custos variáveis das variações por empresa.
+  const inverte =
+    nome.includes("custo") ||
+    nome.includes("despesa") ||
+    nome.includes("imposto") ||
+    nome.includes("tribut") ||
+    nome.includes("dedu");
   const acima = pct >= 0;
   let sev: SevKey;
   if (inverte) {
@@ -1018,8 +1025,8 @@ function TabelaDesempenho({
           <thead>
             <tr>
               <th style={{ ...th, textAlign: "left" }}>Indicador</th>
-              <th style={{ ...th, textAlign: "right" }}>Orçado</th>
               <th style={{ ...th, textAlign: "right" }}>Realizado</th>
+              <th style={{ ...th, textAlign: "right" }}>Orçado</th>
               <th style={{ ...th, textAlign: "right" }}>Variação</th>
             </tr>
           </thead>
@@ -1080,9 +1087,6 @@ function TabelaDesempenho({
                     {item.indicador}
                     {suf ? <span style={{ color: C.tertiary }}>{suf}</span> : null}
                   </td>
-                  <td style={{ ...tdNum, borderBottom: `1px solid ${C.grid}`, color: C.sub }}>
-                    {fmtValueWithUnit(item.previsto, item.unidade)}
-                  </td>
                   <td
                     style={{
                       ...tdNum,
@@ -1092,6 +1096,9 @@ function TabelaDesempenho({
                     }}
                   >
                     {fmtValueWithUnit(item.realizado, item.unidade)}
+                  </td>
+                  <td style={{ ...tdNum, borderBottom: `1px solid ${C.grid}`, color: C.sub }}>
+                    {fmtValueWithUnit(item.previsto, item.unidade)}
                   </td>
                   <td
                     style={{
@@ -2079,8 +2086,8 @@ function ConsolidadoBlock({ data }: { data: Consolidated }) {
           <thead>
             <tr>
               <th style={{ ...th, textAlign: "left" }}>Indicador</th>
-              <th style={{ ...th, textAlign: "right" }}>Orçado</th>
               <th style={{ ...th, textAlign: "right" }}>Realizado</th>
+              <th style={{ ...th, textAlign: "right" }}>Orçado</th>
               <th style={{ ...th, textAlign: "right" }}>Variação</th>
             </tr>
           </thead>
@@ -2108,9 +2115,6 @@ function ConsolidadoBlock({ data }: { data: Consolidated }) {
                   >
                     {r.label}
                   </td>
-                  <td style={{ ...tdNum, borderBottom: `1px solid ${C.grid}`, color: C.sub }}>
-                    {fmtV(r.previsto)}
-                  </td>
                   <td
                     style={{
                       ...tdNum,
@@ -2120,6 +2124,9 @@ function ConsolidadoBlock({ data }: { data: Consolidated }) {
                     }}
                   >
                     {fmtV(r.realizado)}
+                  </td>
+                  <td style={{ ...tdNum, borderBottom: `1px solid ${C.grid}`, color: C.sub }}>
+                    {fmtV(r.previsto)}
                   </td>
                   <td style={{ padding: "9px 10px", textAlign: "right", borderBottom: `1px solid ${C.grid}` }}>
                     <SevBadge sev={varSev} style={{ fontFamily: FONT_MONO }}>

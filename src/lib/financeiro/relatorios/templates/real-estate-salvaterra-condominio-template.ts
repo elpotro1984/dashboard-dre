@@ -118,6 +118,10 @@ export const realEstateSalvaterraCondominioTemplate: ReportTemplate = {
       { label: "Reembolsos", code: "2.6", unidade: "currency" },
       { label: "Receita Total", codes: ["1", "2"], unidade: "currency" },
       { label: "Despesas Operacionais", code: "7", unidade: "currency" },
+      // Fecha o quadro: impostos e deduções entre as despesas e o resultado =
+      // Receita Total − Despesas Operacionais − Resultado. (O Condomínio não tem
+      // grupo de Custos; aqui entram deduções da receita e IRPJ/CSLL.)
+      { label: "Impostos e deduções", codes: ["1", "2"], minus: ["7", "11"], unidade: "currency" },
       { label: "Resultado do Condomínio", code: "11", unidade: "currency" },
     ],
     // A IA lê as MESMAS linhas do quadro acima (campo `indicadores_relatorio` do

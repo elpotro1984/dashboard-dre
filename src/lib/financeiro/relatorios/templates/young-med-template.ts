@@ -133,6 +133,9 @@ export const youngMedTemplate: ReportTemplate = {
     previstoRealizado: [
       { label: "Receita Total", code: "1", unidade: "currency" },
       { label: "Despesas Operacionais", code: "7", unidade: "currency" },
+      // Fecha o quadro: tudo o que fica entre a Despesa Operacional e o Resultado
+      // (custos, impostos, deduções, IRPJ/CSLL) = Receita − Desp. Op. − Resultado.
+      { label: "Custos, impostos e deduções", codes: ["1"], minus: ["7", "11"], unidade: "currency" },
       { label: "Resultado Final", code: "11", unidade: "currency" },
     ],
     // Bloco Performance por Parceiro — realizado por fornecedor da conta 1.1

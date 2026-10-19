@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   buildDashboardRows,
   fetchAllDreAccountRows,
+  isCoreDreCode,
   scopeDreAccounts,
   type RawDreAccount,
 } from "@/lib/dashboard/dre";
@@ -695,10 +696,41 @@ export async function buildOnePagePayload(
     return any ? total : null;
   };
 
+  // "Soma completa" do quadro (pedido do dono do projeto, 19/10/2026): a linha
+  // Receita soma TODAS as contas de receita (operacionais ou não) e a linha
+  // Despesas, TODAS as despesas (custo, imposto, dedução, IRPJ/CSLL…). Em vez de
+  // enumerar códigos — que variam por plano —, somamos as contas-FOLHA por
+  // NATUREZA sobre as linhas já montadas pelo motor da DRE; grupos `is_summary`
+  // e linhas `calculado` ficam de fora para não contar a mesma conta duas vezes.
+  // A linha Despesas é derivada como Receita − Resultado (code 11, o resultado
+  // REAL do DRE), então o quadro SEMPRE fecha — qualquer que seja o plano.
+  // `isCoreDreCode` exclui os codes 20–24 (Empréstimos, Aportes, Fluxo de
+  // Caixa): há contas type=receita ali (ex.: 20.1 Entradas, 23 Aportes) que NÃO
+  // entram no Resultado do Exercício (code 11) — somá-las inflaria a Receita e
+  // quebraria a identidade Despesas = Receita − Resultado.
+  const sumLeafByType = (
+    rows: ReturnType<typeof buildDashboardRows>["rows"],
+    t: "receita" | "despesa",
+  ): number =>
+    rows.reduce(
+      (acc, r) =>
+        !r.hasChildren && r.type === t && isCoreDreCode(r.code) ? acc + r.value : acc,
+      0,
+    );
+
+  const receitaTotalRealizada = sumLeafByType(realizedRows, "receita");
+  const receitaTotalOrcada = sumLeafByType(budgetedRows, "receita");
+
   const receitaLiquidaRealizada = getRealized("4");
   const resultadoRealizado = getRealized("11");
   const receitaLiquidaOrcada = getBudgeted("4");
   const resultadoOrcado = getBudgeted("11");
+
+  // Despesas completas = Receita − Resultado (fecha o quadro). Sem orçamento,
+  // resultadoOrcado cai em 0 (getBudgeted devolve 0 p/ code presente sem budget),
+  // então despesa orçada = receita orçada − 0; a variação vira "—" como antes.
+  const despesaTotalRealizada = receitaTotalRealizada - resultadoRealizado;
+  const despesaTotalOrcada = receitaTotalOrcada - (resultadoOrcado ?? 0);
 
   const margemRealizada =
     receitaLiquidaRealizada > 0
@@ -775,9 +807,10 @@ export async function buildOnePagePayload(
 
   const vvrRealizado = feeVvrInput?.vvr_mes ?? null;
   const vvrMetaPeriodo = feeVvrInput?.vvr_meta_mes ?? null;
-  const varReceita = variacaoPct(getRealized("1"), getBudgeted("1"));
-  const despesasRealizadas = getRealized("7");
-  const despesasOrcadas = getBudgeted("7");
+  const varReceita = variacaoPct(receitaTotalRealizada, receitaTotalOrcada);
+  // Despesas do card = soma completa (Receita − Resultado), igual ao quadro.
+  const despesasRealizadas = despesaTotalRealizada;
+  const despesasOrcadas = despesaTotalOrcada;
   const varDespesas = variacaoPct(despesasRealizadas, despesasOrcadas);
   const varResultado = variacaoPct(resultadoRealizado, resultadoOrcado);
   const varVvr =
@@ -854,8 +887,8 @@ export async function buildOnePagePayload(
   const kpis: KpisPayload = {
     receita: {
       label: "Receita",
-      value: getRealized("1"),
-      formattedValue: formatBRL(getRealized("1")),
+      value: receitaTotalRealizada,
+      formattedValue: formatBRL(receitaTotalRealizada),
       variationValue: varReceita,
       variationLabel: formatVarPct(varReceita),
       status: statusFromVariacaoPercent(varReceita),
@@ -1226,14 +1259,14 @@ export async function buildOnePagePayload(
   const previstoRealizado: PrevistoRealizadoPayload[] = [
     {
       label: "Receita",
-      realizado: getRealized("1"),
-      previsto: getBudgeted("1"),
+      realizado: receitaTotalRealizada,
+      previsto: receitaTotalOrcada,
       unidade: "currency",
     },
     {
       label: "Despesas",
-      realizado: getRealized("7"),
-      previsto: getBudgeted("7"),
+      realizado: despesaTotalRealizada,
+      previsto: despesaTotalOrcada,
       unidade: "currency",
     },
     {
@@ -1819,6 +1852,13 @@ export async function buildOnePagePayload(
   const ytdReceitaLiqB = ytdGetB("4");
   const ytdResultadoB = ytdGetB("11");
 
+  // Soma completa (acumulado do ano): mesma regra do quadro do período —
+  // Receita = todas as contas-folha de receita; Despesas = Receita − Resultado.
+  const ytdReceitaTotalR = sumLeafByType(ytdRealizedRows, "receita");
+  const ytdReceitaTotalB = sumLeafByType(ytdBudgetedRows, "receita");
+  const ytdDespesaTotalR = ytdReceitaTotalR - ytdResultadoR;
+  const ytdDespesaTotalB = ytdReceitaTotalB - (ytdResultadoB ?? 0);
+
   // -------------------------------------------------------------------------
   // Quadro de eventos da FEAT PRODUÇÕES (exclusivo). Montado AQUI porque a
   // projeção de "Fechamentos em aberto" usa o Resultado do Exercício acumulado
@@ -1869,14 +1909,14 @@ export async function buildOnePagePayload(
   const acumuladoAno: PrevistoRealizadoPayload[] = [
     {
       label: "Receita",
-      realizado: ytdGetR("1"),
-      previsto: ytdGetB("1"),
+      realizado: ytdReceitaTotalR,
+      previsto: ytdReceitaTotalB,
       unidade: "currency",
     },
     {
       label: "Despesas",
-      realizado: ytdGetR("7"),
-      previsto: ytdGetB("7"),
+      realizado: ytdDespesaTotalR,
+      previsto: ytdDespesaTotalB,
       unidade: "currency",
     },
     {

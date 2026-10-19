@@ -137,6 +137,9 @@ export const realEstateVillageTemplate: ReportTemplate = {
       { label: "Reembolsos Recebidos", code: "1.2", unidade: "currency", group: "Resultado do período" },
       { label: "Custos Reembolsáveis", code: "5.1", unidade: "currency", group: "Resultado do período" },
       { label: "Despesas Operacionais", code: "7", unidade: "currency", group: "Resultado do período" },
+      // Fecha o grupo: custos, impostos e deduções entre as despesas e o resultado
+      // = (Receita de Serviços + Reembolsos) − Custos Reemb. − Desp. Op. − Resultado.
+      { label: "Custos, impostos e deduções", codes: ["1.1", "1.2"], minus: ["5.1", "7", "11"], unidade: "currency", group: "Resultado do período" },
       { label: "Resultado Final", code: "11", unidade: "currency", group: "Resultado do período" },
       { label: "Gap de Reembolso", codes: ["1.2"], minus: ["5.1"], unidade: "currency", group: "Leitura gerencial" },
       {

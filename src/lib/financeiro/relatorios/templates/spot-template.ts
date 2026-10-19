@@ -128,6 +128,9 @@ export const spotTemplate: ReportTemplate = {
     previstoRealizado: [
       { label: "Receita Total", code: "1", unidade: "currency" },
       { label: "Despesas Operacionais", code: "7", unidade: "currency" },
+      // Fecha o quadro: custos, impostos e deduções entre a Despesa Operacional e
+      // o Resultado Final = Receita − Desp. Op. − Resultado Final.
+      { label: "Custos, impostos e deduções", codes: ["1"], minus: ["7", "15"], unidade: "currency" },
       { label: "Resultado Final", code: "15", unidade: "currency" },
     ],
     // Composição da Receita (fontes) + Frete (receita × custo × resultado).

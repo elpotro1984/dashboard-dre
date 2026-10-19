@@ -114,7 +114,12 @@ export const realEstateSalvaterraEstacionamentoTemplate: ReportTemplate = {
       { label: "Receita do Estacionamento", code: "1.1", unidade: "currency" },
       { label: "Custo com Freelancers", code: "5", unidade: "currency" },
       { label: "Despesas de Manutenção", code: "7.3.6", unidade: "currency" },
-      { label: "Despesas Operacionais", code: "7", unidade: "currency" },
+      // "Despesas Operacionais" exclui a Manutenção (7.3.6, filha de 7, já na
+      // linha acima) — senão a manutenção entraria DUAS vezes na soma do quadro.
+      { label: "Despesas Operacionais (exceto manutenção)", codes: ["7"], minus: ["7.3.6"], unidade: "currency" },
+      // Fecha o quadro: impostos e deduções entre as despesas e o resultado =
+      // Receita − Custo Freelancers − Desp. Operacionais − Resultado.
+      { label: "Impostos e deduções", codes: ["1.1"], minus: ["5", "7", "11"], unidade: "currency" },
       { label: "Resultado do Estacionamento", code: "11", unidade: "currency" },
     ],
     historicoAccountCode: "11",
