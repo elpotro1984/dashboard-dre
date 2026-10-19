@@ -513,11 +513,23 @@ function isExpenseBelowHighlight(titulo: string, descricao: string): boolean {
   return mencionaDespesa && mencionaBaixa;
 }
 
+// Sirena: Deduções de Receita / ISS são calculados a partir da receita
+// (sirena-taxes.ts), então alerta sobre eles não diz nada de gestão. Suprime
+// deterministicamente — o prompt do template também proíbe, mas não depende
+// da IA respeitar. Gated pelo template "sirena": nenhuma outra empresa muda.
+function isSirenaDeducoesAlert(titulo: string, descricao: string): boolean {
+  const t = `${titulo} ${descricao}`.toLowerCase();
+  return t.includes("dedução") || t.includes("deduções") || t.includes("deduc") || /\biss\b/.test(t);
+}
+
 function mapAlertas(
   analysis: OnePageReport | undefined,
   previstoRealizado: ApiPrevistoRealizado[] | undefined,
+  templateId: string | undefined,
 ): AlertaCard[] {
   if (!analysis) return [];
+  const skipDeducoes = (titulo: string, descricao: string) =>
+    templateId === "sirena" && isSirenaDeducoesAlert(titulo, descricao);
 
   const despesasItem = previstoRealizado?.find(
     (p) => p.label.toLowerCase() === "despesas",
@@ -537,6 +549,7 @@ function mapAlertas(
     if (despesasAbaixo && isExpenseIncreaseAlert(ponto.titulo, ponto.descricao)) {
       continue;
     }
+    if (skipDeducoes(ponto.titulo, ponto.descricao)) continue;
     riscos.push({
       titulo: ponto.titulo,
       texto: ponto.descricao,
@@ -569,6 +582,7 @@ function mapAlertas(
     ) {
       continue; // ja coberto pelo card injetado
     }
+    if (skipDeducoes(destaque.titulo, destaque.descricao)) continue;
     positivos.push({
       titulo: destaque.titulo,
       texto: destaque.descricao,
@@ -763,9 +777,19 @@ function mapDiagnostico(analysis: OnePageReport | undefined): string {
 
 // ─── Acoes recomendadas ────────────────────────────────────────────────────
 
-function mapAcoes(analysis: OnePageReport | undefined): AcaoCard[] {
+function mapAcoes(
+  analysis: OnePageReport | undefined,
+  templateId: string | undefined,
+): AcaoCard[] {
   if (!analysis) return [];
-  return (analysis.acoesRecomendadas ?? []).slice(0, 3).map((a) => ({
+  // Sirena: mesma regra dos alertas (isSirenaDeducoesAlert) — ação sobre
+  // Deduções de Receita / ISS sai. Filtra antes do corte de 3 para a próxima
+  // ação da lista ocupar o lugar. Casa só pelo texto da ação (não pela
+  // justificativa) para não derrubar ação de receita que cite o ISS de passagem.
+  const acoes = (analysis.acoesRecomendadas ?? []).filter(
+    (a) => !(templateId === "sirena" && isSirenaDeducoesAlert(a.acao, "")),
+  );
+  return acoes.slice(0, 3).map((a) => ({
     acao: a.acao,
     impacto: a.impacto,
     urgencia: a.urgencia,
@@ -838,12 +862,16 @@ export function mapOnePageApiResponseToPreviewData(
     historico: mapHistorico(response.historicoResultado),
     acumuladoAno: mapAcumuladoAno(response.acumuladoAno),
     vvrSerieAnual: mapVvrSerieAnual(response.vvrSerieAnual),
-    alertas: mapAlertas(response.analysis, response.previstoRealizado),
+    alertas: mapAlertas(
+      response.analysis,
+      response.previstoRealizado,
+      response.template?.id,
+    ),
     semaforo: customKpis
       ? mapSemaforoFromList(response.analysis, customKpis)
       : mapSemaforo(response.analysis, response.kpis, response.previstoRealizado),
     diagnosticoPrincipal: mapDiagnostico(response.analysis),
-    acoes: mapAcoes(response.analysis),
+    acoes: mapAcoes(response.analysis, response.template?.id),
     // Allowlist de blocos visíveis (undefined = todos — comportamento Viva).
     blocks: response.enabledBlocks,
     // Título do gráfico de histórico (undefined = título atual no componente).

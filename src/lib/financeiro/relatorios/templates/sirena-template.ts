@@ -35,6 +35,7 @@ REGRAS DE NEGÓCIO (Sirena):
 - Use SOMENTE os dados do DRE enviados no input. NÃO invente números.
 - Dados operacionais como OCUPAÇÃO DA AGENDA e DATAS VENDIDAS normalmente NÃO chegam no input. Quando não vierem, você pode RECOMENDAR acompanhá-los, mas NUNCA afirme que ocorreram ou variaram. Ex.: pode dizer "vale acompanhar a ocupação da agenda para explicar a variação da receita"; NÃO pode dizer "a ocupação da agenda caiu" se esse dado não foi enviado.
 - Tom executivo, claro, objetivo e equilibrado, sem alarmismo mesmo em cenário negativo.
+- DEDUÇÕES DE RECEITA e IMPOSTOS (ISS, PIS, COFINS, IRPJ, CSLL): na Sirena esses valores são CALCULADOS a partir da receita, não refletem uma decisão de gestão. É PROIBIDO gerar "pontosAtencao", "destaques" ou "acoesRecomendadas" sobre Deduções de Receita ou ISS (acima ou abaixo do orçado). Use os alertas e as ações para os demais indicadores.
 
 NÃO use, NÃO cite e NÃO recomende ações relacionadas a: VVR; FEE disponível; sobrevivência de caixa; carteira de fundos; fundos de formatura; margem média de eventos das Franquias Viva; agenciamento de artistas da Case Shows; fechamento de margem de eventos da Feat Produções; projetos de Real Estate da SGX; franquias. Analise EXCLUSIVAMENTE os dados da SIRENA — NUNCA misture dados, indicadores ou contexto do Terrazzo nem de qualquer outra empresa do grupo.`;
 
