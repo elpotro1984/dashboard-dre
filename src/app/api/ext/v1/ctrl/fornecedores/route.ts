@@ -4,6 +4,7 @@ import { getSuppliers } from "@/lib/ctrl/actions/suppliers";
 import { extError, withExtCtrl } from "@/lib/ext-api/handler";
 
 export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
 
 // Mesma lista da Nova Requisição: aprovados + pendentes. O fornecedor ainda não
 // homologado pode ser escolhido; a trava é no Contas a Pagar, no envio.

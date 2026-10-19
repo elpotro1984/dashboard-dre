@@ -12,6 +12,11 @@ import { createAdminClient } from "@/lib/supabase/admin";
 // Porta de entrada de toda rota /api/ext/v1/ctrl/*: confere a chave do sistema
 // externo, resolve QUEM age (header X-Acting-User) na empresa amarrada à chave
 // e roda o handler com essa identidade injetada no Compras.
+//
+// Toda rota /api/ext precisa de `fetchCache = "force-no-store"` além do
+// force-dynamic: no Next 14, rota GET com force-dynamic ainda guarda no Data
+// Cache os fetch do supabase-js. A busca do usuário congelava o "não existe"
+// de quem tentou antes de ser cadastrado.
 
 export interface ExtCtrlCall {
   client: ExtApiClient;

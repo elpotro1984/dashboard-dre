@@ -4,6 +4,7 @@ import { getExpenseTypes } from "@/lib/ctrl/actions/expense-types";
 import { extError, withExtCtrl } from "@/lib/ext-api/handler";
 
 export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
 
 export async function GET(request: Request) {
   return withExtCtrl(request, async () => {

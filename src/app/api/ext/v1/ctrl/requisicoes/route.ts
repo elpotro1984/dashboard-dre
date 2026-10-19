@@ -7,6 +7,7 @@ import { parseCreateRequest, type Etapa } from "@/lib/ext-api/requisicoes";
 import { catalogOutsideOrg, getOwnRequest, listOwnRequests } from "@/lib/ext-api/requisicoes-db";
 
 export const dynamic = "force-dynamic";
+export const fetchCache = "force-no-store";
 
 // Requisições criadas por quem age, na empresa da chave. `?etapa=` filtra.
 export async function GET(request: Request) {
