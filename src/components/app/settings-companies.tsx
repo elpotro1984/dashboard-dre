@@ -2,7 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, FileUp, KeyRound, Landmark, Loader2, Pencil, Plus, RefreshCcw, ShieldCheck, Table2, Trash2 } from "lucide-react";
+import { ChevronDown, FileUp, KeyRound, Landmark, Loader2, Pencil, Plus, RefreshCcw, ShieldCheck, ShoppingCart, Table2, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +13,7 @@ import { SettingsFeeVvrTable } from "@/components/app/settings-fee-vvr-table";
 import { SettingsFeatProjetosTable } from "@/components/app/settings-feat-projetos-table";
 import { SettingsMutuosPanel } from "@/components/app/settings-mutuos-panel";
 import { REGIMES_TRIBUTARIOS, regimeTributarioLabel } from "@/lib/companies/regime-tributario";
+import { createCtrlOrg } from "@/lib/ctrl/actions/org-admin";
 import { cn } from "@/lib/utils";
 
 // Identifica a empresa Feat Produções por nome normalizado (sem acento/caixa).
@@ -76,6 +77,9 @@ interface SettingsCompaniesProps {
   initialCompanies: CompanyItem[];
   segmentId: string | null;
   currentSegmentSlug?: string | null;
+  /** Estado no Compras por empresa: ausente = não habilitada; presente = já é
+   *  empresa do Compras (grouped = faz parte de um grupo de CNPJs, ex.: Viva). */
+  comprasByCompany?: Record<string, { orgNome: string; grouped: boolean }>;
 }
 
 async function safeJson<T>(response: Response): Promise<T | null> {
@@ -92,6 +96,7 @@ export function SettingsCompanies({
   initialCompanies,
   segmentId,
   currentSegmentSlug,
+  comprasByCompany,
 }: SettingsCompaniesProps) {
   const showFeeVvr = currentSegmentSlug === "franquias-viva";
   const { showToast } = useToast();
@@ -124,6 +129,9 @@ export function SettingsCompanies({
 
   // Regime tributário — grava assim que o select muda (id da empresa em voo).
   const [savingRegime, setSavingRegime] = useState<string | null>(null);
+
+  // "Habilitar no Compras" — cria a empresa do Compras (org) com este 1 CNPJ.
+  const [enablingCompras, setEnablingCompras] = useState<string | null>(null);
 
   // Manual sync menu state
   const [openSyncMenuId, setOpenSyncMenuId] = useState<string | null>(null);
@@ -405,6 +413,38 @@ export function SettingsCompanies({
     });
   };
 
+  // Habilita a empresa no módulo Compras: cria uma "empresa do Compras" (org)
+  // com o nome da empresa e anexa este único CNPJ. Para agrupar vários CNPJs numa
+  // empresa do Compras (caso Viva), a tela é "Empresas do Compras" (Plataforma).
+  const habilitarCompras = async (company: CompanyItem) => {
+    setEnablingCompras(company.id);
+    const res = await createCtrlOrg({ nome: company.name, companyIds: [company.id] });
+    setEnablingCompras(null);
+    if ("error" in res) {
+      showToast({
+        title: "Falha ao habilitar no Compras",
+        description: res.error,
+        variant: "destructive",
+      });
+      return;
+    }
+    if (res.skipped > 0) {
+      showToast({
+        title: "Empresa do Compras criada sem o CNPJ",
+        description:
+          "O CNPJ já pertence a outra empresa do Compras. Ajuste em Empresas do Compras (Plataforma).",
+        variant: "destructive",
+      });
+    } else {
+      showToast({
+        title: "Habilitada no Compras",
+        description: `"${company.name}" agora é uma empresa do Compras. Cadastre setores, orçamento e o mapeamento Omie para ela.`,
+        variant: "success",
+      });
+    }
+    router.refresh();
+  };
+
   const openBudget = (companyId: string) => {
     if (budgetOpen === companyId) {
       setBudgetOpen(null);
@@ -651,6 +691,7 @@ export function SettingsCompanies({
             const isEditingThisName = editingName === company.id;
             const isConfirmingDel = confirmingDelete === company.id;
             const showFeatProjetos = isFeatProducoes(company.name);
+            const comprasState = comprasByCompany?.[company.id] ?? null;
 
             return (
               <div key={company.id} className="rounded-lg border p-4">
@@ -767,6 +808,38 @@ export function SettingsCompanies({
                       <FileUp className="mr-2 h-4 w-4" />
                       Orcamento
                     </Button>
+                    {/* Compras: habilitar a empresa no módulo (cria a org com 1 CNPJ)
+                        ou mostrar o estado. Agrupar vários CNPJs é na tela Empresas
+                        do Compras (Plataforma). */}
+                    {comprasState ? (
+                      <span
+                        className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs text-muted-foreground"
+                        title={
+                          comprasState.grouped
+                            ? `Faz parte do grupo "${comprasState.orgNome}" no Compras — gerencie em Empresas do Compras (Plataforma).`
+                            : `Habilitada no Compras como "${comprasState.orgNome}".`
+                        }
+                      >
+                        <ShoppingCart className="h-3.5 w-3.5 text-emerald-600" />
+                        Compras: {comprasState.orgNome}
+                        {comprasState.grouped ? " (grupo)" : ""}
+                      </span>
+                    ) : (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void habilitarCompras(company)}
+                        disabled={enablingCompras === company.id}
+                      >
+                        {enablingCompras === company.id ? (
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        ) : (
+                          <ShoppingCart className="mr-2 h-4 w-4" />
+                        )}
+                        Habilitar no Compras
+                      </Button>
+                    )}
                     {showFeeVvr ? (
                       <Button
                         type="button"

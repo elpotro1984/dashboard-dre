@@ -52,6 +52,29 @@ export default async function PainelConfiguracoesPage({ params }: PageProps) {
     regime_tributario: (company.regime_tributario as string | null) ?? null,
   }));
 
+  // Estado no módulo Compras: cada CNPJ pode pertencer a uma "empresa do Compras"
+  // (ctrl_orgs). A linha da empresa mostra se já está habilitada e se faz parte de
+  // um GRUPO (org com mais de um CNPJ, ex.: Viva Company) — aí a gestão é na tela
+  // "Empresas do Compras" (Plataforma), não aqui. Leitura com o client do usuário:
+  // a página é admin-only e a RLS de ctrl_orgs libera tudo para is_admin().
+  const [orgLinksRes, ctrlOrgsRes] = await Promise.all([
+    supabase.from("ctrl_org_companies").select("company_id, org_id"),
+    supabase.from("ctrl_orgs").select("id, nome"),
+  ]);
+  const orgNameById = new Map(
+    ((ctrlOrgsRes.data ?? []) as Array<{ id: string; nome: string }>).map((o) => [o.id, o.nome]),
+  );
+  const links = (orgLinksRes.data ?? []) as Array<{ company_id: string; org_id: string }>;
+  const cnpjCountByOrg = new Map<string, number>();
+  for (const l of links) cnpjCountByOrg.set(l.org_id, (cnpjCountByOrg.get(l.org_id) ?? 0) + 1);
+  const comprasByCompany: Record<string, { orgNome: string; grouped: boolean }> = {};
+  for (const l of links) {
+    comprasByCompany[l.company_id] = {
+      orgNome: orgNameById.get(l.org_id) ?? "—",
+      grouped: (cnpjCountByOrg.get(l.org_id) ?? 0) > 1,
+    };
+  }
+
   return (
     <div className="space-y-6">
       <Link
@@ -79,6 +102,7 @@ export default async function PainelConfiguracoesPage({ params }: PageProps) {
         initialCompanies={companies}
         segmentId={segmentId}
         currentSegmentSlug={segmentSlug}
+        comprasByCompany={comprasByCompany}
       />
     </div>
   );
