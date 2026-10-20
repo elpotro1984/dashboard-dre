@@ -343,6 +343,7 @@ export interface ContractEditData {
   testemunha_1_email: string | null;
   testemunha_2_nome: string | null;
   testemunha_2_cpf: string | null;
+  testemunha_2_email: string | null;
   valor_atracao_cliente: number;
   valor_rider: number;
   valor_camarim: number;
@@ -394,6 +395,7 @@ export async function getContractForEdit(id: string): Promise<ContractEditData |
     testemunha_1_email: cc.testemunha_1_email,
     testemunha_2_nome: cc.testemunha_2_nome,
     testemunha_2_cpf: cc.testemunha_2_cpf,
+    testemunha_2_email: cc.testemunha_2_email ?? null,
     valor_atracao_cliente: Number(cc.valor_atracao_cliente),
     valor_rider: Number(cc.valor_rider),
     valor_camarim: Number(cc.valor_camarim),

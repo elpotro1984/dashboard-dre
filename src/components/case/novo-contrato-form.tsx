@@ -11,6 +11,7 @@ import { extractArtistContract, extractContractFromText } from "@/lib/case/actio
 import { BandCadastroFields, artistOcrToBandPatch, emptyBandCadastro, bandCadastroToInput, type BandCadastro } from "@/components/case/band-cadastro-fields";
 import { validatePix } from "@/lib/case/pix";
 import { clientSignatureIssues, clientSignatureMessage, isPersonName, isValidCpf } from "@/lib/case/signature-check";
+import { testemunhasQueAssinam } from "@/lib/case/testemunhas";
 import type { CaseBandRow, CaseClientRow, CaseParcelaInput, CasePdfCliente, Etapa1Input } from "@/lib/case/types";
 import type { ContractEditData } from "@/lib/case/queries";
 
@@ -175,6 +176,7 @@ export function NovoContratoForm({ clients, bands, edit, isApprover = false }: {
   const [test1Email, setTest1Email] = useState(edit?.testemunha_1_email ?? "");
   const [test2Nome, setTest2Nome] = useState(edit?.testemunha_2_nome ?? "");
   const [test2Cpf, setTest2Cpf] = useState(edit?.testemunha_2_cpf ?? "");
+  const [test2Email, setTest2Email] = useState(edit?.testemunha_2_email ?? "");
 
   // Valor cobrado do cliente (campo único "Contrato" → valor_atracao_cliente)
   const [vAtracao, setVAtracao] = useState(edit ? brlFromNumber(edit.valor_atracao_cliente) : "");
@@ -387,7 +389,7 @@ export function NovoContratoForm({ clients, bands, edit, isApprover = false }: {
       cortesias: cortesias.trim() || null,
       data_assinatura: dataAssinatura || null,
       testemunha_1_nome: test1Nome.trim() || null, testemunha_1_cpf: test1Cpf.trim() || null, testemunha_1_email: test1Email.trim() || null,
-      testemunha_2_nome: test2Nome.trim() || null, testemunha_2_cpf: test2Cpf.trim() || null,
+      testemunha_2_nome: test2Nome.trim() || null, testemunha_2_cpf: test2Cpf.trim() || null, testemunha_2_email: test2Email.trim() || null,
       valor_atracao_cliente: valAtracao,
       // Contratos antigos podem ter esses valores — a edição preserva; novos vão zerados.
       valor_rider: edit?.valor_rider ?? 0,
@@ -431,8 +433,14 @@ export function NovoContratoForm({ clients, bands, edit, isApprover = false }: {
         pdfMesmo ? { email: cEmail, resp_legal: cRespLegal, cpf_resp_legal: cCpfResp } : { email: pdfCli.email, resp_legal: pdfCli.resp_legal, cpf_resp_legal: pdfCli.cpf_resp_legal },
       );
       if (issues.length > 0) { setTab("cliente"); return setError(clientSignatureMessage(issues, pdfMesmo ? "cadastro" : "contrato")); }
-      if (test1Email.trim() && !isPersonName(test1Nome)) return setError("A testemunha precisa de nome e sobrenome de pessoa física (sem números ou siglas).");
-      if (test1Email.trim() && test1Cpf.trim() && !isValidCpf(test1Cpf)) return setError("O CPF da testemunha é inválido.");
+      const testemunhas = testemunhasQueAssinam({
+        testemunha_1_nome: test1Nome, testemunha_1_cpf: test1Cpf, testemunha_1_email: test1Email,
+        testemunha_2_nome: test2Nome, testemunha_2_cpf: test2Cpf, testemunha_2_email: test2Email,
+      });
+      for (const t of testemunhas) {
+        if (!isPersonName(t.nome)) return setError(`A testemunha ${t.ordem} precisa de nome e sobrenome de pessoa física (sem números ou siglas).`);
+        if (t.cpf && !isValidCpf(t.cpf)) return setError(`O CPF da testemunha ${t.nome ?? t.ordem} é inválido.`);
+      }
     }
     if (!edit && bandMode === "new" && band.name.trim()) {
       const pixErr = validatePix(band.pixTipo || null, band.pix);
@@ -462,7 +470,7 @@ export function NovoContratoForm({ clients, bands, edit, isApprover = false }: {
         if (g.status === "aguardando_aprovacao") {
           showToast({ title: "Enviado para aprovação", description: "Os aprovadores receberam o aviso por e-mail. Depois da aprovação o contrato segue para assinatura.", variant: "success" });
         } else {
-          showToast({ title: "Contrato aprovado e enviado para assinatura", description: "Cliente e testemunha recebem o link agora; o contratado assina por último.", variant: "success" });
+          showToast({ title: "Contrato aprovado e enviado para assinatura", description: "Cliente e testemunhas recebem o link agora; o contratado assina por último.", variant: "success" });
         }
       }
       router.push(`/case/contratos/${contractId}`);
@@ -675,8 +683,9 @@ export function NovoContratoForm({ clients, bands, edit, isApprover = false }: {
               <Field label="Testemunha 1 — e-mail (para assinar)" value={test1Email} onChange={setTest1Email} />
               <Field label="Testemunha 2 — nome" value={test2Nome} onChange={setTest2Nome} />
               <Field label="Testemunha 2 — CPF" value={test2Cpf} onChange={setTest2Cpf} />
+              <Field label="Testemunha 2 — e-mail (para assinar)" value={test2Email} onChange={setTest2Email} />
             </div>
-            <p className="text-xs text-ink-muted">Assinam: cliente, contratado (CS Agência) e a testemunha 1 (por isso o e-mail dela).</p>
+            <p className="text-xs text-ink-muted">Assinam: cliente, contratado (CS Agência) e cada testemunha com e-mail. Sem e-mail, a testemunha sai só impressa no PDF.</p>
           </div>
 
           <div className={SECTION_CLS}>

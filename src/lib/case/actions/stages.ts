@@ -17,6 +17,7 @@ import { loadContractForAtracao, recomputeContractTitles, type ContractForAtraca
 import { validarSchedule } from "@/lib/case/parcelas";
 import { normalizePdfCliente, pdfClienteData } from "@/lib/case/pdf-cliente";
 import { clientSignatureIssues, clientSignatureMessage, isPersonName, isValidCpf } from "@/lib/case/signature-check";
+import { testemunhasQueAssinam } from "@/lib/case/testemunhas";
 import type { CaseBandInput, CaseClientInput, Etapa1Input, Etapa2Input, FornecedorInput } from "@/lib/case/types";
 
 const ATTACHMENT_BUCKET = "case-attachments";
@@ -68,6 +69,7 @@ function clienteFields(input: Etapa1Input, valorArtista: number, verbaRiderCamar
     testemunha_1_email: input.testemunha_1_email ?? null,
     testemunha_2_nome: input.testemunha_2_nome ?? null,
     testemunha_2_cpf: input.testemunha_2_cpf ?? null,
+    testemunha_2_email: input.testemunha_2_email ?? null,
     valor_atracao_cliente: valorAtracao,
     valor_rider: valorRider,
     valor_camarim: valorCamarim,
@@ -211,7 +213,7 @@ export async function salvarCliente(
 // ABA CLIENTE — aprovação interna e envio para assinatura
 //
 // rascunho → aguardando_aprovacao (só um aprovador, CASE_CONTRACT_APPROVER_EMAILS)
-// → aguardando_assinatura (cliente + testemunha; o CONTRATADO_SIGNER assina por último).
+// → aguardando_assinatura (cliente + testemunhas; o CONTRATADO_SIGNER assina por último).
 // Nenhum caminho chega à ClickSign sem passar por aprovarContrato.
 // ────────────────────────────────────────────────────────────────────────────
 type SignatureResult = { ok: true; status: string; signUrl?: string; warning?: string } | { error: string };
@@ -256,11 +258,13 @@ async function prepareForSignature(db: DB, userId: string, contractId: string): 
   if (signatureIssues.length > 0) {
     return { error: clientSignatureMessage(signatureIssues, normalizePdfCliente(c.pdf_cliente) ? "contrato" : "cadastro") };
   }
-  if (c.testemunha_1_email?.trim() && !isPersonName(c.testemunha_1_nome)) {
-    return { error: `A testemunha precisa de nome e sobrenome de pessoa física (sem números ou siglas). Corrija "${c.testemunha_1_nome ?? ""}" em "Editar dados".` };
-  }
-  if (c.testemunha_1_email?.trim() && c.testemunha_1_cpf?.trim() && !isValidCpf(c.testemunha_1_cpf)) {
-    return { error: `O CPF da testemunha ${c.testemunha_1_nome ?? ""} é inválido. Corrija em "Editar dados".` };
+  for (const t of testemunhasQueAssinam(c)) {
+    if (!isPersonName(t.nome)) {
+      return { error: `A testemunha ${t.ordem} precisa de nome e sobrenome de pessoa física (sem números ou siglas). Corrija "${t.nome ?? ""}" em "Editar dados".` };
+    }
+    if (t.cpf?.trim() && !isValidCpf(t.cpf)) {
+      return { error: `O CPF da testemunha ${t.nome ?? ""} é inválido. Corrija em "Editar dados".` };
+    }
   }
 
   // A assinatura dispara o lançamento automático no Omie — garante os títulos
@@ -361,13 +365,13 @@ async function approveAndSend(db: DB, userId: string, prepared: PreparedContract
     return { error: "A assinatura ClickSign não está configurada — o contrato não foi enviado." };
   }
 
-  // Ordem: cliente + testemunha assinam juntos (grupo 1); o contratado (CS
+  // Ordem: cliente + testemunhas assinam juntos (grupo 1); o contratado (CS
   // Agência, que é o próprio aprovador) só é chamado depois (grupo 2).
   const signers: ClickSignSigner[] = [
     { name: (contratante.respLegal ?? "").trim(), email: contratante.email ?? "", cpf: contratante.cpfResp, signAs: "contractor", group: 1 },
   ];
-  if (c.testemunha_1_email?.trim()) {
-    signers.push({ name: c.testemunha_1_nome ?? "Testemunha", email: c.testemunha_1_email, cpf: c.testemunha_1_cpf ?? null, signAs: "witness", group: 1 });
+  for (const t of testemunhasQueAssinam(c)) {
+    signers.push({ name: t.nome ?? "Testemunha", email: t.email, cpf: t.cpf, signAs: "witness", group: 1 });
   }
   signers.push({ name: CONTRATADO_SIGNER.name, email: CONTRATADO_SIGNER.email, cpf: CONTRATADO_SIGNER.cpf, signAs: "contractor", group: 2 });
 
@@ -858,7 +862,7 @@ export async function lancarNoOmie(contractId: string): Promise<{ ok: true; stat
     .eq("id", contractId)
     .single();
   if (!c) return { error: "Contrato não encontrado." };
-  if (!c.signed_at) return { error: "O contrato precisa estar assinado por todos (cliente, contratado e testemunha) antes de lançar no Omie." };
+  if (!c.signed_at) return { error: "O contrato precisa estar assinado por todos (cliente, testemunhas e contratado) antes de lançar no Omie." };
 
   const res = await launchContractToOmie(db, contractId);
   revalidatePath(`/case/contratos/${contractId}`);

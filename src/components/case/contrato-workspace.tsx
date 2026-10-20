@@ -205,7 +205,7 @@ function ClienteTab({ detail, signed, isApprover, onChange }: { detail: Contract
     } else {
       showToast({
         title: sent ? "Contrato aprovado e reenviado para assinatura" : "Contrato aprovado e enviado para assinatura",
-        description: "Cliente e testemunha recebem o link agora; o contratado assina por último.",
+        description: "Cliente e testemunhas recebem o link agora; o contratado assina por último.",
         variant: "success",
       });
     }
@@ -1460,7 +1460,7 @@ function FinanceiroPanel({ detail, signed, onChange }: { detail: ContractDetail;
   const temPendentes = titles.some((t) => t.status !== "lancado");
   const temLancados = titles.some((t) => t.status === "lancado" || t.status === "erro");
   const canLaunch = signed;
-  const launchHint = signed ? "" : "Aguardando assinatura de todos (cliente, contratado e testemunha)";
+  const launchHint = signed ? "" : "Aguardando assinatura de todos (cliente, testemunhas e contratado)";
 
   // Apuração do BV: tudo que entra (a receber) menos todas as saídas (a pagar).
   const totalReceber = Math.round(receber.reduce((a, t) => a + t.valor, 0) * 100) / 100;

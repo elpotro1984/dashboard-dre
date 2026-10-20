@@ -79,6 +79,7 @@ export interface CaseContractExtras {
   testemunha_1_email: string | null; // testemunha assina pelo ClickSign
   testemunha_2_nome: string | null;
   testemunha_2_cpf: string | null;
+  testemunha_2_email: string | null; // assina pelo ClickSign, como a testemunha 1
 }
 
 export interface CreateContractInput extends CaseContractExtras {
