@@ -4,6 +4,7 @@ import {
   Bell,
   BookOpen,
   Brain,
+  Building2,
   Calculator,
   Calendar,
   CheckSquare,
@@ -463,6 +464,11 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       // Substitui a antiga aba "Configuracoes > Empresas", a tela "Conexoes" e o
       // antigo Painel Administrador global (/admin), todos removidos.
       { key: "pf-painel-admin", title: "Painel Administrador", icon: LayoutDashboard, scope: "segment", suffix: "/painel-administrador", dreRoles: ["admin"] },
+      // Empresas do Compras (ctrl_orgs): cadastro das "empresas" do módulo Compras
+      // (grupos de CNPJs). Global e admin-only — criar org é ACIMA do escopo da org,
+      // então não cabe em /ctrl/admin/* (telas recortadas pela org ativa). Ver
+      // @/lib/ctrl/actions/org-admin.
+      { key: "pf-empresas-compras", title: "Empresas do Compras", icon: Building2, scope: "global", href: "/admin/empresas-compras", dreRoles: ["admin"] },
     ],
   },
   // Último grupo: aberto a qualquer usuário logado (abre chamados de melhoria/bug).
