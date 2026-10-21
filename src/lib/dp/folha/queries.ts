@@ -5,6 +5,7 @@ import { avulsoNaCompetencia, type DpAvulso } from "@/lib/dp/folha/avulsos";
 import { colaboradorNoMes } from "@/lib/dp/folha/calendario";
 import { rescisoesSugeridas, textoVariacao, variacoesContraAnterior, type DpRescisaoSugerida } from "@/lib/dp/folha/conferencia";
 import { casarNome } from "@/lib/dp/folha/importacao";
+import type { DpRescisaoEntrada, DpRescisaoResultado } from "@/lib/dp/folha/rescisao";
 import { indexarRegras, resolverEmpresa } from "@/lib/dp/empresa";
 import {
   calcularFolhaPessoa,
@@ -125,6 +126,9 @@ export interface DpFolhaPessoa {
   /** Desligamento: o da Sólides, ou o dia em que a sincronização percebeu a saída (`desligamentoEstimado`). */
   desligamento: string | null;
   desligamentoEstimado: boolean;
+  /** Fim do 1º período de experiência e a duração ("2 x 45 dias") — o termo do contrato a prazo na rescisão. */
+  experienciaFim: string | null;
+  experienciaDuracao: string | null;
   /** Dependentes da Sólides — sugestão para o plano de saúde (nem todos estão no plano). */
   dependentesSolides: DpDependente[];
   temCadastro: boolean;
@@ -143,6 +147,14 @@ export interface DpFolhaRescisao {
   solidesId: number | null;
   nome: string;
   observacao: string | null;
+  /** Veio da calculadora: a entrada e o resultado (as verbas). null = valor digitado. */
+  calculo: DpRescisaoCalculo | null;
+}
+
+export interface DpRescisaoCalculo {
+  entrada: DpRescisaoEntrada;
+  resultado: DpRescisaoResultado;
+  vigencia: string | null;
 }
 
 export interface DpFolhaFechamento {
@@ -198,14 +210,21 @@ export function setorDoDepartamento(dep: string | null): string | null {
 }
 
 async function listRescisoes(db: AdminClient, companyId: string, competencia: string): Promise<DpFolhaRescisao[]> {
-  const { data, error } = await db
-    .from("dp_folha_rescisoes")
-    .select("id, data_pagamento, tipo, setor, valor, solides_id, nome, observacao")
-    .eq("company_id", companyId)
-    .eq("competencia", competencia)
-    .order("data_pagamento", { ascending: true, nullsFirst: false });
+  const ler = (cols: string) =>
+    db
+      .from("dp_folha_rescisoes")
+      .select(cols)
+      .eq("company_id", companyId)
+      .eq("competencia", competencia)
+      .order("data_pagamento", { ascending: true, nullsFirst: false });
+  const base = "id, data_pagamento, tipo, setor, valor, solides_id, nome, observacao";
+  let res = await ler(`${base}, calculo`);
+  // Sem a migration 20261021140000 a coluna não existe: a aba segue, sem a abertura do cálculo.
+  if (res.error?.code === "42703") res = await ler(base);
+  const { data, error } = res;
   check(error, "dp_folha_rescisoes");
-  return (data ?? []).map((r) => ({
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[]).map((r) => ({
     id: r.id as string,
     dataPagamento: r.data_pagamento as string | null,
     tipo: r.tipo as string,
@@ -214,6 +233,7 @@ async function listRescisoes(db: AdminClient, companyId: string, competencia: st
     solidesId: r.solides_id === null ? null : Number(r.solides_id),
     nome: r.nome as string,
     observacao: r.observacao as string | null,
+    calculo: (r.calculo as DpRescisaoCalculo | null | undefined) ?? null,
   }));
 }
 
@@ -253,23 +273,29 @@ export async function getFolhaEmpresa(
   };
 }
 
-async function montarFolha(db: AdminClient, companyId: string, competencia: string): Promise<DpFolhaEmpresa> {
-  const [vigencias, fechRes, regras, colabsRes, lancRes, rescisoes, pagina, avulsos] = await Promise.all([
-    listParametrosVigencias(db),
-    db.from("dp_folha_fechamentos").select("resultado, fechado_em, users(name, email)").eq("company_id", companyId).eq("competencia", competencia).maybeSingle(),
+/**
+ * As PESSOAS da folha da empresa no mês, com cadastro e lançamento: os ativos
+ * dela (pela regra de empresa do DP), o desligado no mês ou com lançamento
+ * naquela competência, e os avulsos. É a população da folha do mês — e do 13º,
+ * que usa a de dezembro, para as duas telas nunca discordarem de quem é da empresa.
+ */
+export async function listPessoasDaFolha(
+  db: AdminClient,
+  companyId: string,
+  competencia: string,
+): Promise<{ pessoas: DpFolhaPessoa[]; centros: Array<{ id: string; rotulo: string }> }> {
+  const [regras, colabsRes, lancRes, pagina, avulsos] = await Promise.all([
     listDpRegras(db),
     db
       .from("dp_colaboradores")
       .select(
-        "id, solides_id, nome, ativo, unidade_id, departamento_id, departamento_nome, tipo_contrato, salario, data_nascimento, dependentes, data_admissao, data_desligamento, desligado_detectado_em",
+        "id, solides_id, nome, ativo, unidade_id, departamento_id, departamento_nome, tipo_contrato, salario, data_nascimento, dependentes, data_admissao, data_desligamento, desligado_detectado_em, experiencia_fim, experiencia_duracao",
       )
       .order("nome"),
     db.from("dp_folha_lancamentos").select("*").eq("competencia", competencia),
-    listRescisoes(db, companyId, competencia),
     getDpCargosPagina(db, companyId).catch(() => null),
     listAvulsos(db, companyId),
   ]);
-  check(fechRes.error, "dp_folha_fechamentos");
   check(colabsRes.error, "dp_colaboradores");
   check(lancRes.error, "dp_folha_lancamentos");
 
@@ -331,6 +357,8 @@ async function montarFolha(db: AdminClient, companyId: string, competencia: stri
         (r.data_desligamento as string | null) ??
         (!r.ativo && r.desligado_detectado_em ? String(r.desligado_detectado_em).slice(0, 10) : null),
       desligamentoEstimado: !r.data_desligamento && !r.ativo && Boolean(r.desligado_detectado_em),
+      experienciaFim: (r.experiencia_fim as string | null) ?? null,
+      experienciaDuracao: (r.experiencia_duracao as string | null) ?? null,
       dependentesSolides: Array.isArray(r.dependentes) ? (r.dependentes as DpDependente[]) : [],
       temCadastro: Boolean(cad),
       temLancamento: Boolean(lan),
@@ -365,6 +393,8 @@ async function montarFolha(db: AdminClient, companyId: string, competencia: stri
       admissao: a.admissao,
       desligamento: a.desligamento,
       desligamentoEstimado: false,
+      experienciaFim: null,
+      experienciaDuracao: null,
       dependentesSolides: [],
       temCadastro: Boolean(cad),
       temLancamento: Boolean(lan),
@@ -374,6 +404,18 @@ async function montarFolha(db: AdminClient, companyId: string, competencia: stri
     });
   }
   pessoas.sort((x, y) => x.nome.localeCompare(y.nome, "pt-BR"));
+  return { pessoas, centros };
+}
+
+async function montarFolha(db: AdminClient, companyId: string, competencia: string): Promise<DpFolhaEmpresa> {
+  const [vigencias, fechRes, rescisoes, { pessoas, centros }] = await Promise.all([
+    listParametrosVigencias(db),
+    db.from("dp_folha_fechamentos").select("resultado, fechado_em, users(name, email)").eq("company_id", companyId).eq("competencia", competencia).maybeSingle(),
+    listRescisoes(db, companyId, competencia),
+    listPessoasDaFolha(db, companyId, competencia),
+  ]);
+  check(fechRes.error, "dp_folha_fechamentos");
+
 
   // Fechada: os números são o RETRATO gravado — mudar parâmetro ou cadastro depois não mexe nela.
   if (fechRes.data) {

@@ -440,8 +440,8 @@ export function calcularFolhaPessoa(e: DpFolhaEntrada, p: DpFolhaParametros, com
   if (e.desligamento && intervalo && e.desligamento <= ultimoDia(competencia)) {
     avisos.push(
       e.desligamentoEstimado
-        ? `Desligado (percebido em ${diaMes(e.desligamento)} — a Sólides não informou a data): confira os dias e lance a rescisão.`
-        : `Desligado em ${diaMes(e.desligamento)}: lance a rescisão na aba Rescisões.`,
+        ? `Desligado (percebido em ${diaMes(e.desligamento)} — a Sólides não informou a data): confira os dias e calcule a rescisão na aba Rescisões.`
+        : `Desligado em ${diaMes(e.desligamento)}: calcule a rescisão na aba Rescisões.`,
     );
   }
   // Férias do mês: o informado, ou o que as férias programadas põem neste mês.

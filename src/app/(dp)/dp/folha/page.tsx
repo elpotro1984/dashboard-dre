@@ -6,6 +6,7 @@ import { todayBR } from "@/lib/ctrl/datetime";
 import { getDpUser } from "@/lib/dp/auth";
 import { getDpEmpresaAtiva } from "@/lib/dp/empresa-ativa";
 import { competenciaValida } from "@/lib/dp/folha/parametros";
+import { dadosRescisaoDoAno } from "@/lib/dp/folha/decimo-terceiro-queries";
 import { getFolhaEmpresa } from "@/lib/dp/folha/queries";
 import { DpNaoInstaladoError } from "@/lib/dp/queries";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -27,6 +28,15 @@ export default async function DpFolhaPage({ searchParams }: { searchParams: { co
   try {
     const { ativa } = await getDpEmpresaAtiva(db, user);
     const folha = ativa ? await getFolhaEmpresa(db, ativa.id, competencia, { compararComAnterior: true }) : null;
+    // Para a calculadora de rescisão: 1ª parcela do 13º já paga e meses afastados. Acessório — falhar não derruba a folha.
+    const vazio = { primeira13: {}, afastados: {} };
+    const dadosRescisao =
+      ativa && folha
+        ? await dadosRescisaoDoAno(db, ativa.id, Number(competencia.slice(0, 4)), folha.pessoas.map((p) => p.solidesId)).catch((error) => {
+            console.error("[dp] dados da rescisão:", error instanceof Error ? error.message : error);
+            return vazio;
+          })
+        : vazio;
     return (
       <div className="mx-auto max-w-7xl space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -39,7 +49,7 @@ export default async function DpFolhaPage({ searchParams }: { searchParams: { co
           {ativa && <span className="text-sm font-medium text-ink-muted">{ativa.name}</span>}
         </div>
         {ativa && folha ? (
-          <DpFolhaClient key={`${ativa.id}-${competencia}`} folha={folha} companyName={ativa.name} gestor={user.role === "gestor"} />
+          <DpFolhaClient key={`${ativa.id}-${competencia}`} folha={folha} companyName={ativa.name} gestor={user.role === "gestor"} dadosRescisao={dadosRescisao} />
         ) : (
           <p className="text-sm text-ink-muted">Nenhuma empresa liberada para você no Departamento Pessoal.</p>
         )}

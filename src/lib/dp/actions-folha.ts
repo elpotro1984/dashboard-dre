@@ -31,6 +31,7 @@ import { chaveNome } from "@/lib/dp/cargos";
 import { getDpCargosPagina } from "@/lib/dp/cargos-queries";
 import { listDpRegras } from "@/lib/dp/queries";
 import { contratoDaPlanilha, empresasPorRotulo, validarAvulso, type DpAvulsoEntrada } from "@/lib/dp/folha/avulsos";
+import { calcularRescisao, ROTULO_TIPO_RESCISAO, validarEntradaRescisao, type DpRescisaoEntrada } from "@/lib/dp/folha/rescisao";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 // Escrita da FOLHA GERENCIAL. Toda action de uma empresa passa por
@@ -539,6 +540,59 @@ export async function excluirRescisao(input: { companyId: string; competencia: s
     if (error) throw error;
     revalidar();
     return { ok: true, data: undefined };
+  } catch (error) {
+    return falha(error);
+  }
+}
+
+/**
+ * Lança na aba Rescisões o resultado da CALCULADORA. O servidor recalcula a
+ * partir da entrada (com os parâmetros vigentes na competência) — a tela nunca
+ * manda o valor — e guarda entrada + verbas em `calculo`, para a linha se
+ * explicar depois. O valor lançado é o líquido do TRCT (nunca negativo).
+ */
+export async function lancarRescisaoCalculada(input: {
+  companyId: string;
+  competencia: string;
+  solidesId: number;
+  nome: string;
+  setor: string;
+  entrada: DpRescisaoEntrada;
+  dataPagamento: string | null;
+  observacao: string | null;
+}): Promise<DpFolhaResult<{ liquido: number }>> {
+  try {
+    const user = await requireDpEmpresa(input.companyId);
+    exigirCompetencia(input.competencia);
+    const admin = createAdminClient();
+    await exigirAberta(admin, input.companyId, input.competencia);
+    await pessoaDaEmpresa(admin, input.solidesId, input.companyId);
+    const nome = input.nome.trim();
+    if (!nome) throw new Error("Informe o nome do colaborador.");
+    if (input.dataPagamento && !/^\d{4}-\d{2}-\d{2}$/.test(input.dataPagamento)) throw new Error("Data inválida.");
+    const entrada = validarEntradaRescisao(input.entrada);
+    const vigencias = await listParametrosVigencias(admin);
+    const { vigencia, parametros } = parametrosDaCompetencia(vigencias, input.competencia);
+    const resultado = calcularRescisao(entrada, parametros);
+    const { error } = await admin.from("dp_folha_rescisoes").insert({
+      company_id: input.companyId,
+      competencia: input.competencia,
+      data_pagamento: input.dataPagamento || resultado.prazoPagamento,
+      tipo: ROTULO_TIPO_RESCISAO[entrada.tipo].slice(0, 120),
+      setor: input.setor.trim().slice(0, 120),
+      valor: Math.max(0, resultado.liquido),
+      solides_id: input.solidesId,
+      nome: nome.slice(0, 200),
+      observacao: (input.observacao ?? "").trim().slice(0, 500) || null,
+      calculo: { entrada, resultado, vigencia },
+      created_by: user.id,
+    });
+    if (error) {
+      if (error.code === "42703") throw new Error("Cálculo de rescisão ainda não instalado no banco (migration 20261021140000).");
+      throw error;
+    }
+    revalidar();
+    return { ok: true, data: { liquido: resultado.liquido } };
   } catch (error) {
     return falha(error);
   }

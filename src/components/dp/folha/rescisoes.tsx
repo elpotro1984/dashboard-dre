@@ -2,16 +2,18 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2 } from "lucide-react";
+import { Calculator, FileText, Plus, Trash2 } from "lucide-react";
 
 import { useToast } from "@/components/ui/toaster";
 import { formatDayBR } from "@/lib/ctrl/datetime";
 import { excluirRescisao, salvarRescisao } from "@/lib/dp/actions-folha";
 import type { DpRescisaoSugerida } from "@/lib/dp/folha/conferencia";
+import type { DpFolhaParametros } from "@/lib/dp/folha/parametros";
 import type { DpFolhaPessoa, DpFolhaRescisao } from "@/lib/dp/folha/queries";
 
 import { inputCls, NumCampo } from "./campos";
 import { brl } from "./formato";
+import { DpRescisaoCalculadora, DpRescisaoCalculoDialog } from "./rescisao-calculadora";
 
 const VAZIA = { dataPagamento: "", tipo: "", setor: "", valor: 0, solidesId: null as number | null, nome: "", observacao: "" };
 
@@ -23,6 +25,8 @@ export function DpFolhaRescisoes({
   pessoas,
   sugeridas,
   editavel,
+  parametros,
+  dadosRescisao,
 }: {
   companyId: string;
   competencia: string;
@@ -31,8 +35,14 @@ export function DpFolhaRescisoes({
   /** Desligados no mês (Sólides) sem rescisão lançada. */
   sugeridas: DpRescisaoSugerida[];
   editavel: boolean;
+  parametros: DpFolhaParametros;
+  /** 1ª parcela do 13º já paga e meses afastados no ano, por pessoa (para a calculadora). */
+  dadosRescisao: { primeira13: Record<number, number>; afastados: Record<number, string[]> };
 }) {
   const [nova, setNova] = useState(VAZIA);
+  const [calcular, setCalcular] = useState<number | null>(null);
+  const [verCalculo, setVerCalculo] = useState<DpFolhaRescisao | null>(null);
+  const pessoaCalc = calcular !== null ? pessoas.find((p) => p.solidesId === calcular) ?? null : null;
   const [pending, start] = useTransition();
   const router = useRouter();
   const { showToast } = useToast();
@@ -57,13 +67,20 @@ export function DpFolhaRescisoes({
                 {s.nome} — desligamento em {formatDayBR(s.data)}
               </span>
               {editavel && (
-                <button
-                  type="button"
-                  className="text-xs font-medium hover:underline"
-                  onClick={() => setNova({ ...VAZIA, dataPagamento: s.data, solidesId: s.solidesId, nome: s.nome, setor: s.setor ?? "" })}
-                >
-                  preencher abaixo
-                </button>
+                <span className="flex gap-3">
+                  {pessoas.some((p) => p.solidesId === s.solidesId) && (
+                    <button type="button" className="inline-flex items-center gap-1 text-xs font-medium hover:underline" onClick={() => setCalcular(s.solidesId)}>
+                      <Calculator className="h-3.5 w-3.5" /> calcular
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="text-xs text-ink-muted hover:underline"
+                    onClick={() => setNova({ ...VAZIA, dataPagamento: s.data, solidesId: s.solidesId, nome: s.nome, setor: s.setor ?? "" })}
+                  >
+                    digitar o valor
+                  </button>
+                </span>
               )}
             </div>
           ))}
@@ -97,7 +114,18 @@ export function DpFolhaRescisoes({
               <td className="py-1.5 pr-2">{r.setor || "—"}</td>
               <td className="py-1.5 pr-2 text-right tabular-nums">{brl(r.valor)}</td>
               <td className="py-1.5 pr-2 text-ink-muted">{r.observacao ?? ""}</td>
-              <td className="py-1.5 text-right">
+              <td className="whitespace-nowrap py-1.5 text-right">
+                {r.calculo && (
+                  <button
+                    type="button"
+                    className="rounded p-1 text-ink-muted hover:text-ink-primary"
+                    onClick={() => setVerCalculo(r)}
+                    aria-label={`Ver o cálculo da rescisão de ${r.nome}`}
+                    title="Ver o cálculo"
+                  >
+                    <FileText className="h-4 w-4" />
+                  </button>
+                )}
                 {editavel && (
                   <button
                     type="button"
@@ -123,6 +151,22 @@ export function DpFolhaRescisoes({
           )}
         </tbody>
       </table>
+
+      {editavel && (
+        <div className="flex flex-wrap items-center gap-2 text-sm">
+          <Calculator className="h-4 w-4 text-ink-muted" />
+          <span className="text-ink-muted">Calcular a rescisão de</span>
+          <select className={`${inputCls} w-72`} value="" onChange={(e) => e.target.value && setCalcular(Number(e.target.value))} aria-label="Calcular a rescisão de">
+            <option value="">escolha a pessoa…</option>
+            {pessoas.map((p) => (
+              <option key={p.solidesId} value={p.solidesId}>
+                {p.nome}
+                {p.ativo ? "" : " (desligado)"}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {editavel && (
         <div className="grid gap-2 rounded-md border border-dashed border-border p-3 sm:grid-cols-2 lg:grid-cols-[9rem_1fr_1fr_8rem_8rem_8rem_1fr_auto]">
@@ -171,8 +215,23 @@ export function DpFolhaRescisoes({
         </div>
       )}
       <p className="text-xs text-ink-muted">
-        Quem foi desligado na Sólides some do quadro ativo; a rescisão dele é lançada aqui. Quem já tem lançamento no mês continua na folha.
+        Quem foi desligado na Sólides some do quadro ativo; a rescisão dele é lançada aqui. Quem já tem lançamento no mês continua na folha. A
+        calculadora é gerencial — confira com o TRCT da contabilidade; o valor lançado é o líquido.
       </p>
+
+      {pessoaCalc && (
+        <DpRescisaoCalculadora
+          key={pessoaCalc.solidesId}
+          pessoa={pessoaCalc}
+          companyId={companyId}
+          competencia={competencia}
+          parametros={parametros}
+          primeira13={dadosRescisao.primeira13[pessoaCalc.solidesId] ?? 0}
+          afastados={dadosRescisao.afastados[pessoaCalc.solidesId] ?? []}
+          onClose={() => setCalcular(null)}
+        />
+      )}
+      {verCalculo?.calculo && <DpRescisaoCalculoDialog nome={verCalculo.nome} calculo={verCalculo.calculo} onClose={() => setVerCalculo(null)} />}
     </div>
   );
 }

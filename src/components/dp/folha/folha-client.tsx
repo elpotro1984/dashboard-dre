@@ -53,10 +53,12 @@ export function DpFolhaClient({
   folha,
   companyName,
   gestor,
+  dadosRescisao,
 }: {
   folha: DpFolhaEmpresa;
   companyName: string;
   gestor: boolean;
+  dadosRescisao: { primeira13: Record<number, number>; afastados: Record<number, string[]> };
 }) {
   const [aba, setAba] = useState<Aba>(folha.fechamento ? "folha" : "lancar");
   const [busca, setBusca] = useState("");
@@ -245,6 +247,8 @@ export function DpFolhaClient({
               pessoas={folha.pessoas}
               sugeridas={folha.rescisoesSugeridas ?? []}
               editavel={editavel}
+              parametros={folha.parametros}
+              dadosRescisao={dadosRescisao}
             />
           ) : (
             <div className="space-y-2">

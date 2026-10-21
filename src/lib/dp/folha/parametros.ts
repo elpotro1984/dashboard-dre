@@ -78,6 +78,14 @@ export interface DpFolhaParametros {
   alimentacoes: Array<{ nome: string; valor: number }>;
   /** Empresas (company_id) que pagam prêmio de férias, e o percentual sobre férias + 1/3. */
   premioFerias: { empresas: string[]; percentual: number };
+  /**
+   * 13º salário. `avosPrimeiraAte` = até que mês contam os avos da 1ª parcela.
+   * 12 (padrão) projeta o ano inteiro: quem está na empresa desde antes de
+   * janeiro recebe metade do salário, que é o que a Lei 4.749/1965 manda; 11 e
+   * 10 são as outras práticas de mercado (avos até novembro ou outubro) e
+   * pagam menos na 1ª para quem entrou no ano — a diferença vai na 2ª.
+   */
+  decimoTerceiro: { avosPrimeiraAte: 10 | 11 | 12 };
 }
 
 export interface DpEscala {
@@ -166,6 +174,7 @@ export const PARAMETROS_PADRAO: DpFolhaParametros = {
     { nome: "Alimentação URA", valor: 336 },
   ],
   premioFerias: { empresas: [], percentual: 0.1 },
+  decimoTerceiro: { avosPrimeiraAte: 12 },
 };
 
 // ── Competência ────────────────────────────────────────────────────────────
@@ -322,7 +331,14 @@ export function validarParametros(p: DpFolhaParametros): DpFolhaParametros {
       empresas: Array.from(new Set((p.premioFerias?.empresas ?? []).filter((x) => typeof x === "string"))),
       percentual: taxa(p.premioFerias?.percentual ?? 0, "Prêmio de férias"),
     },
+    decimoTerceiro: { avosPrimeiraAte: avosPrimeira(p.decimoTerceiro?.avosPrimeiraAte) },
   };
+}
+
+function avosPrimeira(v: unknown): 10 | 11 | 12 {
+  if (v === undefined || v === null) return PARAMETROS_PADRAO.decimoTerceiro.avosPrimeiraAte;
+  if (v !== 10 && v !== 11 && v !== 12) throw new Error("13º: os avos da 1ª parcela contam até outubro, novembro ou dezembro.");
+  return v;
 }
 
 /** Lê o jsonb gravado; o que faltar cai no padrão (vigência antiga não quebra quando um campo novo surge). */
@@ -335,6 +351,7 @@ export function lerParametros(dados: unknown): DpFolhaParametros {
     salarioFamilia: { ...PARAMETROS_PADRAO.salarioFamilia, ...(d.salarioFamilia ?? {}) },
     planos: { ...PARAMETROS_PADRAO.planos, ...(d.planos ?? {}) },
     premioFerias: { ...PARAMETROS_PADRAO.premioFerias, ...(d.premioFerias ?? {}) },
+    decimoTerceiro: { ...PARAMETROS_PADRAO.decimoTerceiro, ...(d.decimoTerceiro ?? {}) },
     escalas: (Array.isArray(d.escalas) ? d.escalas : PARAMETROS_PADRAO.escalas).map(normalizarEscala),
   };
 }

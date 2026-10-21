@@ -59,6 +59,8 @@ import {
   DP_SIMULACOES_PATH,
   DP_FOLHA_GRUPO_PATH,
   DP_FOLHA_PATH,
+  DP_DECIMO_PATH,
+  DP_NAV_KEY_DECIMO,
   DP_NAV_KEY_FOLHA,
   DP_NAV_KEY_FOLHA_GRUPO,
 } from "@/lib/auth/dp";
@@ -433,6 +435,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     label: "DEPARTAMENTO PESSOAL",
     items: [
       { key: DP_NAV_KEY_FOLHA, title: "Folha do mês", icon: Wallet, scope: "global", href: DP_FOLHA_PATH, dpAccess: true },
+      { key: DP_NAV_KEY_DECIMO, title: "13º salário", icon: Calendar, scope: "global", href: DP_DECIMO_PATH, dpAccess: true },
       { key: DP_NAV_KEY_COLABORADORES, title: "Colaboradores", icon: Users, scope: "global", href: DP_COLABORADORES_PATH, dpAccess: true },
       { key: DP_NAV_KEY_CARGOS, title: "Cargos e salários", icon: Sliders, scope: "global", href: DP_CARGOS_PATH, dpAccess: true },
       { key: DP_NAV_KEY_CENTROS, title: "Centros de custo", icon: Target, scope: "global", href: DP_CENTROS_PATH, dpAccess: true },

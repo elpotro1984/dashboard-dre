@@ -232,6 +232,17 @@ export function DpParametrosFolhaClient({
             <Rot t="Odonto por vida">
               <NumCampo valor={p.odontoPorVida} onChange={(v) => up((x) => { x.odontoPorVida = v; })} />
             </Rot>
+            <Rot t="Avos da 1ª parcela do 13º">
+              <select
+                className={inputCls}
+                value={p.decimoTerceiro.avosPrimeiraAte}
+                onChange={(e) => up((x) => { x.decimoTerceiro = { avosPrimeiraAte: Number(e.target.value) as 10 | 11 | 12 }; })}
+              >
+                <option value={12}>Ano todo (metade do salário)</option>
+                <option value={11}>Até novembro</option>
+                <option value={10}>Até outubro</option>
+              </select>
+            </Rot>
           </div>
         </Secao>
 
