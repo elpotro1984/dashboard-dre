@@ -69,6 +69,45 @@ export async function findProjetoByNome(
   return fallbackInativo;
 }
 
+// Lista os NOMES dos projetos ATIVOS cadastrados na empresa (CNPJ das
+// credenciais), para o seletor de Projeto da requisição. Pagina ListarProjetos,
+// descarta inativos e nomes vazios, deduplica e ordena (pt-BR). É só sugestão —
+// o que a requisição guarda é o NOME, resolvido/criado no envio por
+// ensureProjetoByNome. Best-effort: o chamador trata erro como lista vazia.
+export async function listProjetosAtivos(
+  appKey: string,
+  appSecret: string,
+): Promise<string[]> {
+  const nomes = new Set<string>();
+  let pagina = 1;
+  let total = 1;
+  do {
+    const { data, notFound } = await omieCall(
+      PROJETOS_URL,
+      "ListarProjetos",
+      appKey,
+      appSecret,
+      { pagina, registros_por_pagina: 500 },
+    );
+    if (notFound) break;
+    const arr =
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ((data.cadastro as any[] | undefined) ??
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (Object.values(data).find(Array.isArray) as any[] | undefined)) ??
+      [];
+    for (const p of arr) {
+      const inativo = String(p.inativo ?? p.cInativo ?? "").toUpperCase() === "S";
+      if (inativo) continue;
+      const nome = String(p.nome ?? p.cNome ?? "").replace(/\s+/g, " ").trim();
+      if (nome) nomes.add(nome);
+    }
+    total = Number(data.total_de_paginas ?? 1);
+    pagina += 1;
+  } while (pagina <= total);
+  return Array.from(nomes).sort((a, b) => a.localeCompare(b, "pt-BR"));
+}
+
 const PROJETO_NOME_MAX = 70;
 
 // Devolve o nCodProj do projeto com esse nome, criando-o na Omie quando não

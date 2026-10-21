@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, Loader2, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   resolveNamed,
@@ -9,6 +9,7 @@ import {
 } from "@/components/ctrl/request-detail-modal";
 import {
   deleteRequestByAdmin,
+  getProjetoEdicao,
   updateRequestByAdmin,
 } from "@/lib/ctrl/actions/request-admin";
 
@@ -67,6 +68,33 @@ export function EditRequestModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Projeto (Omie) — editável também depois da criação. Carrega o nome atual +
+  // as sugestões ao abrir (action com o mesmo gate da edição). `projetoCarregado`
+  // evita gravar null por engano se o usuário salvar antes de o carregamento
+  // terminar (o payload só inclui projeto_nome depois de carregado).
+  const [projetoNome, setProjetoNome] = useState("");
+  const [projetos, setProjetos] = useState<string[]>([]);
+  const [projetoCarregado, setProjetoCarregado] = useState(false);
+  const [criandoProjeto, setCriandoProjeto] = useState(false);
+  const [novoProjeto, setNovoProjeto] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    getProjetoEdicao(req.id)
+      .then((r) => {
+        if (!active) return;
+        setProjetoNome(r.atual ?? "");
+        setProjetos(r.sugestoes);
+        setProjetoCarregado(true);
+      })
+      .catch(() => {
+        if (active) setProjetoCarregado(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [req.id]);
+
   // Rateio: a divisão por setor (setor/valor) e o enquadramento (tipo, datas)
   // definem o orçamento POR PARCELA — editar isso aqui exigiria refazer a alçada
   // de cada parcela. Por segurança, no rateio o editar libera só título/descrição.
@@ -89,6 +117,7 @@ export function EditRequestModal({
       const res = await updateRequestByAdmin(req.id, {
         title: title.trim(),
         description: description.trim() || null,
+        ...(projetoCarregado ? { projeto_nome: projetoNome.trim() || null } : {}),
       });
       setSaving(false);
       if (res && "error" in res && res.error) {
@@ -121,6 +150,7 @@ export function EditRequestModal({
       due_date: dueDate || null,
       reference_month: monthNum,
       reference_year: yearNum,
+      ...(projetoCarregado ? { projeto_nome: projetoNome.trim() || null } : {}),
     });
     setSaving(false);
 
@@ -170,6 +200,74 @@ export function EditRequestModal({
               rows={2}
               className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
             />
+          </div>
+
+          {/* Projeto (Omie) — editável também na edição. "Sem Projeto" = vazio.
+              Não cruza orçamento, então não reroteia alçada. */}
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Projeto</label>
+            {criandoProjeto ? (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  autoFocus
+                  value={novoProjeto}
+                  onChange={(e) => setNovoProjeto(e.target.value)}
+                  placeholder="Nome do novo projeto"
+                  maxLength={70}
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                />
+                <button
+                  type="button"
+                  disabled={!novoProjeto.trim()}
+                  onClick={() => {
+                    setProjetoNome(novoProjeto.trim());
+                    setCriandoProjeto(false);
+                  }}
+                  className="shrink-0 rounded-md border px-3 text-sm font-medium hover:bg-muted disabled:opacity-50"
+                >
+                  Usar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCriandoProjeto(false);
+                    setNovoProjeto("");
+                  }}
+                  className="shrink-0 rounded-md border px-3 text-sm text-muted-foreground hover:bg-muted"
+                >
+                  Cancelar
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <select
+                  value={projetoNome}
+                  onChange={(e) => setProjetoNome(e.target.value)}
+                  disabled={!projetoCarregado}
+                  className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+                >
+                  <option value="">{projetoCarregado ? "Sem Projeto" : "Carregando…"}</option>
+                  {projetoNome && !projetos.includes(projetoNome) && (
+                    <option value={projetoNome}>{projetoNome} (novo)</option>
+                  )}
+                  {projetos.map((p) => (
+                    <option key={p} value={p}>{p}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={!projetoCarregado}
+                  onClick={() => {
+                    setNovoProjeto("");
+                    setCriandoProjeto(true);
+                  }}
+                  className="shrink-0 rounded-md border px-3 text-sm font-medium hover:bg-muted disabled:opacity-50"
+                >
+                  + novo
+                </button>
+              </div>
+            )}
           </div>
 
           {isRateio ? (

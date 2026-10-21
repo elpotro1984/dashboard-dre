@@ -5,6 +5,7 @@ import { getCtrlUser, hasCtrlRole } from "@/lib/ctrl/auth";
 import { getExpenseTypes } from "@/lib/ctrl/actions/expense-types";
 import { getSectors } from "@/lib/ctrl/actions/sectors";
 import { getSuppliers } from "@/lib/ctrl/actions/suppliers";
+import { listProjetosDaOrg } from "@/lib/ctrl/omie-projetos";
 import { getUsdConversion } from "@/lib/ai/usd";
 import { createClient } from "@/lib/supabase/server";
 
@@ -31,18 +32,27 @@ export default async function NovaRequisicaoPage() {
     redirect("/ctrl/requisicoes");
   }
 
-  const [sectorsSettled, expenseTypesSettled, suppliersSettled, eventsSettled, usdSettled] =
-    await Promise.allSettled([
-      getSectors(),
-      getExpenseTypes(),
-      // Fornecedor ainda não homologado (pendente) TAMBÉM aparece como opção: a
-      // requisição pode ser criada e segue o fluxo normal de aprovação. A trava
-      // do fornecedor foi movida para o Contas a Pagar (envio para pagamento).
-      // Rejeitado continua fora da lista.
-      getSuppliers(["aprovado", "pendente"]),
-      getActiveEvents(ctx.orgId),
-      getUsdConversion(),
-    ]);
+  const [
+    sectorsSettled,
+    expenseTypesSettled,
+    suppliersSettled,
+    eventsSettled,
+    projetosSettled,
+    usdSettled,
+  ] = await Promise.allSettled([
+    getSectors(),
+    getExpenseTypes(),
+    // Fornecedor ainda não homologado (pendente) TAMBÉM aparece como opção: a
+    // requisição pode ser criada e segue o fluxo normal de aprovação. A trava
+    // do fornecedor foi movida para o Contas a Pagar (envio para pagamento).
+    // Rejeitado continua fora da lista.
+    getSuppliers(["aprovado", "pendente"]),
+    getActiveEvents(ctx.orgId),
+    // Projetos já cadastrados no Omie da empresa ativa (sugestão do campo
+    // Projeto). Best-effort: falha → lista vazia (só "Sem Projeto" + criar).
+    listProjetosDaOrg(ctx.orgId),
+    getUsdConversion(),
+  ]);
 
   const sectors =
     sectorsSettled.status === "fulfilled"
@@ -57,6 +67,7 @@ export default async function NovaRequisicaoPage() {
       ? suppliersSettled.value.suppliers ?? []
       : [];
   const events = eventsSettled.status === "fulfilled" ? eventsSettled.value : [];
+  const projetos = projetosSettled.status === "fulfilled" ? projetosSettled.value : [];
   // Câmbio + IOF para compras em dólar (fallback defensivo se a config falhar).
   const usd =
     usdSettled.status === "fulfilled" ? usdSettled.value : { rate: 5, iofRate: 3.5 };
@@ -76,6 +87,7 @@ export default async function NovaRequisicaoPage() {
           expenseTypes={expenseTypes}
           suppliers={suppliers}
           events={events}
+          projetos={projetos}
           usdBrlRate={usd.rate}
           usdIofRate={usd.iofRate}
         />

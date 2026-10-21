@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClientIfAvailable } from "@/lib/supabase/admin";
 import { requireCtrlRole } from "@/lib/ctrl/auth";
 import { rerouteAfterAdminEdit } from "@/lib/ctrl/actions/requests";
+import { listProjetosDaOrg } from "@/lib/ctrl/omie-projetos";
 
 // Campos que, alterados numa requisição em aprovação, mudam o orçamento e exigem
 // recálculo da alçada (reroteamento).
@@ -30,6 +31,8 @@ export interface AdminEditRequestInput {
   due_date?: string | null;
   reference_month?: number;
   reference_year?: number;
+  /** Projeto (Omie). null = "Sem Projeto" (vazio no Omie). Não cruza orçamento. */
+  projeto_nome?: string | null;
 }
 
 // Uma requisição está "no Omie" (bloqueada para edição/exclusão) quando já foi
@@ -54,7 +57,7 @@ export async function updateRequestByAdmin(
   const { data: req, error: fetchErr } = await supabase
     .from("ctrl_requests")
     .select(
-      "id, status, deleted_at, omie_contapagar_codigo, is_rateio, title, description, amount, sector_id, expense_type_id, due_date, reference_month, reference_year",
+      "id, status, deleted_at, omie_contapagar_codigo, is_rateio, title, description, amount, sector_id, expense_type_id, due_date, reference_month, reference_year, projeto_nome",
     )
     .eq("id", requestId)
     .maybeSingle();
@@ -103,6 +106,9 @@ export async function updateRequestByAdmin(
     set("reference_month", data.reference_month);
   }
   if (data.reference_year !== undefined) set("reference_year", data.reference_year);
+  // Projeto (Omie) — não cruza orçamento, então nunca entra em BUDGET_FIELDS nem
+  // dispara reroteamento de alçada; só grava. "" → null ("Sem Projeto").
+  if (data.projeto_nome !== undefined) set("projeto_nome", data.projeto_nome?.trim() || null);
 
   if (Object.keys(changes).length === 0) return { ok: true as const, unchanged: true };
 
@@ -155,6 +161,25 @@ export async function updateRequestByAdmin(
   revalidatePath("/ctrl/orcamento");
   revalidatePath("/home");
   return { ok: true as const, rerouted: reroute?.status ?? null };
+}
+
+// Projeto da requisição para o modal de edição: o nome atual + as sugestões de
+// projetos cadastrados no Omie da empresa (org) da requisição. Mesmo gate da
+// edição. Best-effort nas sugestões (lista vazia se o Omie falhar/sem credencial).
+export async function getProjetoEdicao(
+  requestId: string,
+): Promise<{ atual: string | null; sugestoes: string[] }> {
+  await requireCtrlRole("admin", "contas_a_pagar");
+  const supabase = createAdminClientIfAvailable() ?? (await createClient());
+  const { data } = await supabase
+    .from("ctrl_requests")
+    .select("projeto_nome, org_id")
+    .eq("id", requestId)
+    .maybeSingle();
+  const atual = (data?.projeto_nome as string | null) ?? null;
+  const orgId = (data?.org_id as string | null) ?? null;
+  const sugestoes = await listProjetosDaOrg(orgId);
+  return { atual, sugestoes };
 }
 
 export async function deleteRequestByAdmin(requestId: string, reason?: string) {

@@ -10,6 +10,7 @@ import { syncSupplierToOmieUnit, type OmieSupplierData } from "@/lib/omie/client
 import {
   findContaPagarByCnpjValor,
   findProjetoByNome,
+  ensureProjetoByNome,
   incluirContaPagar,
   alterarContaPagarCategoria,
   alterarContaPagarProjeto,
@@ -247,7 +248,7 @@ export async function launchRequestToOmie(
   const { data: request, error: reqErr } = await supabase
     .from("ctrl_requests")
     .select(
-      "id, request_number, supplier_id, expense_type_id, sector_id, amount, due_date, reference_month, reference_year, description, payment_method, installment_total, supplier_issues_invoice, invoice_number, barcode, pix_key, attachment_path, invoice_attachment_path, extra_attachment_paths, event_id, is_rateio, omie_categoria_override",
+      "id, request_number, supplier_id, expense_type_id, sector_id, amount, due_date, reference_month, reference_year, description, payment_method, installment_total, supplier_issues_invoice, invoice_number, barcode, pix_key, attachment_path, invoice_attachment_path, extra_attachment_paths, event_id, projeto_nome, is_rateio, omie_categoria_override",
     )
     .eq("id", requestId)
     .maybeSingle();
@@ -538,10 +539,12 @@ export async function launchRequestToOmie(
     ? null
     : buildIntegracaoBancaria(request, supplier);
 
-  // Projeto Omie a partir do EVENTO da requisição. O evento (ControlHub) casa
-  // com o projeto cadastrado na Omie da empresa pagadora pelo NOME. Só vincula
-  // se o projeto já existir na Omie (não criamos projeto); sem match, lança sem
-  // projeto. Best-effort: falha na consulta não derruba o lançamento.
+  // Projeto Omie. Precedência: EVENTO (Viva) que casa com um projeto JÁ
+  // cadastrado na Omie (reuso) SOBREPÕE; sem evento — ou evento que não resolve
+  // a um projeto — vale o campo "Projeto" da requisição, que é CRIADO/reusado na
+  // Omie da empresa pagadora (ensureProjetoByNome). "Sem Projeto" (projeto_nome
+  // nulo) → título sem projeto. Best-effort: falha ao resolver não derruba o
+  // lançamento (o retry tolerante a projeto, abaixo, cobre o resto).
   let codigoProjeto: number | null = null;
   if (request.event_id) {
     const { data: eventRow } = await supabase
@@ -556,6 +559,15 @@ export async function launchRequestToOmie(
       } catch (e) {
         console.error("[contapagar] falha ao resolver projeto do evento no Omie:", e);
       }
+    }
+  }
+  // Evento não definiu projeto → usa o campo "Projeto" da requisição (cria/reusa).
+  const projetoNomeReq = ((request.projeto_nome as string | null) ?? "").trim();
+  if (!codigoProjeto && projetoNomeReq) {
+    try {
+      codigoProjeto = await ensureProjetoByNome(appKey, appSecret, projetoNomeReq);
+    } catch (e) {
+      console.error("[contapagar] falha ao criar/resolver o projeto da requisição no Omie:", e);
     }
   }
 

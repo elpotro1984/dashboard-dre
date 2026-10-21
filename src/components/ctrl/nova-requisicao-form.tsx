@@ -39,6 +39,8 @@ interface Props {
   expenseTypes: CtrlExpenseType[];
   suppliers: CtrlSupplier[];
   events?: CtrlEvent[];
+  /** Nomes de projetos já cadastrados no Omie da empresa ativa (sugestões). */
+  projetos?: string[];
   /** Câmbio USD→BRL (dólar comercial do painel de IA) para compras em dólar. */
   usdBrlRate?: number;
   /** Alíquota de IOF (%) somada nas compras em dólar. */
@@ -57,6 +59,7 @@ export function NovaRequisicaoForm({
   expenseTypes,
   suppliers,
   events = [],
+  projetos = [],
   usdBrlRate = 5,
   usdIofRate = 3.5,
 }: Props) {
@@ -94,6 +97,13 @@ export function NovaRequisicaoForm({
   // evento"; caso contrário, o id do evento. O solicitante precisa escolher
   // conscientemente — não vem pré-preenchido com "Nenhum evento".
   const [eventId, setEventId] = useState("");
+
+  // ── Projeto (Omie) ───────────────────────────────────────────────────────────
+  // "" = Sem Projeto (campo vazio no Omie). Pode ser um projeto já existente
+  // (da lista) ou um novo digitado no "+ novo" — criado na Omie só no envio.
+  const [projetoNome, setProjetoNome] = useState("");
+  const [criandoProjeto, setCriandoProjeto] = useState(false);
+  const [novoProjeto, setNovoProjeto] = useState("");
 
   // ── Payment fields — auto-filled from supplier, still editable ──────────────
   const [favorecido, setFavorecido] = useState("");
@@ -741,6 +751,7 @@ export function NovaRequisicaoForm({
       justification: (form.get("justification") as string) || undefined,
       observations: (form.get("observations") as string) || undefined,
       event_id: eventId && eventId !== "none" ? eventId : undefined,
+      projeto_nome: projetoNome.trim() || undefined,
       supplier_issues_invoice: supplierIssuesInvoice || undefined,
       invoice_number:
         supplierIssuesInvoice === "sim_apos_pagamento"
@@ -1076,6 +1087,74 @@ export function NovaRequisicaoForm({
             normalmente — ela vai para aprovação como qualquer outra. O pagamento é que só será
             enviado depois que o fornecedor for homologado na tela de Fornecedores.
           </p>
+        )}
+      </div>
+
+      {/* Projeto — vira o campo Projeto do contas a pagar na Omie. "Sem Projeto"
+          deixa vazio. "+ novo" cadastra um projeto (criado na Omie no envio).
+          Para a Viva, um Evento que case com um projeto existente sobrepõe isto. */}
+      <div className="space-y-1.5">
+        <label htmlFor="projeto" className={LABEL_CLS}>Projeto</label>
+        {criandoProjeto ? (
+          <div className="flex gap-2">
+            <input
+              type="text"
+              autoFocus
+              value={novoProjeto}
+              onChange={(e) => setNovoProjeto(e.target.value)}
+              placeholder="Nome do novo projeto"
+              maxLength={70}
+              className={INPUT_CLS}
+            />
+            <button
+              type="button"
+              className="shrink-0 rounded-md border px-3 text-sm font-medium hover:bg-muted disabled:opacity-50"
+              disabled={!novoProjeto.trim()}
+              onClick={() => {
+                setProjetoNome(novoProjeto.trim());
+                setCriandoProjeto(false);
+              }}
+            >
+              Usar
+            </button>
+            <button
+              type="button"
+              className="shrink-0 rounded-md border px-3 text-sm text-muted-foreground hover:bg-muted"
+              onClick={() => {
+                setCriandoProjeto(false);
+                setNovoProjeto("");
+              }}
+            >
+              Cancelar
+            </button>
+          </div>
+        ) : (
+          <div className="flex gap-2">
+            <select
+              id="projeto"
+              value={projetoNome}
+              onChange={(e) => setProjetoNome(e.target.value)}
+              className={INPUT_CLS}
+            >
+              <option value="">Sem Projeto</option>
+              {projetoNome && !projetos.includes(projetoNome) && (
+                <option value={projetoNome}>{projetoNome} (novo)</option>
+              )}
+              {projetos.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="shrink-0 rounded-md border px-3 text-sm font-medium hover:bg-muted"
+              onClick={() => {
+                setNovoProjeto("");
+                setCriandoProjeto(true);
+              }}
+            >
+              + novo
+            </button>
+          </div>
         )}
       </div>
 

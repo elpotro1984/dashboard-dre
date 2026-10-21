@@ -82,6 +82,10 @@ export interface CreateRequestInput {
   justification?: string;
   observations?: string;
   event_id?: string;
+  // Projeto (Omie): nome do projeto escolhido/criado na requisição. undefined/""
+  // = "Sem Projeto" (vazio no Omie). Resolvido no envio por ensureProjetoByNome.
+  // Sem cruzamento com orçamento.
+  projeto_nome?: string;
   supplier_issues_invoice?: string;
   invoice_number?: string;
   // Payment fields
@@ -477,6 +481,7 @@ async function createRateioRequest(
       justification: data.justification ?? null,
       observations: data.observations ?? null,
       event_id: data.event_id ?? null,
+      projeto_nome: data.projeto_nome?.trim() || null,
       supplier_issues_invoice: data.supplier_issues_invoice ?? null,
       invoice_number: data.invoice_number ?? null,
       bank_name: data.bank_name ?? null,
@@ -750,6 +755,7 @@ export async function createRequest(data: CreateRequestInput) {
     justification: data.justification ?? null,
     observations: data.observations ?? null,
     event_id: data.event_id ?? null,
+    projeto_nome: data.projeto_nome?.trim() || null,
     supplier_issues_invoice: data.supplier_issues_invoice ?? null,
     invoice_number: data.invoice_number ?? null,
     bank_name: data.bank_name ?? null,
