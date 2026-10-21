@@ -23,7 +23,8 @@ function addDaysIso(ymd: string, n: number): string {
 }
 
 // Domingo de Páscoa (algoritmo de Meeus/Jones/Butcher, calendário gregoriano).
-function easterSundayIso(year: number): string {
+// Exportado: o calendário de TRABALHO da folha do DP (dp/folha/calendario.ts) parte dele.
+export function easterSundayIso(year: number): string {
   const a = year % 19;
   const b = Math.floor(year / 100);
   const c = year % 100;

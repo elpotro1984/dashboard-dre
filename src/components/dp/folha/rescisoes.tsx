@@ -7,6 +7,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { useToast } from "@/components/ui/toaster";
 import { formatDayBR } from "@/lib/ctrl/datetime";
 import { excluirRescisao, salvarRescisao } from "@/lib/dp/actions-folha";
+import type { DpRescisaoSugerida } from "@/lib/dp/folha/conferencia";
 import type { DpFolhaPessoa, DpFolhaRescisao } from "@/lib/dp/folha/queries";
 
 import { inputCls, NumCampo } from "./campos";
@@ -20,12 +21,15 @@ export function DpFolhaRescisoes({
   competencia,
   rescisoes,
   pessoas,
+  sugeridas,
   editavel,
 }: {
   companyId: string;
   competencia: string;
   rescisoes: DpFolhaRescisao[];
   pessoas: DpFolhaPessoa[];
+  /** Desligados no mês (Sólides) sem rescisão lançada. */
+  sugeridas: DpRescisaoSugerida[];
   editavel: boolean;
 }) {
   const [nova, setNova] = useState(VAZIA);
@@ -44,6 +48,27 @@ export function DpFolhaRescisoes({
 
   return (
     <div className="space-y-3">
+      {sugeridas.length > 0 && (
+        <div className="space-y-1 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm">
+          <p className="font-medium text-amber-900 dark:text-amber-200">Desligados neste mês sem rescisão lançada</p>
+          {sugeridas.map((s) => (
+            <div key={s.solidesId} className="flex flex-wrap items-center justify-between gap-2">
+              <span>
+                {s.nome} — desligamento em {formatDayBR(s.data)}
+              </span>
+              {editavel && (
+                <button
+                  type="button"
+                  className="text-xs font-medium hover:underline"
+                  onClick={() => setNova({ ...VAZIA, dataPagamento: s.data, solidesId: s.solidesId, nome: s.nome, setor: s.setor ?? "" })}
+                >
+                  preencher abaixo
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
       <table className="w-full text-sm">
         <thead className="text-left text-ink-muted">
           <tr className="border-b border-border">

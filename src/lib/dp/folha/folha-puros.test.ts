@@ -14,7 +14,10 @@ import {
   vigenciaPara,
 } from "@/lib/dp/folha/parametros";
 import { categoriasDaLinha, SEM_GRUPO, totalizar } from "@/lib/dp/folha/totais";
-import { herdarDoMesAnterior, mesclarLancamento, validarCadastro, validarLancamento } from "@/lib/dp/folha/validacao";
+import { herdarDoMesAnterior, mesclarLancamento, validarCadastro, validarLancamento, validarRecorrentes } from "@/lib/dp/folha/validacao";
+import { colaboradorNoMes, diasComerciais, diasUteis, feriadosNacionais, intervaloNoMes } from "@/lib/dp/folha/calendario";
+import { rescisoesSugeridas, variacoesContraAnterior } from "@/lib/dp/folha/conferencia";
+import { lerParametros } from "@/lib/dp/folha/parametros";
 
 // ── parâmetros ────────────────────────────────────────────────────────────
 test("vigência: a mais recente que não passa da competência", () => {
@@ -65,6 +68,8 @@ function linha(over: Partial<DpFolhaEntrada>, lan: Partial<typeof LANCAMENTO_PAD
       contrato: "clt",
       salario: 1800,
       nascimento: null,
+      admissao: null,
+      desligamento: null,
       cadastro: { ...CADASTRO_VAZIO, planoDependentes: [], salarioFamiliaCotas: 1 },
       lancamento: { ...LANCAMENTO_PADRAO, ajustes: {}, ...lan },
       ...over,
@@ -148,7 +153,10 @@ test("lerControle: rótulos de categoria viram cadastro; AFASTADO vira situaçã
   assert.equal(a.lancamento.inssFerias, 120);
   assert.equal(b.cadastro.transporteTipo, "gasolina");
   assert.equal(b.cadastro.transporteValor, 97.5);
-  assert.equal(b.lancamento.diasTrabalhados, 30); // célula vazia = mês cheio
+  assert.equal(b.lancamento.diasTrabalhados, null); // célula vazia = automático
+  assert.equal(a.lancamento.inssFerias, 120);
+  assert.equal(b.lancamento.inssFerias, null); // vazio = calculado como no recibo
+  assert.equal(b.lancamento.vtDiasDesconto, 0); // vazio na planilha = VT do mês cheio
   assert.ok("erro" in lerControle([["NOME"], ["x"]], P));
 });
 
@@ -186,7 +194,7 @@ test("grade: a edição do mês preserva os ajustes manuais já gravados", () =>
   assert.deepEqual(mesclarLancamento(null, campos).ajustes, {});
 });
 
-test("mês novo herda só situação e outros descontos (dias, férias, copart. e ajustes começam do zero)", () => {
+test("mês novo herda só a SITUAÇÃO (o que se repete com valor é fixo do cadastro)", () => {
   const anterior = {
     ...LANCAMENTO_PADRAO,
     situacao: "afastado" as const,
@@ -197,7 +205,7 @@ test("mês novo herda só situação e outros descontos (dias, férias, copart. 
   };
   const r = herdarDoMesAnterior(anterior, { ...LANCAMENTO_PADRAO, ajustes: {} });
   assert.equal(r.situacao, "afastado");
-  assert.equal(r.outrosDescontos, 250);
+  assert.equal(r.outrosDescontos, 0);
   assert.equal(r.diasFerias, 0);
   assert.equal(r.coparticipacao, 0);
   assert.deepEqual(r.ajustes, {});
@@ -253,4 +261,88 @@ test("validarAvulso: nome obrigatório, CPF de 11 dígitos, desligamento depois 
   assert.throws(() => validarAvulso({ ...ok, nome: " " }), /nome/);
   assert.throws(() => validarAvulso({ ...ok, cpf: "123" }), /CPF/);
   assert.throws(() => validarAvulso({ ...ok, desligamento: "2025-12-31" }), /antes da admissão/);
+});
+
+// ── calendário ────────────────────────────────────────────────────────────
+test("feriados nacionais de trabalho: fixos + Sexta-feira Santa; Carnaval e Corpus Christi não", () => {
+  const f = feriadosNacionais(2026);
+  assert.ok(f.has("2026-09-07"));
+  assert.ok(f.has("2026-11-20"));
+  assert.ok(f.has("2026-04-03")); // Páscoa 2026 = 05/04
+  assert.ok(!f.has("2026-02-17")); // terça de Carnaval
+  assert.ok(!f.has("2026-06-04")); // Corpus Christi
+});
+
+test("dias úteis do mês: set/2026 21 (seg–sex) e 25 (seg–sáb); nov/2026 19; feriado extra desconta", () => {
+  assert.equal(diasUteis("2026-09-01", "2026-09-30", 5), 21);
+  assert.equal(diasUteis("2026-09-01", "2026-09-30", 6), 25);
+  assert.equal(diasUteis("2026-11-01", "2026-11-30", 5), 19);
+  assert.equal(diasUteis("2026-09-01", "2026-09-30", 5, new Set(["2026-09-08"])), 20);
+  assert.equal(diasUteis("2026-09-30", "2026-09-01", 5), 0);
+});
+
+test("dias comerciais do contrato no mês: inteiro = 30 (até em fevereiro); pedaço = dias corridos", () => {
+  assert.equal(diasComerciais(intervaloNoMes(null, null, "2026-02")), 30);
+  assert.equal(diasComerciais(intervaloNoMes("2026-09-16", null, "2026-09")), 15);
+  assert.equal(diasComerciais(intervaloNoMes(null, "2026-09-10", "2026-09")), 10);
+  assert.equal(diasComerciais(intervaloNoMes("2026-10-31", null, "2026-10")), 1);
+  assert.equal(diasComerciais(intervaloNoMes("2026-11-01", null, "2026-10")), 0);
+  assert.equal(intervaloNoMes(null, "2026-08-31", "2026-09"), null);
+});
+
+test("quem entra na folha do mês: ativo sim, contratação futura não, desligado só no mês da saída", () => {
+  const base = { ativo: true, admissao: "2020-01-01", desligamento: null, desligadoDetectadoEm: null, temLancamento: false };
+  assert.equal(colaboradorNoMes(base, "2026-09"), true);
+  assert.equal(colaboradorNoMes({ ...base, admissao: "2026-10-01" }, "2026-09"), false);
+  assert.equal(colaboradorNoMes({ ...base, ativo: false, desligamento: "2026-09-12" }, "2026-09"), true);
+  assert.equal(colaboradorNoMes({ ...base, ativo: false, desligamento: "2026-08-12" }, "2026-09"), false);
+  assert.equal(colaboradorNoMes({ ...base, ativo: false, desligadoDetectadoEm: "2026-09-20T08:00:00Z" }, "2026-09"), true);
+  assert.equal(colaboradorNoMes({ ...base, ativo: false, desligamento: "2026-08-12", temLancamento: true }, "2026-09"), true);
+});
+
+// ── conferências ─────────────────────────────────────────────────────────
+test("rescisão sugerida: desligado no mês e sem rescisão lançada", () => {
+  const pessoas = [
+    { solidesId: 1, nome: "A", setor: null, desligamento: "2026-09-12" },
+    { solidesId: 2, nome: "B", setor: null, desligamento: "2026-09-20" },
+    { solidesId: 3, nome: "C", setor: null, desligamento: "2026-08-30" },
+    { solidesId: 4, nome: "D", setor: null, desligamento: null },
+  ];
+  assert.deepEqual(rescisoesSugeridas(pessoas, [{ solidesId: 2 }], "2026-09").map((x) => x.solidesId), [1]);
+});
+
+test("variação contra o mês anterior: só acima do limite, só quem tinha valor antes", () => {
+  const v = variacoesContraAnterior(
+    [{ solidesId: 1, valor: 1300 }, { solidesId: 2, valor: 1100 }, { solidesId: 3, valor: 500 }, { solidesId: 4, valor: 900 }],
+    [{ solidesId: 1, valor: 1000 }, { solidesId: 2, valor: 1000 }, { solidesId: 3, valor: 0 }, { solidesId: 5, valor: 1000 }],
+    0.2,
+  );
+  assert.deepEqual(Array.from(v.keys()), [1]);
+  assert.ok(Math.abs(v.get(1)!.variacao - 0.3) < 1e-9);
+  assert.equal(variacoesContraAnterior([{ solidesId: 1, valor: 5000 }], [{ solidesId: 1, valor: 1000 }], 0).size, 0);
+});
+
+// ── validação dos fixos e dos automáticos ────────────────────────────────
+test("fixos: descrição, valor > 0 e fim depois do início", () => {
+  const ok = { id: "x", tipo: "desconto" as const, descricao: " Consignado ", valor: 200, inicio: "2026-09", fim: "2027-08" };
+  assert.deepEqual(validarRecorrentes([ok])[0].descricao, "Consignado");
+  assert.throws(() => validarRecorrentes([{ ...ok, descricao: "" }]), /descrição/);
+  assert.throws(() => validarRecorrentes([{ ...ok, valor: 0 }]), /valor inválido/);
+  assert.throws(() => validarRecorrentes([{ ...ok, fim: "2026-08" }]), /antes do início/);
+  assert.throws(() => validarRecorrentes([{ ...ok, inicio: "2026-13" }]), /início/);
+});
+
+test("lançamento: dias, INSS das férias e dias de VT aceitam vazio (= automático)", () => {
+  const l = validarLancamento({ ...LANCAMENTO_PADRAO, ajustes: {} });
+  assert.equal(l.diasTrabalhados, null);
+  assert.equal(l.inssFerias, null);
+  assert.equal(l.vtDiasDesconto, null);
+  assert.equal(validarLancamento({ ...LANCAMENTO_PADRAO, ajustes: {}, diasTrabalhados: 0 }).diasTrabalhados, 0);
+});
+
+test("parâmetros de vigência antiga: escala sem dias/semana é deduzida do nome", () => {
+  const p = lerParametros({ escalas: [{ nome: "6 dias", diasMes: 25 }, { nome: "5 dias BH", diasMes: 21 }] });
+  assert.deepEqual(p.escalas.map((e) => e.diasSemana), [6, 5]);
+  assert.deepEqual(p.escalas[0].feriados, []);
+  assert.equal(p.vtPeloCalendario, true);
 });

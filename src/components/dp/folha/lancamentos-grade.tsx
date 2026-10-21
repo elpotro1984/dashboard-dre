@@ -11,14 +11,17 @@ import { rotuloCompetencia, somarMeses, type DpFolhaParametros } from "@/lib/dp/
 import type { DpFolhaPessoa } from "@/lib/dp/folha/queries";
 import type { DpCamposGrade } from "@/lib/dp/folha/validacao";
 
-import { inputCls, NumCampo } from "./campos";
+import { inputCls, NumCampo, NumCampoOpcional } from "./campos";
 import { brl0 } from "./formato";
 
 type CampoNum = Exclude<keyof DpCamposGrade, "situacao">;
+/** Os três que o sistema preenche sozinho: campo vazio = automático, com o valor em cinza. */
+type CampoAuto = "diasTrabalhados" | "inssFerias" | "vtDiasDesconto";
+const AUTO = new Set<CampoNum>(["diasTrabalhados", "inssFerias", "vtDiasDesconto"]);
 const COLUNAS: Array<{ k: CampoNum; rotulo: string; casas?: number }> = [
+  { k: "diasFerias", rotulo: "Dias férias", casas: 2 },
   { k: "diasTrabalhados", rotulo: "Dias trab.", casas: 2 },
   { k: "outrosProventos", rotulo: "Outros proventos" },
-  { k: "diasFerias", rotulo: "Dias férias", casas: 2 },
   { k: "inssFerias", rotulo: "INSS férias" },
   { k: "coparticipacao", rotulo: "Copart." },
   { k: "outrosDescontos", rotulo: "Outros desc." },
@@ -130,8 +133,8 @@ export function DpLancamentosGrade({
       if (!res.ok) showToast({ title: "Não concluído", description: res.error, variant: "destructive" });
       else
         showToast({
-          title: res.data.trazidos ? `${res.data.trazidos} pessoa(s) com situação ou desconto trazidos` : "Nada a trazer",
-          description: `De ${rotuloCompetencia(somarMeses(competencia, -1))}: só situação (afastado/licença) e outros descontos, e só para quem ainda não tem lançamento neste mês.`,
+          title: res.data.trazidos ? `${res.data.trazidos} pessoa(s) afastada(s) ou de licença trazida(s)` : "Nada a trazer",
+          description: `De ${rotuloCompetencia(somarMeses(competencia, -1))}: só a situação, e só para quem ainda não tem lançamento neste mês. Descontos que se repetem ficam como fixos no cadastro da pessoa.`,
           variant: "success",
         });
       router.refresh();
@@ -156,6 +159,9 @@ export function DpLancamentosGrade({
         contrato: grupoContratoFolha(p.tipoContrato),
         salario: p.salario,
         nascimento: p.nascimento,
+        admissao: p.admissao,
+        desligamento: p.desligamento,
+        desligamentoEstimado: p.desligamentoEstimado,
         cadastro: p.cadastro,
         lancamento: { ...c, ajustes: p.lancamento.ajustes },
       },
@@ -224,6 +230,11 @@ export function DpLancamentosGrade({
                       {p.nome}
                     </button>
                     {sujo && <span className="ml-1 text-xs text-amber-700 dark:text-amber-400">não salvo</span>}
+                    {r.recorrentes.length > 0 && (
+                      <span className="ml-1 text-xs text-ink-muted" title={r.recorrentes.map((x) => `${x.descricao}${x.parcela ? ` ${x.parcela}` : ""}`).join(" · ")}>
+                        · {r.recorrentes.length} fixo(s)
+                      </span>
+                    )}
                     {Object.keys(p.lancamento.ajustes).length > 0 && (
                       <span className="ml-1 text-xs text-ink-muted">· {Object.keys(p.lancamento.ajustes).length} ajuste(s)</span>
                     )}
@@ -245,8 +256,28 @@ export function DpLancamentosGrade({
                   </td>
                   {COLUNAS.map((col) => (
                     <td key={col.k} className="py-1 pr-2">
+                      {AUTO.has(col.k) ? (
+                        <NumCampoOpcional
+                          valor={c[col.k as CampoAuto]}
+                          auto={r.automatico[col.k as CampoAuto]}
+                          onChange={(v) => set(p.solidesId, col.k, v)}
+                          disabled={!editavel}
+                          casas={col.casas ?? 2}
+                          ariaLabel={`${col.rotulo} de ${p.nome}`}
+                          extra={{
+                            "data-grade-col": col.k,
+                            "data-grade-linha": i,
+                            onKeyDown: (e) => {
+                              if (e.key === "Enter") {
+                                e.preventDefault();
+                                pular(col.k, e.shiftKey ? i - 1 : i + 1);
+                              }
+                            },
+                          }}
+                        />
+                      ) : (
                       <NumCampo
-                        valor={c[col.k]}
+                        valor={c[col.k] as number}
                         onChange={(v) => set(p.solidesId, col.k, v)}
                         disabled={!editavel}
                         casas={col.casas ?? 2}
@@ -263,6 +294,7 @@ export function DpLancamentosGrade({
                           },
                         }}
                       />
+                      )}
                     </td>
                   ))}
                   <td className="py-1 pr-2 text-right font-medium tabular-nums">{brl0(r.quintoDiaUtil)}</td>

@@ -26,7 +26,7 @@ export default async function DpFolhaPage({ searchParams }: { searchParams: { co
   const db = createAdminClient();
   try {
     const { ativa } = await getDpEmpresaAtiva(db, user);
-    const folha = ativa ? await getFolhaEmpresa(db, ativa.id, competencia) : null;
+    const folha = ativa ? await getFolhaEmpresa(db, ativa.id, competencia, { compararComAnterior: true }) : null;
     return (
       <div className="mx-auto max-w-7xl space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">

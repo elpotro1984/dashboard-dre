@@ -2,6 +2,8 @@ import "server-only";
 
 import { getDpCargosPagina, rotuloCentro } from "@/lib/dp/cargos-queries";
 import { avulsoNaCompetencia, type DpAvulso } from "@/lib/dp/folha/avulsos";
+import { colaboradorNoMes } from "@/lib/dp/folha/calendario";
+import { rescisoesSugeridas, textoVariacao, variacoesContraAnterior, type DpRescisaoSugerida } from "@/lib/dp/folha/conferencia";
 import { casarNome } from "@/lib/dp/folha/importacao";
 import { indexarRegras, resolverEmpresa } from "@/lib/dp/empresa";
 import {
@@ -14,7 +16,7 @@ import {
   type DpFolhaLancamento,
   type DpFolhaResultado,
 } from "@/lib/dp/folha/motor";
-import { lerParametros, PARAMETROS_PADRAO, vigenciaPara, type DpFolhaParametros } from "@/lib/dp/folha/parametros";
+import { lerParametros, PARAMETROS_PADRAO, rotuloCompetencia, somarMeses, vigenciaPara, type DpFolhaParametros } from "@/lib/dp/folha/parametros";
 import { DpNaoInstaladoError, listDpRegras } from "@/lib/dp/queries";
 import type { DpDependente } from "@/lib/dp/solides/parse";
 import type { createAdminClient } from "@/lib/supabase/admin";
@@ -77,21 +79,25 @@ function toCadastro(r: any): DpFolhaCadastro {
     homeOffice: Number(r.home_office),
     semInss: Boolean(r.sem_inss),
     setorFolha: (r.setor_folha as string | null) ?? null,
+    recorrentes: Array.isArray(r.recorrentes) ? r.recorrentes : [],
   };
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function toLancamento(r: any): DpFolhaLancamento {
+  // NULL é "automático", e Number(null) é 0 — a conversão crua transformaria o
+  // automático em "zero informado" (ex.: zero dias trabalhados).
+  const opc = (v: unknown) => (v === null || v === undefined ? null : Number(v));
   return {
     situacao: r.situacao,
-    diasTrabalhados: Number(r.dias_trabalhados),
+    diasTrabalhados: opc(r.dias_trabalhados),
     outrosProventos: Number(r.outros_proventos),
     diasFerias: Number(r.dias_ferias),
-    inssFerias: Number(r.inss_ferias),
+    inssFerias: opc(r.inss_ferias),
     coparticipacao: Number(r.coparticipacao),
     outrosDescontos: Number(r.outros_descontos),
     comissao: Number(r.comissao),
-    vtDiasDesconto: Number(r.vt_dias_desconto),
+    vtDiasDesconto: opc(r.vt_dias_desconto),
     ajustes: r.ajustes && typeof r.ajustes === "object" ? r.ajustes : {},
   };
 }
@@ -114,6 +120,10 @@ export interface DpFolhaPessoa {
   tipoContrato: string | null;
   salario: number | null;
   nascimento: string | null;
+  admissao: string | null;
+  /** Desligamento: o da Sólides, ou o dia em que a sincronização percebeu a saída (`desligamentoEstimado`). */
+  desligamento: string | null;
+  desligamentoEstimado: boolean;
   /** Dependentes da Sólides — sugestão para o plano de saúde (nem todos estão no plano). */
   dependentesSolides: DpDependente[];
   temCadastro: boolean;
@@ -151,6 +161,8 @@ export interface DpFolhaEmpresa {
   rescisoes: DpFolhaRescisao[];
   /** Centros de custo da empresa (cadastro do DP), para escolher na folha. */
   centros: Array<{ id: string; rotulo: string }>;
+  /** Desligados no mês sem rescisão lançada. */
+  rescisoesSugeridas: DpRescisaoSugerida[];
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -208,14 +220,48 @@ async function listRescisoes(db: AdminClient, companyId: string, competencia: st
  * Quem entra na folha da empresa no mês: os ATIVOS dela, e o desligado que já
  * tem lançamento naquela competência (o último mês de quem saiu).
  */
-export async function getFolhaEmpresa(db: AdminClient, companyId: string, competencia: string): Promise<DpFolhaEmpresa> {
+/**
+ * A folha da empresa no mês. Com `compararComAnterior`, cada pessoa cujo total
+ * mudou mais que o limite dos parâmetros contra o mês anterior ganha um aviso
+ * (só na leitura da tela — o retrato do fechamento não leva esse aviso).
+ */
+export async function getFolhaEmpresa(
+  db: AdminClient,
+  companyId: string,
+  competencia: string,
+  opcoes: { compararComAnterior?: boolean } = {},
+): Promise<DpFolhaEmpresa> {
+  const folha = await montarFolha(db, companyId, competencia);
+  if (!opcoes.compararComAnterior) return folha;
+  const anteriorComp = somarMeses(competencia, -1);
+  const anterior = await montarFolha(db, companyId, anteriorComp).catch(() => null);
+  if (!anterior || anterior.linhas.length === 0) return folha;
+  const vars = variacoesContraAnterior(
+    folha.linhas.map((l) => ({ solidesId: l.solidesId, valor: l.totalGeral })),
+    anterior.linhas.map((l) => ({ solidesId: l.solidesId, valor: l.totalGeral })),
+    folha.parametros.variacaoAlerta,
+  );
+  if (vars.size === 0) return folha;
+  const rotulo = rotuloCompetencia(anteriorComp);
+  return {
+    ...folha,
+    linhas: folha.linhas.map((l) => {
+      const v = vars.get(l.solidesId);
+      return v ? { ...l, avisos: [...l.avisos, textoVariacao(v, rotulo)] } : l;
+    }),
+  };
+}
+
+async function montarFolha(db: AdminClient, companyId: string, competencia: string): Promise<DpFolhaEmpresa> {
   const [vigencias, fechRes, regras, colabsRes, lancRes, rescisoes, pagina, avulsos] = await Promise.all([
     listParametrosVigencias(db),
     db.from("dp_folha_fechamentos").select("resultado, fechado_em, users(name, email)").eq("company_id", companyId).eq("competencia", competencia).maybeSingle(),
     listDpRegras(db),
     db
       .from("dp_colaboradores")
-      .select("id, solides_id, nome, ativo, unidade_id, departamento_id, departamento_nome, tipo_contrato, salario, data_nascimento, dependentes")
+      .select(
+        "id, solides_id, nome, ativo, unidade_id, departamento_id, departamento_nome, tipo_contrato, salario, data_nascimento, dependentes, data_admissao, data_desligamento, desligado_detectado_em",
+      )
       .order("nome"),
     db.from("dp_folha_lancamentos").select("*").eq("competencia", competencia),
     listRescisoes(db, companyId, competencia),
@@ -236,7 +282,19 @@ export async function getFolhaEmpresa(db: AdminClient, companyId: string, compet
       },
       idx,
     );
-    return e.companyId === companyId && (r.ativo || lancPorSolides.has(Number(r.solides_id)));
+    return (
+      e.companyId === companyId &&
+      colaboradorNoMes(
+        {
+          ativo: Boolean(r.ativo),
+          admissao: r.data_admissao as string | null,
+          desligamento: r.data_desligamento as string | null,
+          desligadoDetectadoEm: r.desligado_detectado_em as string | null,
+          temLancamento: lancPorSolides.has(Number(r.solides_id)),
+        },
+        competencia,
+      )
+    );
   });
 
   const avulsosDoMes = avulsos.filter((a) => avulsoNaCompetencia(a, competencia) || (a.unificadoCom === null && lancPorSolides.has(a.pessoaId)));
@@ -267,6 +325,11 @@ export async function getFolhaEmpresa(db: AdminClient, companyId: string, compet
       tipoContrato: r.tipo_contrato as string | null,
       salario: r.salario === null ? null : Number(r.salario),
       nascimento: (r.data_nascimento as string | null) ?? null,
+      admissao: (r.data_admissao as string | null) ?? null,
+      desligamento:
+        (r.data_desligamento as string | null) ??
+        (!r.ativo && r.desligado_detectado_em ? String(r.desligado_detectado_em).slice(0, 10) : null),
+      desligamentoEstimado: !r.data_desligamento && !r.ativo && Boolean(r.desligado_detectado_em),
       dependentesSolides: Array.isArray(r.dependentes) ? (r.dependentes as DpDependente[]) : [],
       temCadastro: Boolean(cad),
       temLancamento: Boolean(lan),
@@ -298,6 +361,9 @@ export async function getFolhaEmpresa(db: AdminClient, companyId: string, compet
       tipoContrato: a.tipoContrato,
       salario: a.salario,
       nascimento: a.nascimento,
+      admissao: a.admissao,
+      desligamento: a.desligamento,
+      desligamentoEstimado: false,
       dependentesSolides: [],
       temCadastro: Boolean(cad),
       temLancamento: Boolean(lan),
@@ -326,12 +392,24 @@ export async function getFolhaEmpresa(db: AdminClient, companyId: string, compet
       linhas: Array.isArray(res?.linhas) ? res.linhas : [],
       rescisoes: Array.isArray(res?.rescisoes) ? res.rescisoes : rescisoes,
       centros,
+      rescisoesSugeridas: rescisoesSugeridas(pessoas, Array.isArray(res?.rescisoes) ? res.rescisoes : rescisoes, competencia),
     };
   }
 
   const { vigencia, parametros } = parametrosDaCompetencia(vigencias, competencia);
   const linhas = pessoas.map((p) => calcularFolhaPessoa(entradaDe(p, companyId), parametros, competencia));
-  return { companyId, competencia, vigencia, parametros, fechamento: null, pessoas, linhas, rescisoes, centros };
+  return {
+    companyId,
+    competencia,
+    vigencia,
+    parametros,
+    fechamento: null,
+    pessoas,
+    linhas,
+    rescisoes,
+    centros,
+    rescisoesSugeridas: rescisoesSugeridas(pessoas, rescisoes, competencia),
+  };
 }
 
 export function entradaDe(p: DpFolhaPessoa, companyId: string): DpFolhaEntrada {
@@ -344,6 +422,9 @@ export function entradaDe(p: DpFolhaPessoa, companyId: string): DpFolhaEntrada {
     contrato: grupoContratoFolha(p.tipoContrato),
     salario: p.salario,
     nascimento: p.nascimento,
+    admissao: p.admissao,
+    desligamento: p.desligamento,
+    desligamentoEstimado: p.desligamentoEstimado,
     cadastro: p.cadastro,
     lancamento: p.lancamento,
   };

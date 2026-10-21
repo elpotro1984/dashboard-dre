@@ -63,3 +63,54 @@ export function NumCampo({
     </span>
   );
 }
+
+/**
+ * Número que pode ficar VAZIO = automático. O valor que o sistema usaria
+ * aparece como sugestão (cinza) no campo; digitar vence o automático, apagar
+ * volta a ele. Usado em dias trabalhados, INSS do recibo de férias e dias de VT.
+ */
+export function NumCampoOpcional({
+  valor,
+  auto,
+  onChange,
+  disabled,
+  casas = 2,
+  ariaLabel,
+  extra,
+}: {
+  valor: number | null;
+  auto: number;
+  onChange: (v: number | null) => void;
+  disabled?: boolean;
+  casas?: number;
+  ariaLabel?: string;
+  extra?: React.InputHTMLAttributes<HTMLInputElement> & Record<`data-${string}`, string | number>;
+}) {
+  const [txt, setTxt] = useState(valor === null ? "" : fmt(valor, casas));
+  useEffect(() => setTxt(valor === null ? "" : fmt(valor, casas)), [valor, casas]);
+  const [erro, setErro] = useState(false);
+  return (
+    <input
+      value={txt}
+      disabled={disabled}
+      inputMode="decimal"
+      aria-label={ariaLabel}
+      placeholder={fmt(auto, casas)}
+      title={valor === null ? "Automático — digite para informar outro valor" : "Informado — apague para voltar ao automático"}
+      {...extra}
+      onChange={(e) => {
+        setTxt(e.target.value);
+        if (!e.target.value.trim()) {
+          setErro(false);
+          onChange(null);
+          return;
+        }
+        const n = lerNumeroBR(e.target.value);
+        setErro(n === null);
+        if (n !== null) onChange(n);
+      }}
+      onBlur={() => !erro && setTxt(valor === null ? "" : fmt(valor, casas))}
+      className={`${inputCls} ${valor === null ? "placeholder:text-ink-muted" : "font-medium"} ${erro ? "border-red-500" : ""}`}
+    />
+  );
+}

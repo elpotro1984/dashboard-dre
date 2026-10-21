@@ -223,9 +223,10 @@ export async function salvarLancamentosEmLote(input: {
 }
 
 /**
- * Começa o mês a partir do anterior: traz SITUAÇÃO (afastado/licença) e OUTROS
- * DESCONTOS (consignado, pensão) de quem tinha lançamento no mês anterior e
- * ainda não tem neste. Nunca sobrescreve o que já foi lançado no mês.
+ * Começa o mês a partir do anterior: traz a SITUAÇÃO (afastado/licença) de quem
+ * tinha lançamento no mês anterior e ainda não tem neste. Valores que se
+ * repetem são fixos no cadastro (`recorrentes`). Nunca sobrescreve o que já foi
+ * lançado no mês.
  */
 export async function herdarMesAnterior(input: { companyId: string; competencia: string }): Promise<DpFolhaResult<{ trazidos: number }>> {
   try {
@@ -249,8 +250,8 @@ export async function herdarMesAnterior(input: { companyId: string; competencia:
         const l = herdarDoMesAnterior(lancamentoDoBanco(r), { ...LANCAMENTO_PADRAO, ajustes: {} });
         return { competencia: input.competencia, solides_id: Number(r.solides_id), ...linhaLancamento(l), updated_by: user.id, updated_at: agora };
       })
-      // Só vale a pena gravar quem tinha algo a herdar.
-      .filter((r) => r.situacao !== "normal" || Number(r.outros_descontos) !== 0);
+      // Só vale a pena gravar quem tinha algo a herdar (afastado / licença).
+      .filter((r) => r.situacao !== "normal");
     if (linhas.length) {
       const { error } = await admin.from("dp_folha_lancamentos").insert(linhas);
       if (error) throw error;

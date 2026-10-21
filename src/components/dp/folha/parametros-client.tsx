@@ -226,6 +226,9 @@ export function DpParametrosFolhaClient({
             <Rot t="Limite de remuneração">
               <NumCampo valor={p.salarioFamilia.limiteRemuneracao ?? 0} onChange={(v) => up((x) => { x.salarioFamilia.limiteRemuneracao = v > 0 ? v : null; })} />
             </Rot>
+            <Rot t="Alerta de variação no mês">
+              <NumCampo valor={pct(p.variacaoAlerta)} onChange={(v) => up((x) => { x.variacaoAlerta = dePct(v); })} sufixo="%" />
+            </Rot>
             <Rot t="Odonto por vida">
               <NumCampo valor={p.odontoPorVida} onChange={(v) => up((x) => { x.odontoPorVida = v; })} />
             </Rot>
@@ -288,17 +291,65 @@ export function DpParametrosFolhaClient({
         </div>
       </Secao>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <Secao
+        titulo="Escalas e dias de VT"
+        nota="Pelo calendário, cada mês tem os seus dias úteis (nov/2026: 19 em seg–sex). Feriados nacionais entram sozinhos; municipais e da empresa vão na escala."
+      >
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={p.vtPeloCalendario} onChange={(e) => up((x) => { x.vtPeloCalendario = e.target.checked; })} />
+          Dias de VT pelo calendário real do mês (desmarcado: usa os dias fixos de cada escala)
+        </label>
+        <div className="space-y-2">
+          {p.escalas.map((e, i) => (
+            // A chave leva a vigência: o campo de feriados é não-controlado e precisa renascer ao trocar de vigência.
+            <div key={`${vig}-${nova}-${i}`} className="grid grid-cols-2 items-end gap-2 sm:grid-cols-[1fr_8rem_7rem_2fr_auto]">
+              <Rot t="Escala">
+                <input className={inputCls} value={e.nome} onChange={(ev) => up((x) => { x.escalas[i].nome = ev.target.value; })} />
+              </Rot>
+              <Rot t="Dias por semana">
+                <select className={inputCls} value={e.diasSemana} onChange={(ev) => up((x) => { x.escalas[i].diasSemana = ev.target.value === "6" ? 6 : 5; })}>
+                  <option value={5}>seg–sex</option>
+                  <option value={6}>seg–sáb</option>
+                </select>
+              </Rot>
+              <Rot t="Dias fixos">
+                <NumCampo valor={e.diasMes} onChange={(v) => up((x) => { x.escalas[i].diasMes = Math.round(v); })} casas={0} />
+              </Rot>
+              <Rot t="Feriados locais (dd/mm/aaaa, separados por vírgula)">
+                <input
+                  className={inputCls}
+                  defaultValue={e.feriados.map((d) => `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`).join(", ")}
+                  onBlur={(ev) =>
+                    up((x) => {
+                      x.escalas[i].feriados = ev.target.value
+                        .split(/[,;\s]+/)
+                        .map((t) => /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(t.trim()))
+                        .filter((m): m is RegExpExecArray => Boolean(m))
+                        .map((m) => `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`);
+                    })
+                  }
+                />
+              </Rot>
+              <button type="button" className="p-1 text-ink-muted hover:text-red-700" onClick={() => up((x) => { x.escalas.splice(i, 1); })} aria-label="Remover escala">
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="text-xs hover:underline"
+            onClick={() => up((x) => { x.escalas.push({ nome: "", diasMes: 21, diasSemana: 5, feriados: [] }); })}
+          >
+            + escala
+          </button>
+        </div>
+      </Secao>
+
+      <div className="grid gap-4 lg:grid-cols-2">
         <ListaNomeValor
           titulo="Bilhetes de transporte (R$ por dia)"
           itens={p.bilhetes.map((b) => ({ nome: b.nome, valor: b.valorDiario }))}
           onChange={(l) => up((x) => { x.bilhetes = l.map((b) => ({ nome: b.nome, valorDiario: b.valor })); })}
-        />
-        <ListaNomeValor
-          titulo="Escalas (dias de VT no mês)"
-          itens={p.escalas.map((e) => ({ nome: e.nome, valor: e.diasMes }))}
-          onChange={(l) => up((x) => { x.escalas = l.map((e) => ({ nome: e.nome, diasMes: e.valor })); })}
-          casas={0}
         />
         <ListaNomeValor
           titulo="Opções de alimentação (R$ mensal)"

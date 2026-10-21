@@ -60,6 +60,9 @@ CREATE TABLE IF NOT EXISTS public.dp_folha_cadastro (
   -- Setor da FOLHA (a classificação do DP, que difere do departamento da
   -- Sólides em 37 de 112 pessoas na planilha de set/2026). NULL = o da Sólides.
   setor_folha           TEXT,
+  -- Proventos e descontos FIXOS com prazo (consignado, pensão, gratificação):
+  -- [{ id, tipo: 'provento'|'desconto', descricao, valor, inicio: 'AAAA-MM', fim: 'AAAA-MM'|null }]
+  recorrentes           JSONB NOT NULL DEFAULT '[]'::jsonb,
   conta                 TEXT,
   observacao            TEXT,
   updated_by            UUID REFERENCES public.users(id) ON DELETE SET NULL,
@@ -70,14 +73,17 @@ CREATE TABLE IF NOT EXISTS public.dp_folha_lancamentos (
   competencia        TEXT NOT NULL CHECK (competencia ~ '^\d{4}-(0[1-9]|1[0-2])$'),
   solides_id         BIGINT NOT NULL CHECK (solides_id <> 0),
   situacao           TEXT NOT NULL DEFAULT 'normal' CHECK (situacao IN ('normal', 'afastado', 'licenca_maternidade')),
-  dias_trabalhados   NUMERIC(5, 2) NOT NULL DEFAULT 30 CHECK (dias_trabalhados BETWEEN 0 AND 31),
+  -- NULL = AUTOMÁTICO (admissão/desligamento da Sólides menos as férias); número = informado.
+  dias_trabalhados   NUMERIC(5, 2) CHECK (dias_trabalhados BETWEEN 0 AND 31),
   outros_proventos   NUMERIC(12, 2) NOT NULL DEFAULT 0,
   dias_ferias        NUMERIC(5, 2) NOT NULL DEFAULT 0 CHECK (dias_ferias BETWEEN 0 AND 31),
-  inss_ferias        NUMERIC(12, 2) NOT NULL DEFAULT 0 CHECK (inss_ferias >= 0),
+  -- NULL = calculado como no recibo (INSS sobre férias + 1/3); número = informado.
+  inss_ferias        NUMERIC(12, 2) CHECK (inss_ferias >= 0),
   coparticipacao     NUMERIC(12, 2) NOT NULL DEFAULT 0,
   outros_descontos   NUMERIC(12, 2) NOT NULL DEFAULT 0,
   comissao           NUMERIC(12, 2) NOT NULL DEFAULT 0,
-  vt_dias_desconto   NUMERIC(5, 2) NOT NULL DEFAULT 0 CHECK (vt_dias_desconto BETWEEN 0 AND 31),
+  -- NULL = automático (dias úteis do período, proporcionais); número = dias a descontar do mês cheio.
+  vt_dias_desconto   NUMERIC(5, 2) CHECK (vt_dias_desconto BETWEEN 0 AND 31),
   -- { "irrf": { "valor": 123.45, "motivo": "..." }, ... } — só colunas de cálculo (motor.ts, COLUNAS_AJUSTAVEIS).
   ajustes            JSONB NOT NULL DEFAULT '{}'::jsonb,
   observacao         TEXT,

@@ -103,6 +103,7 @@ function numeroDoRotulo(s: string): number | null {
 }
 
 const igual = (a: string, b: string) => normalizarNome(a) === normalizarNome(b);
+const vazio = (v: unknown) => v === undefined || v === null || (typeof v === "string" && !v.trim());
 
 // ── a linha da planilha ────────────────────────────────────────────────────
 
@@ -218,13 +219,16 @@ export function lerControle(
     const lancamento: DpFolhaLancamento = {
       ...LANCAMENTO_PADRAO,
       situacao: contrato === "afastado" ? "afastado" : contrato === "licenca maternidade" ? "licenca_maternidade" : "normal",
-      diasTrabalhados: col("dias") >= 0 && cel("dias") !== "" && cel("dias") != null ? lerNumero(cel("dias")) : 30,
+      // Célula vazia = automático (admissão/desligamento − férias); preenchida = o que o DP informou.
+      diasTrabalhados: vazio(cel("dias")) ? null : lerNumero(cel("dias")),
       outrosProventos: lerNumero(cel("outros")),
       diasFerias: lerNumero(cel("diasFerias")),
-      inssFerias: Math.abs(lerNumero(cel("inssFerias"))),
+      // Vazio = calculado como no recibo (a planilha tratava como zero, e o INSS do mês saía em dobro).
+      inssFerias: vazio(cel("inssFerias")) ? null : Math.abs(lerNumero(cel("inssFerias"))),
       coparticipacao: lerNumero(cel("copart")),
       outrosDescontos: lerNumero(cel("outrosDesc")),
       comissao: lerNumero(cel("comissao")),
+      // Aqui vazio é ZERO de propósito: na planilha, vazio era "VT do mês cheio", e é isso que se importa.
       vtDiasDesconto: lerNumero(cel("vtDias")),
     };
 

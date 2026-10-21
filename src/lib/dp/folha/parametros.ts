@@ -64,12 +64,38 @@ export interface DpFolhaParametros {
   odontoPorVida: number;
   /** Bilhetes de transporte: valor por DIA trabalhado. */
   bilhetes: Array<{ nome: string; valorDiario: number }>;
-  /** Escalas: quantos dias de VT/gasolina entram num mês. */
-  escalas: Array<{ nome: string; diasMes: number }>;
+  /**
+   * Escalas de trabalho. Com `vtPeloCalendario`, os dias de VT saem dos dias
+   * úteis REAIS do mês (seg–sex ou seg–sáb, sem feriado nacional nem os
+   * `feriados` da escala — municipais e da empresa); sem ele, de `diasMes` fixo.
+   */
+  escalas: DpEscala[];
+  /** Dias de VT pelo calendário real do mês (true) ou pelo número fixo da escala (false). */
+  vtPeloCalendario: boolean;
+  /** Avisa quando o total do mês de uma pessoa varia mais que isto contra o mês anterior (0,2 = 20%). */
+  variacaoAlerta: number;
   /** Opções de alimentação usadas na planilha (para a importação e para escolher na tela). */
   alimentacoes: Array<{ nome: string; valor: number }>;
   /** Empresas (company_id) que pagam prêmio de férias, e o percentual sobre férias + 1/3. */
   premioFerias: { empresas: string[]; percentual: number };
+}
+
+export interface DpEscala {
+  nome: string;
+  diasMes: number;
+  diasSemana: 5 | 6;
+  /** Datas (AAAA-MM-DD) sem expediente além dos feriados nacionais: municipais, ponto da empresa. */
+  feriados: string[];
+}
+
+/** Escala sem dias/semana gravado (vigência antiga): "6 dias…" é seg–sáb, o resto seg–sex. */
+function normalizarEscala(e: Partial<DpEscala> & { nome: string; diasMes: number }): DpEscala {
+  return {
+    nome: e.nome,
+    diasMes: e.diasMes,
+    diasSemana: e.diasSemana === 6 || (e.diasSemana === undefined && /^\s*6/.test(e.nome)) ? 6 : 5,
+    feriados: Array.isArray(e.feriados) ? e.feriados.filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)) : [],
+  };
 }
 
 export const PARAMETROS_PADRAO: DpFolhaParametros = {
@@ -114,12 +140,16 @@ export const PARAMETROS_PADRAO: DpFolhaParametros = {
     { nome: "Bilhete Único 2+0,5+0,5", valorDiario: 11.25 },
     { nome: "Dinheiro", valorDiario: 15 },
   ],
+  // Os 21/25 da planilha são os dias úteis de set/2026 (07/09 é feriado); pelo
+  // calendário, cada mês tem os seus — nov/2026 tem 19 em seg–sex.
   escalas: [
-    { nome: "5 dias", diasMes: 21 },
-    { nome: "5 dias BH", diasMes: 21 },
-    { nome: "5 dias PET", diasMes: 21 },
-    { nome: "6 dias", diasMes: 25 },
+    { nome: "5 dias", diasMes: 21, diasSemana: 5, feriados: [] },
+    { nome: "5 dias BH", diasMes: 21, diasSemana: 5, feriados: [] },
+    { nome: "5 dias PET", diasMes: 21, diasSemana: 5, feriados: [] },
+    { nome: "6 dias", diasMes: 25, diasSemana: 6, feriados: [] },
   ],
+  vtPeloCalendario: true,
+  variacaoAlerta: 0.2,
   alimentacoes: [
     { nome: "Alimentação 100,00", valor: 100 },
     { nome: "Alimentação 200,00", valor: 200 },
@@ -280,8 +310,13 @@ export function validarParametros(p: DpFolhaParametros): DpFolhaParametros {
     escalas: nomeado(p.escalas, "Escalas").map((e) => {
       const d = num(e.diasMes);
       if (d === null || d < 0 || d > 31) throw new Error(`Escala ${e.nome}: dias inválidos.`);
-      return { nome: e.nome, diasMes: d };
+      if (e.diasSemana !== 5 && e.diasSemana !== 6) throw new Error(`Escala ${e.nome}: dias por semana tem de ser 5 ou 6.`);
+      const ruins = (e.feriados ?? []).filter((x) => !/^\d{4}-\d{2}-\d{2}$/.test(x));
+      if (ruins.length) throw new Error(`Escala ${e.nome}: data de feriado inválida (${ruins[0]}).`);
+      return { nome: e.nome, diasMes: d, diasSemana: e.diasSemana, feriados: Array.from(new Set(e.feriados ?? [])).sort() };
     }),
+    vtPeloCalendario: Boolean(p.vtPeloCalendario),
+    variacaoAlerta: taxa(p.variacaoAlerta ?? PARAMETROS_PADRAO.variacaoAlerta, "Alerta de variação"),
     alimentacoes: nomeado(p.alimentacoes, "Alimentação").map((a) => ({ nome: a.nome, valor: valor(a.valor, `Alimentação ${a.nome}`) })),
     premioFerias: {
       empresas: Array.from(new Set((p.premioFerias?.empresas ?? []).filter((x) => typeof x === "string"))),
@@ -300,5 +335,6 @@ export function lerParametros(dados: unknown): DpFolhaParametros {
     salarioFamilia: { ...PARAMETROS_PADRAO.salarioFamilia, ...(d.salarioFamilia ?? {}) },
     planos: { ...PARAMETROS_PADRAO.planos, ...(d.planos ?? {}) },
     premioFerias: { ...PARAMETROS_PADRAO.premioFerias, ...(d.premioFerias ?? {}) },
+    escalas: (Array.isArray(d.escalas) ? d.escalas : PARAMETROS_PADRAO.escalas).map(normalizarEscala),
   };
 }

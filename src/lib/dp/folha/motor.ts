@@ -26,6 +26,7 @@
 // fora da base de INSS/FGTS/IRRF, sócio tratado como PJ.
 // ============================================================================
 
+import { diaMes, diasComerciais, diasUteis, intervaloNoMes, primeiroDia, ultimoDia } from "@/lib/dp/folha/calendario";
 import {
   FAIXAS_ETARIAS,
   faixaEtaria,
@@ -67,6 +68,36 @@ export interface DpFolhaCadastro {
   semInss: boolean;
   /** Setor da folha (classificação do DP); null = o departamento da Sólides. */
   setorFolha: string | null;
+  /**
+   * Proventos e descontos FIXOS, com início e (opcional) fim: consignado em 12
+   * parcelas, pensão, gratificação. Entram sozinhos em todo mês do período e
+   * param no fim — é o que tira do DP a redigitação mensal da mesma coluna.
+   */
+  recorrentes: DpRecorrente[];
+}
+
+export interface DpRecorrente {
+  id: string;
+  tipo: "provento" | "desconto";
+  descricao: string;
+  valor: number;
+  /** Competência (AAAA-MM) do 1º mês. */
+  inicio: string;
+  /** Competência do último mês; null = sem prazo. */
+  fim: string | null;
+}
+
+const mesesEntre = (a: string, b: string) => {
+  const [ya, ma] = a.split("-").map(Number);
+  const [yb, mb] = b.split("-").map(Number);
+  return (yb - ya) * 12 + (mb - ma);
+};
+
+/** Os fixos que valem no mês, com a parcela ("3/12") quando há prazo. */
+export function recorrentesDoMes(lista: DpRecorrente[], competencia: string): Array<DpRecorrente & { parcela: string | null }> {
+  return (lista ?? [])
+    .filter((r) => r.inicio <= competencia && (r.fim === null || competencia <= r.fim))
+    .map((r) => ({ ...r, parcela: r.fim ? `${mesesEntre(r.inicio, competencia) + 1}/${mesesEntre(r.inicio, r.fim) + 1}` : null }));
 }
 
 export const CADASTRO_VAZIO: DpFolhaCadastro = {
@@ -84,22 +115,38 @@ export const CADASTRO_VAZIO: DpFolhaCadastro = {
   homeOffice: 0,
   semInss: false,
   setorFolha: null,
+  recorrentes: [],
 };
 
 /** O que muda todo mês (a aba CONTROLE, parte variável). */
 export interface DpFolhaLancamento {
   situacao: DpSituacaoFolha;
-  diasTrabalhados: number;
+  /**
+   * Dias trabalhados. NULL = AUTOMÁTICO: o contrato no mês (admissão e
+   * desligamento da Sólides) menos as férias, que vão no recibo. Em set/2026 a
+   * regra reproduziu os 16 casos de férias da planilha (dias + férias = 30).
+   * Número = informado (falta, afastamento parcial) e vence o automático.
+   */
+  diasTrabalhados: number | null;
   /** "Insuficiência de saldo / outros proventos": entra no salário do mês. */
   outrosProventos: number;
   diasFerias: number;
-  /** INSS já descontado no recibo de férias (entra como dedução). */
-  inssFerias: number;
+  /**
+   * INSS já descontado no recibo de férias (entra como dedução). NULL =
+   * calculado como no recibo (INSS sobre férias + 1/3); em set/2026 bateu com o
+   * digitado em 9 de 16 — o resto (férias vindas do mês anterior, médias) se informa.
+   */
+  inssFerias: number | null;
   coparticipacao: number;
   outrosDescontos: number;
   comissao: number;
-  /** Dias de VT/gasolina a descontar (faltas, férias, home office). */
-  vtDiasDesconto: number;
+  /**
+   * Dias de VT/gasolina a descontar do mês cheio. NULL = automático: os dias
+   * úteis do período trabalhado, proporcionais aos dias trabalhados (ESTIMADO
+   * quando há férias ou falta, porque as datas delas não chegam). Número =
+   * informado, sobre os dias úteis do mês inteiro (a regra da planilha).
+   */
+  vtDiasDesconto: number | null;
   /**
    * Valores DIGITADOS por cima do cálculo, com motivo. É como o DP trabalha na
    * planilha (39 células de setembro/2026 eram valor digitado sobre a fórmula:
@@ -111,14 +158,14 @@ export interface DpFolhaLancamento {
 
 export const LANCAMENTO_PADRAO: DpFolhaLancamento = {
   situacao: "normal",
-  diasTrabalhados: 30,
+  diasTrabalhados: null,
   outrosProventos: 0,
   diasFerias: 0,
-  inssFerias: 0,
+  inssFerias: null,
   coparticipacao: 0,
   outrosDescontos: 0,
   comissao: 0,
-  vtDiasDesconto: 0,
+  vtDiasDesconto: null,
   ajustes: {},
 };
 
@@ -131,6 +178,11 @@ export interface DpFolhaEntrada {
   contrato: DpContratoFolha;
   salario: number | null;
   nascimento: string | null;
+  /** Admissão e desligamento (AAAA-MM-DD): é deles que saem os dias do mês. */
+  admissao: string | null;
+  desligamento: string | null;
+  /** A Sólides não deu a data: o desligamento é o dia em que a sincronização percebeu a saída. */
+  desligamentoEstimado?: boolean;
   cadastro: DpFolhaCadastro;
   lancamento: DpFolhaLancamento;
 }
@@ -237,6 +289,16 @@ export interface DpFolhaResultado extends DpFolhaValores {
   avisos: string[];
   /** Colunas com ajuste manual, e o valor que o sistema teria calculado. */
   ajustados: Partial<Record<DpColunaAjustavel, number>>;
+  /** O que o sistema preencheria sozinho (a grade mostra como sugestão no campo vazio). */
+  automatico: {
+    diasTrabalhados: number;
+    inssFerias: number;
+    vtDiasDesconto: number;
+    diasUteisMes: number;
+    vtDias: number;
+  };
+  /** Proventos e descontos fixos que entraram no mês. */
+  recorrentes: Array<DpRecorrente & { parcela: string | null }>;
 }
 
 // ── utilitários ────────────────────────────────────────────────────────────
@@ -351,12 +413,50 @@ export function calcularFolhaPessoa(e: DpFolhaEntrada, p: DpFolhaParametros, com
   const salario = e.salario ?? 0;
   const dia = salario / 30;
 
+  // DIAS: o contrato no mês (admissão / desligamento) menos as férias, que são pagas no recibo.
+  const intervalo = intervaloNoMes(e.admissao, e.desligamento, competencia);
+  const diasBase = diasComerciais(intervalo);
+  if (!intervalo) avisos.push("Fora do período de contrato neste mês (admissão depois dele ou desligamento antes).");
+  if (e.desligamento && intervalo && e.desligamento <= ultimoDia(competencia)) {
+    avisos.push(
+      e.desligamentoEstimado
+        ? `Desligado (percebido em ${diaMes(e.desligamento)} — a Sólides não informou a data): confira os dias e lance a rescisão.`
+        : `Desligado em ${diaMes(e.desligamento)}: lance a rescisão na aba Rescisões.`,
+    );
+  }
+  const diasAuto = Math.max(0, diasBase - l.diasFerias);
+  const dias = l.diasTrabalhados ?? diasAuto;
+  const origemDias =
+    l.diasTrabalhados !== null
+      ? "informados"
+      : !intervalo
+        ? "fora do contrato"
+        : [
+            e.admissao && e.admissao >= primeiroDia(competencia) ? `admissão em ${diaMes(e.admissao)}` : null,
+            e.desligamento && e.desligamento <= ultimoDia(competencia) ? `desligamento em ${diaMes(e.desligamento)}` : null,
+            l.diasFerias > 0 ? `${n(diasBase)} − ${n(l.diasFerias)} de férias` : null,
+          ]
+            .filter(Boolean)
+            .join(", ") || "mês inteiro";
+  const fixos = recorrentesDoMes(c.recorrentes, competencia);
+  const fixoProv = r2(fixos.filter((x) => x.tipo === "provento").reduce((s2, x) => s2 + x.valor, 0));
+  const fixoDesc = r2(fixos.filter((x) => x.tipo === "desconto").reduce((s2, x) => s2 + x.valor, 0));
+  const rotFixos = (tipo: "provento" | "desconto") =>
+    fixos
+      .filter((x) => x.tipo === tipo)
+      .map((x) => `${x.descricao}${x.parcela ? ` ${x.parcela}` : ""} ${brl(x.valor)}`)
+      .join(" + ");
+
   // ENTRADAS
-  const salarioProporcional = afastado ? 0 : dia * l.diasTrabalhados;
+  const outrosProventos = r2(l.outrosProventos + fixoProv);
+  const salarioProporcional = afastado ? 0 : dia * dias;
   memoria.salarioMes = afastado
     ? "Afastado: sem salário na folha."
-    : `${brl(salario)} ÷ 30 × ${n(l.diasTrabalhados)} dias${l.outrosProventos ? ` + ${brl(l.outrosProventos)} de outros proventos` : ""}.`;
-  const salarioMes = aj("salarioMes", afastado ? 0 : r2(salarioProporcional + l.outrosProventos));
+    : `${brl(salario)} ÷ 30 × ${n(dias)} dias (${origemDias})` +
+      (l.outrosProventos ? ` + ${brl(l.outrosProventos)} de outros proventos` : "") +
+      (fixoProv ? ` + fixos: ${rotFixos("provento")}` : "") +
+      ".";
+  const salarioMes = aj("salarioMes", afastado ? 0 : r2(salarioProporcional + outrosProventos));
 
   let salarioFamilia = 0;
   if (c.salarioFamiliaCotas > 0) {
@@ -400,16 +500,45 @@ export function calcularFolhaPessoa(e: DpFolhaEntrada, p: DpFolhaParametros, com
     memoria.inss = r.memoria + (totalFerias ? " A base inclui as férias do mês." : "");
   }
   inss = aj("inss", inss);
-  const inssFerias = inss > 0 && l.inssFerias > 0 ? -r2(l.inssFerias) : 0;
-  if (inssFerias) memoria.inssFerias = "Já descontado no recibo de férias — sai do desconto do mês.";
-  if (inss > 0 && l.diasFerias > 0 && l.inssFerias <= 0) {
-    avisos.push("Há férias no mês, mas o INSS descontado no recibo de férias não foi informado — o INSS do mês pode estar em dobro.");
+  // INSS do recibo de férias: o recibo desconta o INSS sobre férias + 1/3; o do
+  // mês é o da base inteira MENOS esse. Sem valor informado, calcula-se como o recibo.
+  const inssFeriasAuto = inss > 0 && l.diasFerias > 0 ? calcularInss(totalFerias, p.inss).valor : 0;
+  const inssFeriasBase = inss > 0 ? l.inssFerias ?? inssFeriasAuto : 0;
+  const inssFerias = inssFeriasBase > 0 ? -r2(inssFeriasBase) : 0;
+  if (inssFerias) {
+    memoria.inssFerias =
+      l.inssFerias !== null
+        ? "Informado (recibo de férias) — sai do desconto do mês."
+        : `Calculado como no recibo: INSS sobre férias + 1/3 (${brl(totalFerias)}) — sai do desconto do mês.`;
+  }
+  if (inss > 0 && l.diasFerias > 0 && l.inssFerias === 0) {
+    avisos.push("Há férias no mês, mas o INSS do recibo de férias foi informado como zero — o INSS do mês pode estar em dobro.");
   }
 
   // Transporte (extras) — calculado antes porque o desconto de VT é limitado a ele.
   const escala = p.escalas.find((s) => s.nome === c.escala) ?? null;
-  const diasMesVt = escala?.diasMes ?? 21;
+  const diasSemana = escala?.diasSemana ?? 5;
+  const feriadosEscala = new Set(escala?.feriados ?? []);
+  const diasMesVt = p.vtPeloCalendario
+    ? diasUteis(primeiroDia(competencia), ultimoDia(competencia), diasSemana, feriadosEscala)
+    : escala?.diasMes ?? 21;
   if (c.transporteTipo !== "nenhum" && !escala) avisos.push(`Escala "${c.escala}" não está nos parâmetros — usei ${diasMesVt} dias.`);
+  const diasUteisPeriodo = !intervalo
+    ? 0
+    : intervalo.inteiro
+      ? diasMesVt
+      : p.vtPeloCalendario
+        ? diasUteis(intervalo.ini, intervalo.fim, diasSemana, feriadosEscala)
+        : Math.round((diasMesVt * diasBase) / 30);
+  const fracao = diasBase > 0 ? Math.min(1, dias / diasBase) : 0;
+  const vtDiasAuto = Math.round(diasUteisPeriodo * fracao);
+  const vtDias = l.vtDiasDesconto !== null ? Math.max(0, diasMesVt - l.vtDiasDesconto) : vtDiasAuto;
+  const origemVt =
+    l.vtDiasDesconto !== null
+      ? `${n(diasMesVt)} dias úteis − ${n(l.vtDiasDesconto)} informados`
+      : `${n(diasUteisPeriodo)} dias úteis ${intervalo?.inteiro ? "no mês" : "no período do contrato"}` +
+        (fracao < 1 ? ` × ${n(dias)}/${n(diasBase)} dias trabalhados — ESTIMADO (sem as datas das férias/faltas)` : "");
+  const calendarioVt = p.vtPeloCalendario ? `${diasSemana === 6 ? "seg–sáb" : "seg–sex"}, sem feriados` : "dias fixos da escala";
   const semBeneficio = afastado || licenca;
   let valeTransporte = 0;
   let valeGasolina = 0;
@@ -418,18 +547,18 @@ export function calcularFolhaPessoa(e: DpFolhaEntrada, p: DpFolhaParametros, com
     if (!b) avisos.push(`Bilhete "${c.transporteOpcao ?? "—"}" não está nos parâmetros — VT zerado.`);
     else if (semBeneficio) memoria.valeTransporte = `${ROTULO_SITUACAO[l.situacao]}: sem VT.`;
     else {
-      const dias = Math.max(0, diasMesVt - l.vtDiasDesconto);
-      valeTransporte = r2(b.valorDiario * dias);
-      memoria.valeTransporte = `${b.nome}: ${brl(b.valorDiario)} × ${n(dias)} dias (${n(diasMesVt)} da escala${l.vtDiasDesconto ? ` − ${n(l.vtDiasDesconto)} descontados` : ""}).`;
+      valeTransporte = r2(b.valorDiario * vtDias);
+      memoria.valeTransporte = `${b.nome}: ${brl(b.valorDiario)} × ${n(vtDias)} dias (${origemVt}; ${calendarioVt}).`;
     }
     valeTransporte = aj("valeTransporte", valeTransporte);
   } else if (c.transporteTipo === "gasolina") {
     if (semBeneficio) memoria.valeGasolina = `${ROTULO_SITUACAO[l.situacao]}: sem gasolina.`;
     else {
-      valeGasolina = r2(Math.max(0, c.transporteValor - (c.transporteValor / diasMesVt) * l.vtDiasDesconto));
-      memoria.valeGasolina = l.vtDiasDesconto
-        ? `${brl(c.transporteValor)} − ${brl(c.transporteValor)} ÷ ${n(diasMesVt)} × ${n(l.vtDiasDesconto)} dias descontados.`
-        : `Valor mensal ${brl(c.transporteValor)}.`;
+      valeGasolina = diasMesVt > 0 ? r2(Math.max(0, (c.transporteValor * vtDias) / diasMesVt)) : 0;
+      memoria.valeGasolina =
+        vtDias >= diasMesVt
+          ? `Valor mensal ${brl(c.transporteValor)}.`
+          : `${brl(c.transporteValor)} × ${n(vtDias)}/${n(diasMesVt)} dias (${origemVt}).`;
     }
     valeGasolina = aj("valeGasolina", valeGasolina);
   }
@@ -481,7 +610,8 @@ export function calcularFolhaPessoa(e: DpFolhaEntrada, p: DpFolhaParametros, com
   const coparticipacao = afastado ? 0 : r2(l.coparticipacao);
   if (!afastado && c.odontoVidas) memoria.odonto = `${c.odontoVidas} vida(s) × ${brl(p.odontoPorVida)}.`;
   const odonto = aj("odonto", afastado ? 0 : r2(c.odontoVidas * p.odontoPorVida));
-  const outrosDescontos = afastado ? 0 : r2(l.outrosDescontos);
+  const outrosDescontos = afastado ? 0 : r2(l.outrosDescontos + fixoDesc);
+  if (fixoDesc && !afastado) memoria.outrosDescontos = `${l.outrosDescontos ? `${brl(l.outrosDescontos)} informados + ` : ""}fixos: ${rotFixos("desconto")}.`;
 
   let irrf = 0;
   if (semEncargos) memoria.irrf = e.contrato === "socio" ? "Sócio." : "PJ / prestador.";
@@ -506,9 +636,9 @@ export function calcularFolhaPessoa(e: DpFolhaEntrada, p: DpFolhaParametros, com
   if (c.alimentacao > 0) {
     if (semBeneficio) memoria.alimentacao = `${ROTULO_SITUACAO[l.situacao]}: sem alimentação.`;
     else {
-      const dias = l.diasTrabalhados + l.diasFerias;
-      alimentacao = r2((c.alimentacao / 30) * dias);
-      memoria.alimentacao = `${brl(c.alimentacao)} ÷ 30 × ${n(dias)} dias (trabalhados + férias).`;
+      const diasAlim = dias + l.diasFerias;
+      alimentacao = r2((c.alimentacao / 30) * diasAlim);
+      memoria.alimentacao = `${brl(c.alimentacao)} ÷ 30 × ${n(diasAlim)} dias (trabalhados + férias).`;
     }
   }
   alimentacao = aj("alimentacao", alimentacao);
@@ -560,6 +690,14 @@ export function calcularFolhaPessoa(e: DpFolhaEntrada, p: DpFolhaParametros, com
     memoria,
     avisos,
     ajustados,
+    automatico: {
+      diasTrabalhados: diasAuto,
+      inssFerias: inssFeriasAuto,
+      vtDiasDesconto: Math.max(0, diasMesVt - vtDiasAuto),
+      diasUteisMes: diasMesVt,
+      vtDias,
+    },
+    recorrentes: fixos,
   };
 }
 

@@ -27,13 +27,14 @@ import {
   type DpFolhaCadastro,
   type DpFolhaLancamento,
   type DpFolhaResultado,
+  type DpRecorrente,
   type DpSituacaoFolha,
 } from "@/lib/dp/folha/motor";
 import { ROTULO_PLANO, type DpFolhaParametros, type DpPlanoTipo } from "@/lib/dp/folha/parametros";
 import type { DpFolhaPessoa } from "@/lib/dp/folha/queries";
 
 import { DpAvulsoCampos } from "./avulso-form";
-import { inputCls, NumCampo } from "./campos";
+import { inputCls, NumCampo, NumCampoOpcional } from "./campos";
 import { brl } from "./formato";
 
 const SOMAS: DpColunaFolha[] = ["totalEntradas", "totalFerias", "totalDescontos", "saldo", "quintoDiaUtil", "totalBeneficio", "totalExtras", "totalGeral"];
@@ -116,6 +117,9 @@ export function DpFolhaPessoaDialog({
           contrato: grupoContratoFolha(av ? av.tipoContrato : pessoa.tipoContrato),
           salario: av ? av.salario : pessoa.salario,
           nascimento: av ? av.nascimento : pessoa.nascimento,
+          admissao: av ? av.admissao : pessoa.admissao,
+          desligamento: av ? av.desligamento : pessoa.desligamento,
+          desligamentoEstimado: av ? false : pessoa.desligamentoEstimado,
           cadastro: cad,
           lancamento: lanc,
         },
@@ -263,17 +267,27 @@ export function DpFolhaPessoaDialog({
                     ))}
                   </select>
                 </Campo>
-                <Campo rotulo="Dias trabalhados">
-                  <NumCampo valor={lanc.diasTrabalhados} onChange={(v) => setL("diasTrabalhados", v)} disabled={ro} />
+                <Campo rotulo="Dias de férias">
+                  <NumCampo valor={lanc.diasFerias} onChange={(v) => setL("diasFerias", v)} disabled={ro} />
+                </Campo>
+                <Campo rotulo="Dias trabalhados" dica="Vazio = automático (admissão/desligamento − férias)">
+                  <NumCampoOpcional
+                    valor={lanc.diasTrabalhados}
+                    auto={r.automatico?.diasTrabalhados ?? 30}
+                    onChange={(v) => setL("diasTrabalhados", v)}
+                    disabled={ro}
+                  />
                 </Campo>
                 <Campo rotulo="Outros proventos" dica="Insuf. de saldo etc.; entra no salário">
                   <NumCampo valor={lanc.outrosProventos} onChange={(v) => setL("outrosProventos", v)} disabled={ro} />
                 </Campo>
-                <Campo rotulo="Dias de férias">
-                  <NumCampo valor={lanc.diasFerias} onChange={(v) => setL("diasFerias", v)} disabled={ro} />
-                </Campo>
-                <Campo rotulo="INSS do recibo de férias">
-                  <NumCampo valor={lanc.inssFerias} onChange={(v) => setL("inssFerias", v)} disabled={ro} />
+                <Campo rotulo="INSS do recibo de férias" dica="Vazio = calculado como no recibo">
+                  <NumCampoOpcional
+                    valor={lanc.inssFerias}
+                    auto={r.automatico?.inssFerias ?? 0}
+                    onChange={(v) => setL("inssFerias", v)}
+                    disabled={ro}
+                  />
                 </Campo>
                 <Campo rotulo="Coparticipação">
                   <NumCampo valor={lanc.coparticipacao} onChange={(v) => setL("coparticipacao", v)} disabled={ro} />
@@ -284,8 +298,16 @@ export function DpFolhaPessoaDialog({
                 <Campo rotulo="Comissão / meta">
                   <NumCampo valor={lanc.comissao} onChange={(v) => setL("comissao", v)} disabled={ro} />
                 </Campo>
-                <Campo rotulo="Dias de VT a descontar">
-                  <NumCampo valor={lanc.vtDiasDesconto} onChange={(v) => setL("vtDiasDesconto", v)} disabled={ro} />
+                <Campo
+                  rotulo="Dias de VT a descontar"
+                  dica={`Vazio = automático (${r.automatico?.diasUteisMes ?? "—"} dias úteis no mês)`}
+                >
+                  <NumCampoOpcional
+                    valor={lanc.vtDiasDesconto}
+                    auto={r.automatico?.vtDiasDesconto ?? 0}
+                    onChange={(v) => setL("vtDiasDesconto", v)}
+                    disabled={ro}
+                  />
                 </Campo>
               </div>
               <Campo rotulo="Observação do mês">
@@ -466,6 +488,13 @@ export function DpFolhaPessoaDialog({
               )}
             </section>
 
+            <DpRecorrentesEditor
+              lista={cad.recorrentes ?? []}
+              competencia={competencia}
+              disabled={ro}
+              onChange={(l) => setC("recorrentes", l)}
+            />
+
             {editavel && (
               <div className="flex justify-end gap-2">
                 <button type="button" className="rounded-md border border-input px-3 py-1.5 text-sm hover:bg-muted" disabled={pending} onClick={onClose}>
@@ -556,5 +585,76 @@ export function DpFolhaPessoaDialog({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * Proventos e descontos FIXOS da pessoa (consignado, pensão, gratificação):
+ * entram sozinhos em todo mês entre o início e o fim. Faz parte do cadastro,
+ * então é salvo junto com ele.
+ */
+function DpRecorrentesEditor({
+  lista,
+  competencia,
+  disabled,
+  onChange,
+}: {
+  lista: DpRecorrente[];
+  competencia: string;
+  disabled: boolean;
+  onChange: (l: DpRecorrente[]) => void;
+}) {
+  const set = (i: number, patch: Partial<DpRecorrente>) => onChange(lista.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  return (
+    <section className="space-y-2">
+      <h3 className="text-sm font-semibold text-ink-primary">Proventos e descontos fixos</h3>
+      <p className="text-xs text-ink-muted">
+        Entram sozinhos todo mês entre o início e o fim (fim vazio = sem prazo). Ex.: consignado 12×, pensão, gratificação.
+      </p>
+      {lista.length === 0 && <p className="text-xs text-ink-muted">Nenhum.</p>}
+      {lista.map((x, i) => (
+        <div key={x.id} className="grid grid-cols-2 items-end gap-2 sm:grid-cols-[7rem_1fr_7rem_8rem_8rem_auto]">
+          <select className={inputCls} disabled={disabled} value={x.tipo} onChange={(e) => set(i, { tipo: e.target.value as DpRecorrente["tipo"] })} aria-label="Tipo">
+            <option value="desconto">Desconto</option>
+            <option value="provento">Provento</option>
+          </select>
+          <input
+            className={inputCls}
+            disabled={disabled}
+            value={x.descricao}
+            placeholder="Descrição"
+            onChange={(e) => set(i, { descricao: e.target.value })}
+            maxLength={120}
+            aria-label="Descrição"
+          />
+          <NumCampo valor={x.valor} onChange={(v) => set(i, { valor: v })} disabled={disabled} ariaLabel="Valor mensal" />
+          <input type="month" className={inputCls} disabled={disabled} value={x.inicio} onChange={(e) => set(i, { inicio: e.target.value })} aria-label="Início" />
+          <input
+            type="month"
+            className={inputCls}
+            disabled={disabled}
+            value={x.fim ?? ""}
+            onChange={(e) => set(i, { fim: e.target.value || null })}
+            aria-label="Fim (vazio = sem prazo)"
+          />
+          {!disabled && (
+            <button type="button" className="rounded p-1 text-ink-muted hover:text-red-700" onClick={() => onChange(lista.filter((_, j) => j !== i))} aria-label="Remover">
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+      ))}
+      {!disabled && (
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-xs hover:bg-muted"
+          onClick={() =>
+            onChange([...lista, { id: `${Date.now()}`, tipo: "desconto", descricao: "", valor: 0, inicio: competencia, fim: null }])
+          }
+        >
+          <Plus className="h-3 w-3" /> adicionar
+        </button>
+      )}
+    </section>
   );
 }

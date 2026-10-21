@@ -179,6 +179,9 @@ export function DpFolhaClient({
           >
             {a.rotulo}
             {a.id === "rescisoes" && folha.rescisoes.length > 0 ? ` (${folha.rescisoes.length})` : ""}
+            {a.id === "rescisoes" && (folha.rescisoesSugeridas?.length ?? 0) > 0 && (
+              <span className="ml-1 rounded bg-amber-500/15 px-1 text-xs text-amber-800 dark:text-amber-300">{folha.rescisoesSugeridas.length} a lançar</span>
+            )}
           </button>
         ))}
       </div>
@@ -228,7 +231,14 @@ export function DpFolhaClient({
           ) : aba === "beneficios" ? (
             <TabelaBeneficios linhas={visiveis} pessoaPor={pessoaPor} />
           ) : aba === "rescisoes" ? (
-            <DpFolhaRescisoes companyId={companyId} competencia={competencia} rescisoes={folha.rescisoes} pessoas={folha.pessoas} editavel={editavel} />
+            <DpFolhaRescisoes
+              companyId={companyId}
+              competencia={competencia}
+              rescisoes={folha.rescisoes}
+              pessoas={folha.pessoas}
+              sugeridas={folha.rescisoesSugeridas ?? []}
+              editavel={editavel}
+            />
           ) : (
             <div className="space-y-2">
               <div className="flex gap-2 text-sm">

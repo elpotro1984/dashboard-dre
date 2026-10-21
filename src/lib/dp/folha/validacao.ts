@@ -8,6 +8,7 @@ import {
   type DpColunaAjustavel,
   type DpFolhaCadastro,
   type DpFolhaLancamento,
+  type DpRecorrente,
   type DpSituacaoFolha,
 } from "@/lib/dp/folha/motor";
 import { PLANO_TIPOS, type DpFolhaParametros } from "@/lib/dp/folha/parametros";
@@ -58,7 +59,27 @@ export function validarCadastro(c: DpFolhaCadastro, p: DpFolhaParametros): DpFol
     homeOffice: r2(numero(c.homeOffice, "Home office", 0, 100_000)),
     semInss: Boolean(c.semInss),
     setorFolha: String(c.setorFolha ?? "").replace(/\s+/g, " ").trim().slice(0, 120) || null,
+    recorrentes: validarRecorrentes(c.recorrentes ?? []),
   };
+}
+
+const RE_COMP = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+/** Proventos/descontos fixos: descrição, valor > 0 e período coerente. */
+export function validarRecorrentes(lista: DpRecorrente[]): DpRecorrente[] {
+  if (!Array.isArray(lista)) throw new Error("Lista de fixos inválida.");
+  if (lista.length > 30) throw new Error("No máximo 30 proventos/descontos fixos por pessoa.");
+  return lista.map((r, i) => {
+    const descricao = String(r?.descricao ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
+    if (!descricao) throw new Error(`Fixo ${i + 1}: informe a descrição.`);
+    if (r.tipo !== "provento" && r.tipo !== "desconto") throw new Error(`"${descricao}": tipo inválido.`);
+    const valor = numero(r.valor, `"${descricao}"`, 0.01, 1_000_000);
+    if (!RE_COMP.test(String(r.inicio ?? ""))) throw new Error(`"${descricao}": mês de início inválido.`);
+    const fim = r.fim ? String(r.fim) : null;
+    if (fim && !RE_COMP.test(fim)) throw new Error(`"${descricao}": mês final inválido.`);
+    if (fim && fim < r.inicio) throw new Error(`"${descricao}": o mês final é antes do início.`);
+    return { id: String(r.id || `${Date.now()}-${i}`).slice(0, 60), tipo: r.tipo, descricao, valor: r2(valor), inicio: r.inicio, fim };
+  });
 }
 
 export function validarLancamento(l: DpFolhaLancamento): DpFolhaLancamento {
@@ -74,14 +95,14 @@ export function validarLancamento(l: DpFolhaLancamento): DpFolhaLancamento {
   }
   return {
     situacao: l.situacao,
-    diasTrabalhados: numero(l.diasTrabalhados, "Dias trabalhados", 0, 31),
+    diasTrabalhados: l.diasTrabalhados === null ? null : numero(l.diasTrabalhados, "Dias trabalhados", 0, 31),
     outrosProventos: r2(numero(l.outrosProventos, "Outros proventos", -1_000_000, 1_000_000)),
     diasFerias: numero(l.diasFerias, "Dias de férias", 0, 31),
-    inssFerias: r2(numero(l.inssFerias, "INSS das férias", 0, 100_000)),
+    inssFerias: l.inssFerias === null ? null : r2(numero(l.inssFerias, "INSS das férias", 0, 100_000)),
     coparticipacao: r2(numero(l.coparticipacao, "Coparticipação", -100_000, 100_000)),
     outrosDescontos: r2(numero(l.outrosDescontos, "Outros descontos", -1_000_000, 1_000_000)),
     comissao: r2(numero(l.comissao, "Comissão", -1_000_000, 1_000_000)),
-    vtDiasDesconto: numero(l.vtDiasDesconto, "Dias de VT a descontar", 0, 31),
+    vtDiasDesconto: l.vtDiasDesconto === null ? null : numero(l.vtDiasDesconto, "Dias de VT a descontar", 0, 31),
     ajustes,
   };
 }
@@ -103,6 +124,7 @@ export function linhaCadastro(c: DpFolhaCadastro) {
     home_office: c.homeOffice,
     sem_inss: c.semInss,
     setor_folha: c.setorFolha,
+    recorrentes: c.recorrentes,
   };
 }
 
@@ -130,11 +152,13 @@ export function mesclarLancamento(gravado: DpFolhaLancamento | null, grade: DpCa
 }
 
 /**
- * O que passa de um mês para o outro: a SITUAÇÃO (afastado/licença continuam
- * até alguém mudar — esquecer pagaria salário a quem está afastado) e os
- * OUTROS DESCONTOS (consignado, pensão, que se repetem). Dias, férias,
- * coparticipação, comissão e ajustes são do mês e começam zerados.
+ * O que passa de um mês para o outro: só a SITUAÇÃO (afastado/licença
+ * continuam até alguém mudar — esquecer pagaria salário a quem está
+ * afastado). O que se REPETE com valor (consignado, pensão, gratificação) é
+ * fixo no cadastro (`recorrentes`), com prazo; copiar os outros descontos aqui
+ * também faria o consignado entrar duas vezes. Dias, férias, coparticipação,
+ * comissão e ajustes são do mês e começam no automático.
  */
 export function herdarDoMesAnterior(anterior: DpFolhaLancamento, base: DpFolhaLancamento): DpFolhaLancamento {
-  return { ...base, situacao: anterior.situacao, outrosDescontos: anterior.outrosDescontos, ajustes: {} };
+  return { ...base, situacao: anterior.situacao, ajustes: {} };
 }

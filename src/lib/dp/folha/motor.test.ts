@@ -25,6 +25,8 @@ function pessoa(over: Partial<DpFolhaEntrada> = {}, cad: Partial<DpFolhaCadastro
     contrato: "clt",
     salario: 3000,
     nascimento: "1996-09-15",
+    admissao: "2020-01-01",
+    desligamento: null,
     cadastro: { ...CADASTRO_VAZIO, planoDependentes: [], ...cad },
     lancamento: { ...LANCAMENTO_PADRAO, ajustes: {}, ...lan },
     ...over,
@@ -72,9 +74,77 @@ test("1/3 de férias não depende do campo de home office (defeito da planilha)"
   assert.equal(r.inssFerias, -300);
 });
 
-test("férias sem o INSS do recibo informado geram aviso", () => {
-  const r = calcularFolhaPessoa(pessoa({}, {}, { diasFerias: 10 }), P, "2026-09");
-  assert.ok(r.avisos.some((a) => a.includes("recibo de férias")));
+test("INSS do recibo de férias: vazio = calculado como no recibo (INSS sobre férias + 1/3); zero informado avisa", () => {
+  const auto = calcularFolhaPessoa(pessoa({}, {}, { diasFerias: 10 }), P, "2026-09");
+  assert.equal(auto.inssFerias, -calcularInss(auto.totalFerias, P.inss).valor);
+  assert.equal(auto.automatico.inssFerias, calcularInss(auto.totalFerias, P.inss).valor);
+  assert.ok(!auto.avisos.some((a) => a.includes("recibo de férias")));
+  const zero = calcularFolhaPessoa(pessoa({}, {}, { diasFerias: 10, inssFerias: 0 }), P, "2026-09");
+  assert.equal(zero.inssFerias, 0);
+  assert.ok(zero.avisos.some((a) => a.includes("recibo de férias")));
+  const informado = calcularFolhaPessoa(pessoa({}, {}, { diasFerias: 10, inssFerias: 123.45 }), P, "2026-09");
+  assert.equal(informado.inssFerias, -123.45);
+});
+
+test("dias trabalhados automáticos: mês inteiro 30, menos as férias (regra conferida em set/2026)", () => {
+  const cheio = calcularFolhaPessoa(pessoa(), P, "2026-09");
+  assert.equal(cheio.salarioMes, 3000);
+  assert.equal(cheio.automatico.diasTrabalhados, 30);
+  const ferias = calcularFolhaPessoa(pessoa({}, {}, { diasFerias: 10 }), P, "2026-09");
+  assert.equal(ferias.automatico.diasTrabalhados, 20);
+  assert.equal(ferias.salarioMes, 2000);
+  // Informado vence o automático
+  assert.equal(calcularFolhaPessoa(pessoa({}, {}, { diasTrabalhados: 27 }), P, "2026-09").salarioMes, 2700);
+});
+
+test("admissão e desligamento no mês: dias corridos do contrato e VT pelos dias úteis do período", () => {
+  const adm = calcularFolhaPessoa(pessoa({ admissao: "2026-09-16" }, { transporteTipo: "bilhete", transporteOpcao: "Bilhete BH" }), P, "2026-09");
+  assert.equal(adm.automatico.diasTrabalhados, 15);
+  assert.equal(adm.salarioMes, 1500);
+  // 16 a 30/09/2026: 11 dias úteis (seg–sex)
+  assert.equal(adm.valeTransporte, 21 * 11);
+  const desl = calcularFolhaPessoa(pessoa({ desligamento: "2026-09-10" }), P, "2026-09");
+  assert.equal(desl.automatico.diasTrabalhados, 10);
+  assert.ok(desl.avisos.some((a) => a.includes("rescisão")));
+  const estimado = calcularFolhaPessoa(pessoa({ desligamento: "2026-09-10", desligamentoEstimado: true }), P, "2026-09");
+  assert.ok(estimado.avisos.some((a) => a.includes("não informou a data")));
+  const fora = calcularFolhaPessoa(pessoa({ admissao: "2026-10-05" }), P, "2026-09");
+  assert.equal(fora.salarioMes, 0);
+  assert.ok(fora.avisos.some((a) => a.includes("Fora do período")));
+});
+
+test("VT pelo calendário: dias úteis reais do mês; com férias, estimado proporcional; informado vence", () => {
+  const bh = { transporteTipo: "bilhete" as const, transporteOpcao: "Bilhete BH" };
+  // nov/2026: 19 dias úteis (02/11 e 20/11 são feriado)
+  assert.equal(calcularFolhaPessoa(pessoa({}, bh), P, "2026-11").valeTransporte, 21 * 19);
+  // 6 dias por semana em set/2026: 25 (07/09 é feriado)
+  assert.equal(calcularFolhaPessoa(pessoa({}, { ...bh, escala: "6 dias" }), P, "2026-09").automatico.vtDias, 25);
+  // 10 dias de férias em set: 21 × 20/30 = 14 (estimado)
+  const fer = calcularFolhaPessoa(pessoa({}, bh, { diasFerias: 10 }), P, "2026-09");
+  assert.equal(fer.automatico.vtDias, 14);
+  assert.match(fer.memoria.valeTransporte ?? "", /ESTIMADO/);
+  // informado: sobre os dias úteis do mês inteiro (regra da planilha)
+  assert.equal(calcularFolhaPessoa(pessoa({}, bh, { diasFerias: 10, vtDiasDesconto: 8 }), P, "2026-09").valeTransporte, 21 * 13);
+  // dias fixos quando o calendário está desligado
+  assert.equal(calcularFolhaPessoa(pessoa({}, bh), { ...P, vtPeloCalendario: false }, "2026-11").valeTransporte, 21 * 21);
+  // feriado municipal da escala
+  const comFeriado = { ...P, escalas: P.escalas.map((e) => (e.nome === "5 dias" ? { ...e, feriados: ["2026-11-03"] } : e)) };
+  assert.equal(calcularFolhaPessoa(pessoa({}, bh), comFeriado, "2026-11").automatico.vtDias, 18);
+});
+
+test("proventos e descontos fixos: entram no período, com a parcela, e somam ao informado", () => {
+  const recorrentes = [
+    { id: "1", tipo: "desconto" as const, descricao: "Consignado", valor: 200, inicio: "2026-08", fim: "2027-07" },
+    { id: "2", tipo: "provento" as const, descricao: "Gratificação", valor: 300, inicio: "2026-10", fim: null },
+    { id: "3", tipo: "desconto" as const, descricao: "Antigo", valor: 50, inicio: "2026-01", fim: "2026-03" },
+  ];
+  const set = calcularFolhaPessoa(pessoa({}, { recorrentes }, { outrosDescontos: 10 }), P, "2026-09");
+  assert.equal(set.outrosDescontos, 210);
+  assert.equal(set.salarioMes, 3000);
+  assert.deepEqual(set.recorrentes.map((x) => x.parcela), ["2/12"]);
+  const out = calcularFolhaPessoa(pessoa({}, { recorrentes }), P, "2026-10");
+  assert.equal(out.salarioMes, 3300);
+  assert.equal(out.outrosDescontos, 200);
 });
 
 test("plano: titular + dependente, menos o Ambulatorial do titular pago pela empresa; idade no 1º dia do mês", () => {
