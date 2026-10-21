@@ -1,45 +1,40 @@
 // Saldo FEE por fundo — planilha "BACKEND FLUXO PROJETADO FRANQUIAS", aba
-// "CONTROLE FEE QUOKKA (IMPORT)". Coluna C = nome do fundo, coluna K =
-// "Valor Disponível Para Retirada Conforme Saldo SPDX" (o saque disponível),
-// coluna L = data da última atualização da linha.
+// "carteira_realizado" (decisão 2026-10-21). Coluna C = nome do fundo,
+// O = "VALOR RESTANTE DE FEE", L = "SALDO PROJETADO" (créditos − débitos).
 // Regra (decisão 2026-08-13): RP de FEE/Cerimonial é aprovada se o valor
 // couber no saldo do fundo e reprovada se estourar; qualquer situação em que
 // o saldo não possa ser determinado cai em análise especialista — o fallback
 // nunca aprova nem reprova às cegas.
+//
+// Até 21/10/2026 a fonte era a aba "CONTROLE FEE QUOKKA (IMPORT)" (coluna K,
+// saque disponível SPDX), com trava de 30 dias sobre a data da coluna L. Essa
+// data parou em 07/04/2026 e mandou 100% das RPs de FEE para especialista. A
+// carteira_realizado não tem coluna de data — é calculada ao vivo na planilha —,
+// então a trava de frescor saiu junto com a aba.
 
-import { fetchSheetTabTitleByGid, fetchSheetValues, sheetSerialToDate } from '@/lib/sheets/client'
+import { fetchSheetTabTitleByGid, fetchSheetValues, type SheetRow } from '@/lib/sheets/client'
 
 const FEE_SALDO_SPREADSHEET_ID = '1ymgmW6ISadb8xKBpcNDXTnGr0buoOFVszSZmxaOxKBQ'
-// As abas são resolvidas pelo gid (estável a renomeação). A aba "FUNDOS
-// INATIVOS (IMPORT)" fica de fora de propósito: fundo inativo não deve
-// aprovar pagamento automaticamente.
-const FEE_SALDO_GID = 1986082110
+// Aba resolvida pelo gid (estável a renomeação).
+const CARTEIRA_GID = 429827027
 
-// Índices 0-based na aba de importação: A=Unidade, C=Nome do Fundo,
-// K=Valor Disponível Para Retirada Conforme Saldo SPDX. Decisão 2026-08-14:
-// a coluna certa é a K ("saque disponível"), que limita o FEE restante pelo
-// caixa real do fundo — a coluna I ("Valor a receber", FEE − pago) ignora o
-// caixa e superestimava (caso real: RP 872197 aprovada com FEE restante
-// 8.400,12 quando o saque disponível era 2.264,85).
+// Índices 0-based: A=Franquia, C=Fundo, L=Saldo projetado, O=Valor restante
+// de FEE, U=Situação.
 const COL_UNIDADE = 0
 const COL_NOME = 2
-const COL_SALDO = 10
-// L = "Data da última atualização" da linha. Decisão 2026-08-21: sem olhar
-// esta coluna, uma linha congelada é indistinguível de uma fresca — e o
-// validador reprovava com saldo de meses atrás (caso real: RP 873266, fundo
-// BRYAN.FARIAS, planilha em 753,95 desde 17/02 quando o saque real era
-// 7.015,33). Dado velho não decide: cai em análise especialista.
-const COL_ATUALIZACAO = 11
+const COL_SALDO_PROJETADO = 11
+const COL_FEE_RESTANTE = 14
+const COL_SITUACAO = 20
 
-// Idade máxima aceita para a linha do fundo. Acima disso o saldo é tratado
-// como não determinável.
-const SALDO_MAX_DIAS = 30
-
-// A carteira_realizado não tem o saldo SPDX, então NÃO serve para decidir —
-// ela só distingue a mensagem: fundo que existe lá mas não na importação é
-// "falta importar" (acionável pela equipe), não "fundo desconhecido".
-const CARTEIRA_GID = 429827027
-const CART_COL_NOME = 2
+// O limite é o MENOR entre o FEE restante e o caixa do fundo (decisão
+// 2026-10-21). Só o FEE restante ignora o caixa: na leitura daquele dia, 625
+// dos 1.187 fundos com FEE a receber tinham FEE restante acima do saldo
+// projetado — foi o mesmo erro que aprovou a RP 872197 em 14/08 (FEE restante
+// 8.400,12 com saque real de 2.264,85).
+//
+// Fundo em rescisão não aprova pagamento automaticamente — mesmo enquadramento
+// da antiga aba "FUNDOS INATIVOS", que ficava de fora da leitura.
+const SITUACOES_ESPECIALISTA = new Set(['rescindindo', 'rescindido'])
 
 // Mesma tolerância de centavos usada na validação de valores (validate.ts).
 const SALDO_TOLERANCE = 0.02
@@ -48,20 +43,21 @@ export interface FeeSaldoEntry {
   /** Nome do fundo como está na planilha (para exibição/auditoria). */
   nome: string
   unidade: string
-  /** Coluna K: saque disponível conforme saldo SPDX. */
+  situacao: string
+  /** Coluna O. */
+  feeRestante: number
+  /** Coluna L. */
+  saldoProjetado: number
+  /** O limite que decide: menor entre `feeRestante` e `saldoProjetado`. */
   saldo: number
-  /** Coluna L: quando a linha foi atualizada pela última vez. */
-  atualizadoEm: Date | null
 }
 
 export interface FeeSaldoMap {
   byKey: Map<string, FeeSaldoEntry>
   /** Chaves que aparecem em mais de uma linha com saldos divergentes. */
   conflitos: Set<string>
-  /** Fundos presentes na importação mas com a coluna K vazia/não numérica. */
+  /** Fundos presentes na aba mas com a coluna O ou L vazia/não numérica. */
   semSaldo: Set<string>
-  /** Fundos que existem na carteira_realizado mas não na importação. */
-  naoImportados: Set<string>
   totalLinhas: number
 }
 
@@ -72,36 +68,11 @@ export function normFundo(value: string | null | undefined): string {
   return String(value ?? '')
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
+    .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]/g, '')
 }
 
-// A coluna L vem como serial do Sheets (UNFORMATTED_VALUE), mas aceita string
-// de data também — a planilha é editada à mão.
-function parseAtualizacao(cell: unknown): Date | null {
-  if (typeof cell === 'number' && Number.isFinite(cell) && cell > 0) {
-    const d = sheetSerialToDate(cell)
-    return Number.isNaN(d.getTime()) ? null : d
-  }
-  if (typeof cell === 'string' && cell.trim()) {
-    const m = cell.trim().match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})/)
-    if (m) {
-      let ano = Number(m[3])
-      if (ano < 100) ano += 2000
-      const d = new Date(Date.UTC(ano, Number(m[2]) - 1, Number(m[1])))
-      return Number.isNaN(d.getTime()) ? null : d
-    }
-    const d = new Date(cell.trim())
-    return Number.isNaN(d.getTime()) ? null : d
-  }
-  return null
-}
-
-export function diasDesde(data: Date, hoje: Date): number {
-  return Math.floor((hoje.getTime() - data.getTime()) / 86400000)
-}
-
-function parseSaldo(cell: unknown): number | null {
+function parseNumero(cell: unknown): number | null {
   if (typeof cell === 'number') return Number.isFinite(cell) ? cell : null
   if (typeof cell === 'string' && cell.trim() !== '') {
     const n = Number(cell.replace(/\./g, '').replace(',', '.'))
@@ -110,32 +81,22 @@ function parseSaldo(cell: unknown): number | null {
   return null
 }
 
-/** Lê as duas abas e monta o mapa fundo → saque disponível. */
-export async function loadFeeSaldo(): Promise<FeeSaldoMap> {
-  const [tabImport, tabCarteira] = await Promise.all([
-    fetchSheetTabTitleByGid(FEE_SALDO_SPREADSHEET_ID, FEE_SALDO_GID),
-    fetchSheetTabTitleByGid(FEE_SALDO_SPREADSHEET_ID, CARTEIRA_GID),
-  ])
-  const [rowsImport, rowsCarteira] = await Promise.all([
-    fetchSheetValues(FEE_SALDO_SPREADSHEET_ID, `'${tabImport.replace(/'/g, "''")}'!A2:L`),
-    fetchSheetValues(FEE_SALDO_SPREADSHEET_ID, `'${tabCarteira.replace(/'/g, "''")}'!A2:C`),
-  ])
-
+/** Monta o mapa fundo → limite a partir das linhas da aba (sem cabeçalho). Pura. */
+export function montarSaldoFee(rows: SheetRow[]): FeeSaldoMap {
   const byKey = new Map<string, FeeSaldoEntry>()
   const conflitos = new Set<string>()
   const semSaldo = new Set<string>()
-  for (const row of rowsImport) {
+  for (const row of rows) {
     const nome = String(row[COL_NOME] ?? '').trim()
-    if (!nome) continue
     const key = normFundo(nome)
     if (!key) continue
-    const saldo = parseSaldo(row[COL_SALDO])
-    if (saldo === null) {
-      // Fundo listado mas sem valor — acontece na planilha real (célula em
-      // branco). Distinguir de "não encontrado" na mensagem.
+    const feeRestante = parseNumero(row[COL_FEE_RESTANTE])
+    const saldoProjetado = parseNumero(row[COL_SALDO_PROJETADO])
+    if (feeRestante === null || saldoProjetado === null) {
       if (!byKey.has(key)) semSaldo.add(key)
       continue
     }
+    const saldo = Math.min(feeRestante, saldoProjetado)
     const existente = byKey.get(key)
     if (existente && Math.abs(existente.saldo - saldo) > SALDO_TOLERANCE) {
       // Linhas duplicadas com saldos diferentes: não dá para saber qual vale.
@@ -145,20 +106,21 @@ export async function loadFeeSaldo(): Promise<FeeSaldoMap> {
     byKey.set(key, {
       nome,
       unidade: String(row[COL_UNIDADE] ?? '').trim(),
+      situacao: String(row[COL_SITUACAO] ?? '').trim(),
+      feeRestante,
+      saldoProjetado,
       saldo,
-      atualizadoEm: parseAtualizacao(row[COL_ATUALIZACAO]),
     })
     semSaldo.delete(key)
   }
+  return { byKey, conflitos, semSaldo, totalLinhas: rows.length }
+}
 
-  const naoImportados = new Set<string>()
-  for (const row of rowsCarteira) {
-    const key = normFundo(String(row[CART_COL_NOME] ?? ''))
-    if (!key || byKey.has(key) || conflitos.has(key) || semSaldo.has(key)) continue
-    naoImportados.add(key)
-  }
-
-  return { byKey, conflitos, semSaldo, naoImportados, totalLinhas: rowsImport.length }
+/** Lê a aba carteira_realizado e monta o mapa fundo → limite. */
+export async function loadFeeSaldo(): Promise<FeeSaldoMap> {
+  const tab = await fetchSheetTabTitleByGid(FEE_SALDO_SPREADSHEET_ID, CARTEIRA_GID)
+  const rows = await fetchSheetValues(FEE_SALDO_SPREADSHEET_ID, `'${tab.replace(/'/g, "''")}'!A2:U`)
+  return montarSaldoFee(rows)
 }
 
 export interface FeeDecisao {
@@ -178,7 +140,6 @@ export function decidirPorSaldoFee(
   valorRp: number | string | null | undefined,
   saldoMap: FeeSaldoMap | null,
   loadError: string | null,
-  hoje: Date = new Date(),
 ): FeeDecisao {
   const especialista = (motivo: string): FeeDecisao => ({
     status: 'analise_especialista',
@@ -203,52 +164,38 @@ export function decidirPorSaldoFee(
   }
   if (saldoMap.conflitos.has(key)) {
     return especialista(
-      `fundo "${String(fundo).trim()}" aparece mais de uma vez na planilha de saldo FEE com valores divergentes`,
+      `fundo "${String(fundo).trim()}" aparece mais de uma vez na carteira_realizado com saldos divergentes`,
     )
   }
   const entry = saldoMap.byKey.get(key)
   if (!entry) {
     if (saldoMap.semSaldo.has(key)) {
       return especialista(
-        `fundo "${String(fundo).trim()}" está na aba de importação, mas sem valor na coluna de saque disponível`,
-      )
-    }
-    if (saldoMap.naoImportados.has(key)) {
-      return especialista(
-        `fundo "${String(fundo).trim()}" ainda não foi importado para a aba CONTROLE FEE QUOKKA (IMPORT) — sem saque disponível na planilha; pedir a importação do fundo`,
+        `fundo "${String(fundo).trim()}" está na carteira_realizado, mas sem valor no FEE restante (coluna O) ou no saldo projetado (coluna L)`,
       )
     }
     return especialista(
-      `fundo "${String(fundo).trim()}" não encontrado na planilha de saldo FEE`,
+      `fundo "${String(fundo).trim()}" não encontrado na aba carteira_realizado`,
+    )
+  }
+  if (SITUACOES_ESPECIALISTA.has(normFundo(entry.situacao))) {
+    return especialista(
+      `fundo "${entry.nome}" em situação "${entry.situacao}" na carteira_realizado — pagamento de fundo em rescisão não é decidido automaticamente`,
     )
   }
 
-  // Frescor da linha. Saldo é um número que muda toda semana; decidir com uma
-  // foto de meses atrás é pior do que não decidir, porque parece confiável.
-  if (!entry.atualizadoEm) {
-    return especialista(
-      `fundo "${entry.nome}" sem data de última atualização na planilha de saldo FEE — não é possível saber se o saque disponível está vigente`,
-    )
-  }
-  const idade = diasDesde(entry.atualizadoEm, hoje)
-  if (idade > SALDO_MAX_DIAS) {
-    const quando = entry.atualizadoEm.toISOString().slice(0, 10).split('-').reverse().join('/')
-    return especialista(
-      `saque disponível do fundo "${entry.nome}" desatualizado: última atualização em ${quando} (${idade} dias atrás, limite ${SALDO_MAX_DIAS}) — pedir a reimportação da planilha antes de decidir`,
-    )
-  }
-
-  const detalhe = `fundo "${entry.nome}" (${entry.unidade || 'sem unidade'}): saque disponível ${fmt(entry.saldo)}, RP ${fmt(valor)}, atualizado em ${entry.atualizadoEm.toISOString().slice(0, 10).split('-').reverse().join('/')}`
+  const detalhe = `fundo "${entry.nome}" (${entry.unidade || 'sem unidade'}): FEE restante ${fmt(entry.feeRestante)}, saldo projetado ${fmt(entry.saldoProjetado)}, limite ${fmt(entry.saldo)}, RP ${fmt(valor)}`
   if (valor <= entry.saldo + SALDO_TOLERANCE) {
     return {
       status: 'aprovada',
-      resumo: `Aprovada — FEE/Cerimonial dentro do saque disponível do fundo (${fmt(entry.saldo)} disponível, RP ${fmt(valor)})`,
-      motivos: [`Saque disponível comporta a requisição: ${detalhe}`],
+      resumo: `Aprovada — FEE/Cerimonial dentro do limite do fundo (${fmt(entry.saldo)} disponível, RP ${fmt(valor)})`,
+      motivos: [`O limite do fundo (menor entre FEE restante e saldo projetado) comporta a requisição: ${detalhe}`],
     }
   }
+  const limitante = entry.saldoProjetado < entry.feeRestante ? 'saldo projetado do fundo' : 'FEE restante'
   return {
     status: 'reprovada',
-    resumo: `Reprovada — FEE/Cerimonial acima do saque disponível do fundo (${fmt(entry.saldo)} disponível, RP ${fmt(valor)})`,
-    motivos: [`Valor da RP excede o saque disponível do fundo: ${detalhe}`],
+    resumo: `Reprovada — FEE/Cerimonial acima do limite do fundo (${fmt(entry.saldo)} disponível pelo ${limitante}, RP ${fmt(valor)})`,
+    motivos: [`Valor da RP excede o limite do fundo (menor entre FEE restante e saldo projetado): ${detalhe}`],
   }
 }

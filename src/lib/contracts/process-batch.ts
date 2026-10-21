@@ -196,10 +196,11 @@ export async function processBatch(
     .lt('processed_at', orfaoLimite)
 
   // ── Phase 0b: decisão FEE/Cerimonial pelo saldo do fundo ──────────────────
-  // Consulta a planilha de saldo FEE (coluna "Valor a receber") e decide na
-  // hora: RP dentro do saldo → aprovada; acima → reprovada. Fundo ausente/não
-  // encontrado, linha duplicada divergente ou planilha inacessível → análise
-  // especialista (fallback conservador — nunca decide às cegas).
+  // Consulta a aba carteira_realizado (limite = menor entre FEE restante e
+  // saldo projetado do fundo) e decide na hora: RP dentro do limite → aprovada;
+  // acima → reprovada. Fundo ausente, em rescisão, sem valor, duplicado
+  // divergente ou planilha inacessível → análise especialista (fallback
+  // conservador — nunca decide às cegas).
   if (feeReqs.size > 0) {
     const { data: feePendingRows } = await db
       .from('contract_validation_items')

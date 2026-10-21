@@ -25,8 +25,11 @@ export async function fetchSheetValues(
   url.searchParams.set("valueRenderOption", "UNFORMATTED_VALUE");
   url.searchParams.set("dateTimeRenderOption", "SERIAL_NUMBER");
 
+  // no-store: o Next 14 guarda fetch de servidor no Data Cache por padrão, e a
+  // planilha é viva — uma cópia em cache decidiria RP com saldo antigo.
   const response = await fetch(url.toString(), {
     headers: { authorization: `Bearer ${token}` },
+    cache: "no-store",
   });
 
   if (!response.ok) {
@@ -54,6 +57,7 @@ export async function fetchSheetTabTitleByGid(
 
   const response = await fetch(url, {
     headers: { authorization: `Bearer ${token}` },
+    cache: "no-store",
   });
 
   if (!response.ok) {
