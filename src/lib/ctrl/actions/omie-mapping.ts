@@ -169,12 +169,14 @@ export async function getOmieMappingData(
     const withFlag = await db
       .from("ctrl_expense_types")
       .select("id, name, categoria_no_envio")
+      .eq("active", true)
       .eq("org_id", ctx.orgId)
       .order("name");
     if ((withFlag.error as { code?: string } | null)?.code === "42703") {
       const fallback = await db
         .from("ctrl_expense_types")
         .select("id, name")
+        .eq("active", true)
         .eq("org_id", ctx.orgId)
         .order("name");
       if (fallback.error) return { error: fallback.error.message };

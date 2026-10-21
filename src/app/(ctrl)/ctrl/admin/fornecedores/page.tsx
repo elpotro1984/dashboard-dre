@@ -73,7 +73,7 @@ async function getData(orgId: string | null) {
   const [suppliersResult, expenseTypesResult, omieCompaniesResult, linksResult] = await Promise.all([
     // Fornecedores e tipos de despesa são POR EMPRESA (migration multiempresa).
     fetchAllSuppliers(supabase, orgId),
-    supabase.from("ctrl_expense_types").select("id, name").eq("org_id", orgId).order("name"),
+    supabase.from("ctrl_expense_types").select("id, name").eq("active", true).eq("org_id", orgId).order("name"),
     supabase
       .from("companies")
       .select("id, name")
