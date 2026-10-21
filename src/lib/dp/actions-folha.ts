@@ -7,7 +7,16 @@ import { DP_PATH } from "@/lib/auth/dp";
 import { exigirEmpresa, requireDpEmpresa, requireDpGestor } from "@/lib/dp/auth";
 import { indexarRegras, resolverEmpresa } from "@/lib/dp/empresa";
 import { podeVerEmpresa } from "@/lib/dp/escopo";
-import { ajustesDaPlanilha, casarNome, lerControle, lerData, lerNumero, normalizarNome, type DpPessoaParaCasar } from "@/lib/dp/folha/importacao";
+import {
+  ajustesDaPlanilha,
+  casarNome,
+  lerControle,
+  lerData,
+  lerNumero,
+  lerTabelasDaPlanilha,
+  normalizarNome,
+  type DpPessoaParaCasar,
+} from "@/lib/dp/folha/importacao";
 import { LANCAMENTO_PADRAO, type DpFolhaCadastro, type DpFolhaLancamento } from "@/lib/dp/folha/motor";
 import { competenciaValida, rotuloCompetencia, somarMeses, validarParametros, type DpFolhaParametros } from "@/lib/dp/folha/parametros";
 import {
@@ -694,7 +703,12 @@ export async function importarPlanilhaFolha(form: FormData): Promise<DpFolhaResu
 
     const admin = createAdminClient();
     const parametros = await parametrosVigentes(admin, competencia);
-    const lido = lerControle(matriz, parametros);
+    // A aba TABELAS da própria planilha dá o valor das opções de alimentação e gasolina.
+    const abaTabelas = nomeAba("TABELAS");
+    const tabelas = abaTabelas
+      ? lerTabelasDaPlanilha(XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[abaTabelas], { header: 1, defval: null }))
+      : undefined;
+    const lido = lerControle(matriz, parametros, tabelas);
     if ("erro" in lido) throw new Error(lido.erro);
 
     // Ajustes = células DIGITADAS (sem fórmula) da aba SALÁRIO.

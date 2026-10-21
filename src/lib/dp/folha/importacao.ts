@@ -146,12 +146,43 @@ const COLUNA = {
 } as const;
 
 /**
+ * As OPÇÕES da aba TABELAS da própria planilha: rótulo → valor. É dela que as
+ * fórmulas da SALÁRIO tiram o valor da alimentação e da gasolina (PROCV no
+ * rótulo), e cada planilha tem a sua — a das "demais empresas" tem opções por
+ * unidade ("Alimentação - VIVA MIXX - R$20,85/dia" = 437,85 no mês; "Gasolina
+ * CGR + Bônus R$1000,00" = 1.150). Ler o número do fim do rótulo erra os dois
+ * casos (zero no primeiro, só o bônus no segundo), e foi o que a 1ª versão fez.
+ *
+ * A aba é uma colagem de listas lado a lado, sem cabeçalho por lista: a regra é
+ * "texto com número na célula à direita". Rótulo que aparece com valores
+ * DIFERENTES vira null (ambíguo) — quem o usa recebe aviso em vez de um palpite.
+ */
+export function lerTabelasDaPlanilha(matriz: unknown[][]): Map<string, number | null> {
+  const out = new Map<string, number | null>();
+  for (const row of matriz) {
+    const r = row ?? [];
+    for (let j = 0; j + 1 < r.length; j++) {
+      const rotulo = r[j];
+      const valor = r[j + 1];
+      if (typeof rotulo !== "string" || !rotulo.trim() || typeof valor !== "number" || !Number.isFinite(valor)) continue;
+      const k = normalizarNome(rotulo);
+      const v = Math.round(valor * 100) / 100;
+      out.set(k, out.has(k) && out.get(k) !== v ? null : v);
+    }
+  }
+  return out;
+}
+
+/**
  * Lê a aba CONTROLE (linhas já como matriz, a 1ª com os cabeçalhos). Falha por
  * ARQUIVO só quando não há a coluna FUNCIONÁRIOS; o resto falha por linha.
+ * `tabelas` (da aba TABELAS da mesma planilha) vence os parâmetros e o número
+ * do rótulo na alimentação e na gasolina — é a fonte que a própria planilha usa.
  */
 export function lerControle(
   matriz: unknown[][],
   p: DpFolhaParametros,
+  tabelas?: ReadonlyMap<string, number | null>,
 ): { ok: DpLinhaControle[] } | { erro: string } {
   const iCab = matriz.findIndex((row) => (row ?? []).some((c) => typeof c === "string" && normalizarNome(c) === COLUNA.nome));
   if (iCab < 0) return { erro: "Não encontrei a coluna FUNCIONÁRIOS — a planilha é a aba CONTROLE da folha?" };
@@ -192,10 +223,14 @@ export function lerControle(
     cadastro.homeOffice = lerNumero(cel("homeOffice"));
     cadastro.semInss = igual(txt("setor"), "diretor");
 
+    // Valor de uma opção pela aba TABELAS da planilha; undefined = a tabela não tem o rótulo.
+    const daTabela = (rotulo: string): number | null | undefined => tabelas?.get(normalizarNome(rotulo));
     const alim = txt("alimentacao");
     if (alim && !igual(alim, "nenhum")) {
+      const t = daTabela(alim);
       const op = p.alimentacoes.find((a) => igual(a.nome, alim));
-      const v = op?.valor ?? numeroDoRotulo(alim);
+      const v = t ?? op?.valor ?? numeroDoRotulo(alim);
+      if (t === null) avisos.push(`Alimentação "${alim}" aparece com valores diferentes na aba TABELAS — confira.`);
       if (v === null) avisos.push(`Alimentação "${alim}" não reconhecida.`);
       else cadastro.alimentacao = v;
     }
@@ -207,7 +242,11 @@ export function lerControle(
         cadastro.transporteOpcao = b.nome;
       } else if (normalizarNome(tr).startsWith("gasolina")) {
         cadastro.transporteTipo = "gasolina";
-        cadastro.transporteValor = numeroDoRotulo(tr) ?? 0;
+        const t = daTabela(tr);
+        const v = t ?? numeroDoRotulo(tr);
+        if (t === null) avisos.push(`Transporte "${tr}" aparece com valores diferentes na aba TABELAS — confira.`);
+        if (v === null) avisos.push(`Gasolina "${tr}" sem valor (nem na aba TABELAS, nem no rótulo).`);
+        cadastro.transporteValor = v ?? 0;
       } else avisos.push(`Transporte "${tr}" não está nos parâmetros.`);
     }
     const esc = txt("escala");

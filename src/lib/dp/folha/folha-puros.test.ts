@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { avulsoNaCompetencia, contratoDaPlanilha, empresasPorRotulo, validarAvulso } from "@/lib/dp/folha/avulsos";
-import { ajustesDaPlanilha, casarNome, lerControle, lerData, lerNumero } from "@/lib/dp/folha/importacao";
+import { ajustesDaPlanilha, casarNome, lerControle, lerData, lerNumero, lerTabelasDaPlanilha } from "@/lib/dp/folha/importacao";
 import { CADASTRO_VAZIO, calcularFolhaPessoa, LANCAMENTO_PADRAO, type DpFolhaEntrada } from "@/lib/dp/folha/motor";
 import {
   faixaEtaria,
@@ -158,6 +158,39 @@ test("lerControle: rótulos de categoria viram cadastro; AFASTADO vira situaçã
   assert.equal(b.lancamento.inssFerias, null); // vazio = calculado como no recibo
   assert.equal(b.lancamento.vtDiasDesconto, 0); // vazio na planilha = VT do mês cheio
   assert.ok("erro" in lerControle([["NOME"], ["x"]], P));
+});
+
+test("aba TABELAS da planilha: o valor da opção vem de lá, não do número do rótulo", () => {
+  // Colagem de listas lado a lado, como na planilha das "demais empresas".
+  const tab = lerTabelasDaPlanilha([
+    ["EMPRESA REGISTRADA", "TRANSPORTE", null, "ALIMENTAÇÃO", null],
+    ["SPOT", "Gasolina CGR + Bônus R$1000,00", 1150, "Alimentação - VIVA MIXX - R$20,85/dia", 437.85],
+    ["VIVA MIXX", "Gasolina SPOT/EXPRESS - 5 dias", 236.25, "Alimentação - Spot/Express - DIVIDIR NO LIVRE", 200],
+    [null, "39 a 43", 142.8185, "Mais que 59", 348.9445],
+    [null, null, null, "Mais que 59", 667.6668],
+  ]);
+  assert.equal(tab.get("gasolina cgr bonus r 1000 00"), 1150);
+  assert.equal(tab.get("mais que 59"), null); // mesmo rótulo com valores diferentes = ambíguo
+  const m = [
+    ["FUNCIONÁRIOS", "ALIMENTAÇÃO", "TRANSPORTE"],
+    ["Ana", "Alimentação - VIVA MIXX - R$20,85/dia", "Gasolina CGR + Bônus R$1000,00"],
+    ["Bia", "Alimentação - Spot/Express - DIVIDIR NO LIVRE", "Gasolina SPOT/EXPRESS - 5 dias"],
+    ["Caio", "Alimentação 525,00", "Gasolina 97,50"], // fora da tabela: parâmetros e número do rótulo, como antes
+  ];
+  const r = lerControle(m, P, tab);
+  assert.ok("ok" in r);
+  if (!("ok" in r)) return;
+  const [a, b, c] = r.ok;
+  assert.equal(a.cadastro.alimentacao, 437.85); // o rótulo termina em "/dia": sem a tabela, zero
+  assert.equal(a.cadastro.transporteValor, 1150); // sem a tabela, só o bônus (1.000)
+  assert.equal(b.cadastro.alimentacao, 200);
+  assert.equal(b.cadastro.transporteValor, 236.25);
+  assert.equal(c.cadastro.alimentacao, 525);
+  assert.equal(c.cadastro.transporteValor, 97.5);
+  assert.deepEqual([a, b, c].flatMap((l) => l.avisos), []);
+  // Sem a tabela, o comportamento antigo (e o aviso) continua
+  const semTabela = lerControle(m, P);
+  assert.ok("ok" in semTabela && semTabela.ok[0].avisos.some((x) => /não reconhecida/.test(x)));
 });
 
 test("ajustesDaPlanilha: só a célula DIGITADA vira ajuste; fórmula é recalculada pelo sistema", () => {
