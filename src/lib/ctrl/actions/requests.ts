@@ -9,6 +9,7 @@ import { ctrlReadClient } from "@/lib/ctrl/injected-identity";
 import {
   APPROVAL_ROUTING,
   approverSectorRestrictionFor,
+  isBudgetExemptOrg,
   isBudgetExemptSector,
   isManagerFinalSector,
   reportExtraSectorsFor,
@@ -143,6 +144,40 @@ async function performBudgetVerification(
     style: "currency",
     currency: "BRL",
   });
+
+  // Empresa (org) SEM verificação de orçamento (ver BUDGET_EXEMPT_ORGS). A org é
+  // resolvida pelo SETOR (ctrl_sectors.org_id → ctrl_orgs.slug), então vale em
+  // TODO caminho que chama esta função (criação, parcelas, meses, reroteamento e
+  // prévia) sem depender de o chamador informar a empresa. nivel_2 = só o gerente
+  // aprova, sem confronto com orçamento, sem "NÃO ORÇADO" e sem justificativa.
+  const { data: secOrg } = await supabase
+    .from("ctrl_sectors")
+    .select("org_id")
+    .eq("id", sectorId)
+    .maybeSingle();
+  if (secOrg?.org_id) {
+    const { data: orgRow } = await supabase
+      .from("ctrl_orgs")
+      .select("slug")
+      .eq("id", secOrg.org_id as string)
+      .maybeSingle();
+    if (isBudgetExemptOrg(orgRow?.slug as string | null | undefined)) {
+      return {
+        approvalTier: "nivel_2",
+        autoApproved: false,
+        isBudgeted: false,
+        justificationRequired: false,
+        budgetExempt: true,
+        currentBalance: 0,
+        futureBalance: 0,
+        budgetedUpToMonth: 0,
+        budgetedAnnual: 0,
+        totalApproved: 0,
+        statusLabel:
+          "Empresa sem verificação de orçamento — requer aprovação do gerente",
+      };
+    }
+  }
 
   // Setor ISENTO de controle de orçamento (despesas ressarcidas — ver
   // BUDGET_EXEMPT_SECTORS em routing.ts). Não confronta orçamento: nivel_2, só o

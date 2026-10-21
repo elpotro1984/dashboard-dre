@@ -167,6 +167,33 @@ export function isBudgetExemptSector(sectorId: string | null | undefined): boole
   return BUDGET_EXEMPT_SECTORS.some((rule) => rule.sectorId === sectorId);
 }
 
+// Empresas (orgs do Compras) SEM verificação de orçamento — decisão de negócio:
+// essas unidades não serão orçadas (teste de viabilidade do módulo). TODA
+// requisição delas vai como nivel_2 (só o gerente aprova), sem confronto com
+// orçamento, sem prefixo "NÃO ORÇADO" e sem justificativa — independentemente do
+// setor. Identificado por SLUG (estável a renomeação). Diferente de
+// BUDGET_EXEMPT_SECTORS, que é por setor; aqui é a EMPRESA inteira.
+export const BUDGET_EXEMPT_ORGS: ReadonlyArray<{
+  slug: string;
+  since: string;
+  reason: string;
+}> = [
+  { slug: "feat-producoes", since: "2026-10-21", reason: "Teste de viabilidade do Compras — não orça em 2026." },
+  { slug: "viva-juiz-de-fora", since: "2026-10-21", reason: "Teste de viabilidade do Compras — não orça em 2026." },
+  { slug: "viva-petropolis", since: "2026-10-21", reason: "Teste de viabilidade do Compras — não orça em 2026." },
+  { slug: "viva-volta-redonda", since: "2026-10-21", reason: "Teste de viabilidade do Compras — não orça em 2026." },
+];
+
+/**
+ * True quando a empresa do Compras (org) é ISENTA de verificação de orçamento.
+ * Requisições dela nunca são confrontadas com orçamento e seguem só com a
+ * aprovação do gerente (nivel_2), qualquer que seja o setor.
+ */
+export function isBudgetExemptOrg(slug: string | null | undefined): boolean {
+  if (!slug) return false;
+  return BUDGET_EXEMPT_ORGS.some((rule) => rule.slug === slug);
+}
+
 /**
  * Uma requisição é roteada direto ao diretor (pulando o gerente) por REGRA —
  * setor Diretoria ou solicitante especial —, independente do orçamento. Isso é

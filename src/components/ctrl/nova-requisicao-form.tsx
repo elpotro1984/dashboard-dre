@@ -1094,7 +1094,9 @@ export function NovaRequisicaoForm({
           deixa vazio. "+ novo" cadastra um projeto (criado na Omie no envio).
           Para a Viva, um Evento que case com um projeto existente sobrepõe isto. */}
       <div className="space-y-1.5">
-        <label htmlFor="projeto" className={LABEL_CLS}>Projeto</label>
+        <label htmlFor="projeto" className={LABEL_CLS}>
+          Projeto <span className="text-destructive">*</span>
+        </label>
         {criandoProjeto ? (
           <div className="flex gap-2">
             <input
