@@ -80,6 +80,7 @@ function toCadastro(r: any): DpFolhaCadastro {
     semInss: Boolean(r.sem_inss),
     setorFolha: (r.setor_folha as string | null) ?? null,
     recorrentes: Array.isArray(r.recorrentes) ? r.recorrentes : [],
+    ferias: Array.isArray(r.ferias) ? r.ferias : [],
   };
 }
 
@@ -92,7 +93,7 @@ function toLancamento(r: any): DpFolhaLancamento {
     situacao: r.situacao,
     diasTrabalhados: opc(r.dias_trabalhados),
     outrosProventos: Number(r.outros_proventos),
-    diasFerias: Number(r.dias_ferias),
+    diasFerias: opc(r.dias_ferias),
     inssFerias: opc(r.inss_ferias),
     coparticipacao: Number(r.coparticipacao),
     outrosDescontos: Number(r.outros_descontos),

@@ -103,3 +103,32 @@ export function colaboradorNoMes(
   const saida = r.desligamento ?? (r.desligadoDetectadoEm ? r.desligadoDetectadoEm.slice(0, 10) : null);
   return Boolean(saida && saida >= primeiroDia(competencia) && saida <= ultimoDia(competencia));
 }
+
+export interface DpPeriodoFerias {
+  id: string;
+  /** AAAA-MM-DD, inclusive. */
+  inicio: string;
+  fim: string;
+}
+
+/** Dias corridos entre duas datas, inclusive. */
+export function diasCorridos(ini: string, fim: string): number {
+  return fim < ini ? 0 : Math.round((utc(fim).getTime() - utc(ini).getTime()) / DIA_MS) + 1;
+}
+
+/**
+ * As férias que caem no mês: os pedaços de cada período dentro da competência
+ * e o total de dias (corridos, no máximo 30 — mês comercial). Férias que
+ * atravessam a virada do mês contam em cada mês só a parte dele: é como a
+ * planilha do DP fazia (dias trabalhados + dias de férias = 30 em todo mês).
+ */
+export function feriasDoMes(periodos: DpPeriodoFerias[], competencia: string): { dias: number; pedacos: Array<{ ini: string; fim: string }> } {
+  const p = primeiroDia(competencia);
+  const u = ultimoDia(competencia);
+  const pedacos = (periodos ?? [])
+    .map((f) => ({ ini: f.inicio > p ? f.inicio : p, fim: f.fim < u ? f.fim : u }))
+    .filter((x) => x.ini <= x.fim)
+    .sort((a, b) => a.ini.localeCompare(b.ini));
+  const dias = Math.min(30, pedacos.reduce((s, x) => s + diasCorridos(x.ini, x.fim), 0));
+  return { dias, pedacos };
+}

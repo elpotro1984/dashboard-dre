@@ -19,11 +19,12 @@ import { brl, brl0 } from "./formato";
 import { DpIncluirAvulso } from "./avulso-form";
 import { DpImportarFolhaDialog } from "./importar-dialog";
 import { DpLancamentosGrade } from "./lancamentos-grade";
+import { DpConferenciaContabilidade, DpValoresPlanilha } from "./planilhas-externas";
 import { DpFolhaPessoaDialog } from "./pessoa-dialog";
 import { DpFolhaRescisoes } from "./rescisoes";
 import { DpTotaisTabela } from "./totais-tabela";
 
-type Aba = "lancar" | "folha" | "cadastro" | "beneficios" | "rescisoes" | "totais";
+type Aba = "lancar" | "folha" | "cadastro" | "beneficios" | "rescisoes" | "totais" | "conferencia";
 const ABAS: Array<{ id: Aba; rotulo: string }> = [
   { id: "lancar", rotulo: "Lançar o mês" },
   { id: "folha", rotulo: "Folha" },
@@ -31,6 +32,7 @@ const ABAS: Array<{ id: Aba; rotulo: string }> = [
   { id: "beneficios", rotulo: "Benefícios (VA / VT)" },
   { id: "rescisoes", rotulo: "Rescisões" },
   { id: "totais", rotulo: "Totais" },
+  { id: "conferencia", rotulo: "Conferência e planilhas" },
 ];
 
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -224,7 +226,12 @@ export function DpFolhaClient({
           </div>
           {folha.linhas.length === 0 && aba !== "rescisoes" ? (
             <p className="text-sm text-ink-muted">Ninguém ativo nesta empresa na Sólides.</p>
-          ) : aba === "lancar" ? null : aba === "folha" ? (
+          ) : aba === "lancar" ? null : aba === "conferencia" ? (
+            <div className="space-y-4">
+              <DpConferenciaContabilidade companyId={companyId} competencia={competencia} />
+              <DpValoresPlanilha companyId={companyId} competencia={competencia} editavel={editavel} />
+            </div>
+          ) : aba === "folha" ? (
             <TabelaFolha linhas={visiveis} total={total} onAbrir={setAberta} pessoaPor={pessoaPor} />
           ) : aba === "cadastro" ? (
             <TabelaCadastro pessoas={folha.pessoas.filter((p) => visiveis.some((l) => l.solidesId === p.solidesId))} parametros={folha.parametros} onAbrir={setAberta} />
@@ -395,7 +402,8 @@ function TabelaCadastro({ pessoas, parametros, onAbrir }: { pessoas: DpFolhaPess
           <th className="py-2 pr-3 text-right font-medium">Dep. IR</th>
           <th className="py-2 pr-3 text-right font-medium">Sal.-família</th>
           <th className="py-2 pr-3 text-right font-medium">Home office</th>
-          <th className="py-2 font-medium">Adiant.</th>
+          <th className="py-2 pr-3 font-medium">Adiant.</th>
+          <th className="py-2 font-medium">Férias programadas</th>
         </tr>
       </thead>
       <tbody>
@@ -421,7 +429,12 @@ function TabelaCadastro({ pessoas, parametros, onAbrir }: { pessoas: DpFolhaPess
               <td className="py-1.5 pr-3 text-right tabular-nums">{c.dependentesIr || "—"}</td>
               <td className="py-1.5 pr-3 text-right tabular-nums">{c.salarioFamiliaCotas || "—"}</td>
               <td className="py-1.5 pr-3 text-right tabular-nums">{brl0(c.homeOffice)}</td>
-              <td className="py-1.5">{c.adiantamento ? "Sim" : "—"}</td>
+              <td className="py-1.5 pr-3">{c.adiantamento ? "Sim" : "—"}</td>
+              <td className="py-1.5 text-xs">
+                {(c.ferias ?? []).length === 0
+                  ? "—"
+                  : (c.ferias ?? []).map((f) => `${f.inicio.slice(8, 10)}/${f.inicio.slice(5, 7)}–${f.fim.slice(8, 10)}/${f.fim.slice(5, 7)}`).join(", ")}
+              </td>
             </tr>
           );
         })}

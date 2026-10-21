@@ -69,16 +69,16 @@ export async function findProjetoByNome(
   return fallbackInativo;
 }
 
-// Lista os NOMES dos projetos ATIVOS cadastrados na empresa (CNPJ das
-// credenciais), para o seletor de Projeto da requisição. Pagina ListarProjetos,
-// descarta inativos e nomes vazios, deduplica e ordena (pt-BR). É só sugestão —
-// o que a requisição guarda é o NOME, resolvido/criado no envio por
-// ensureProjetoByNome. Best-effort: o chamador trata erro como lista vazia.
-export async function listProjetosAtivos(
+// Lista os projetos ATIVOS cadastrados na empresa (CNPJ das credenciais) —
+// código (nCodProj) + nome. Alimenta o CACHE de projetos (ctrl_omie_options
+// kind 'projeto') que o campo Projeto da requisição lê. Pagina ListarProjetos,
+// descarta inativos e nomes/códigos vazios, deduplica por nome. Best-effort: o
+// chamador trata erro como lista vazia.
+export async function listProjetosOmie(
   appKey: string,
   appSecret: string,
-): Promise<string[]> {
-  const nomes = new Set<string>();
+): Promise<Array<{ codigo: string; nome: string }>> {
+  const porNome = new Map<string, { codigo: string; nome: string }>();
   let pagina = 1;
   let total = 1;
   do {
@@ -100,12 +100,13 @@ export async function listProjetosAtivos(
       const inativo = String(p.inativo ?? p.cInativo ?? "").toUpperCase() === "S";
       if (inativo) continue;
       const nome = String(p.nome ?? p.cNome ?? "").replace(/\s+/g, " ").trim();
-      if (nome) nomes.add(nome);
+      const codigo = String(p.codigo ?? p.nCodProj ?? p.nCodProjeto ?? "").trim();
+      if (nome && codigo && !porNome.has(nome)) porNome.set(nome, { codigo, nome });
     }
     total = Number(data.total_de_paginas ?? 1);
     pagina += 1;
   } while (pagina <= total);
-  return Array.from(nomes).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  return Array.from(porNome.values()).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
 }
 
 const PROJETO_NOME_MAX = 70;

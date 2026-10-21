@@ -222,7 +222,7 @@ export function lerControle(
       // Célula vazia = automático (admissão/desligamento − férias); preenchida = o que o DP informou.
       diasTrabalhados: vazio(cel("dias")) ? null : lerNumero(cel("dias")),
       outrosProventos: lerNumero(cel("outros")),
-      diasFerias: lerNumero(cel("diasFerias")),
+      diasFerias: vazio(cel("diasFerias")) ? null : lerNumero(cel("diasFerias")),
       // Vazio = calculado como no recibo (a planilha tratava como zero, e o INSS do mês saía em dobro).
       inssFerias: vazio(cel("inssFerias")) ? null : Math.abs(lerNumero(cel("inssFerias"))),
       coparticipacao: lerNumero(cel("copart")),

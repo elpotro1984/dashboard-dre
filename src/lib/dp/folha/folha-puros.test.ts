@@ -14,8 +14,8 @@ import {
   vigenciaPara,
 } from "@/lib/dp/folha/parametros";
 import { categoriasDaLinha, SEM_GRUPO, totalizar } from "@/lib/dp/folha/totais";
-import { herdarDoMesAnterior, mesclarLancamento, validarCadastro, validarLancamento, validarRecorrentes } from "@/lib/dp/folha/validacao";
-import { colaboradorNoMes, diasComerciais, diasUteis, feriadosNacionais, intervaloNoMes } from "@/lib/dp/folha/calendario";
+import { herdarDoMesAnterior, mesclarLancamento, validarCadastro, validarFerias, validarLancamento, validarRecorrentes } from "@/lib/dp/folha/validacao";
+import { colaboradorNoMes, diasComerciais, diasUteis, feriadosNacionais, feriasDoMes, intervaloNoMes } from "@/lib/dp/folha/calendario";
 import { rescisoesSugeridas, variacoesContraAnterior } from "@/lib/dp/folha/conferencia";
 import { lerParametros } from "@/lib/dp/folha/parametros";
 
@@ -206,7 +206,7 @@ test("mês novo herda só a SITUAÇÃO (o que se repete com valor é fixo do cad
   const r = herdarDoMesAnterior(anterior, { ...LANCAMENTO_PADRAO, ajustes: {} });
   assert.equal(r.situacao, "afastado");
   assert.equal(r.outrosDescontos, 0);
-  assert.equal(r.diasFerias, 0);
+  assert.equal(r.diasFerias, null); // automático: pelas férias programadas
   assert.equal(r.coparticipacao, 0);
   assert.deepEqual(r.ajustes, {});
 });
@@ -345,4 +345,24 @@ test("parâmetros de vigência antiga: escala sem dias/semana é deduzida do nom
   assert.deepEqual(p.escalas.map((e) => e.diasSemana), [6, 5]);
   assert.deepEqual(p.escalas[0].feriados, []);
   assert.equal(p.vtPeloCalendario, true);
+});
+
+// ── férias programadas ───────────────────────────────────────────────────
+test("férias do mês: só a parte de cada período dentro do mês; atravessar a virada divide", () => {
+  const periodos = [{ id: "1", inicio: "2026-09-21", fim: "2026-10-20" }];
+  assert.equal(feriasDoMes(periodos, "2026-09").dias, 10);
+  assert.equal(feriasDoMes(periodos, "2026-10").dias, 20);
+  assert.equal(feriasDoMes(periodos, "2026-11").dias, 0);
+  // mês de 31 dias inteiro de férias é 30 (mês comercial)
+  assert.equal(feriasDoMes([{ id: "x", inicio: "2026-08-01", fim: "2026-08-31" }], "2026-08").dias, 30);
+});
+
+test("validarFerias: até 30 dias por período e sem sobreposição", () => {
+  assert.equal(validarFerias([{ id: "a", inicio: "2026-09-01", fim: "2026-09-30" }]).length, 1);
+  assert.throws(() => validarFerias([{ id: "a", inicio: "2026-09-01", fim: "2026-10-05" }]), /mais de 30/);
+  assert.throws(() => validarFerias([{ id: "a", inicio: "2026-09-10", fim: "2026-09-01" }]), /antes do início/);
+  assert.throws(
+    () => validarFerias([{ id: "a", inicio: "2026-09-01", fim: "2026-09-10" }, { id: "b", inicio: "2026-09-10", fim: "2026-09-15" }]),
+    /sobrepostos/,
+  );
 });

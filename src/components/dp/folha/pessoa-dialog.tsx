@@ -15,6 +15,7 @@ import {
   unificarAvulso,
 } from "@/lib/dp/actions-folha";
 import type { DpAvulsoEntrada } from "@/lib/dp/folha/avulsos";
+import { diasCorridos, type DpPeriodoFerias } from "@/lib/dp/folha/calendario";
 import {
   calcularFolhaPessoa,
   COLUNAS_AJUSTAVEIS,
@@ -267,8 +268,13 @@ export function DpFolhaPessoaDialog({
                     ))}
                   </select>
                 </Campo>
-                <Campo rotulo="Dias de férias">
-                  <NumCampo valor={lanc.diasFerias} onChange={(v) => setL("diasFerias", v)} disabled={ro} />
+                <Campo rotulo="Dias de férias" dica="Vazio = pelas férias programadas">
+                  <NumCampoOpcional
+                    valor={lanc.diasFerias}
+                    auto={r.automatico?.diasFerias ?? 0}
+                    onChange={(v) => setL("diasFerias", v)}
+                    disabled={ro}
+                  />
                 </Campo>
                 <Campo rotulo="Dias trabalhados" dica="Vazio = automático (admissão/desligamento − férias)">
                   <NumCampoOpcional
@@ -488,6 +494,8 @@ export function DpFolhaPessoaDialog({
               )}
             </section>
 
+            <DpFeriasEditor lista={cad.ferias ?? []} competencia={competencia} disabled={ro} onChange={(l) => setC("ferias", l)} />
+
             <DpRecorrentesEditor
               lista={cad.recorrentes ?? []}
               competencia={competencia}
@@ -653,6 +661,60 @@ function DpRecorrentesEditor({
           }
         >
           <Plus className="h-3 w-3" /> adicionar
+        </button>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Férias PROGRAMADAS da pessoa (cadastro): de cada período saem sozinhos os
+ * dias de férias de cada mês, inclusive quando atravessam a virada, e os dias
+ * úteis que o VT não paga. Até 30 dias por período, sem sobreposição.
+ */
+function DpFeriasEditor({
+  lista,
+  competencia,
+  disabled,
+  onChange,
+}: {
+  lista: DpPeriodoFerias[];
+  competencia: string;
+  disabled: boolean;
+  onChange: (l: DpPeriodoFerias[]) => void;
+}) {
+  const set = (i: number, patch: Partial<DpPeriodoFerias>) => onChange(lista.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  return (
+    <section className="space-y-2">
+      <h3 className="text-sm font-semibold text-ink-primary">Férias programadas</h3>
+      <p className="text-xs text-ink-muted">
+        Informe o período uma vez: os dias de férias de cada mês e o desconto do VT saem sozinhos, inclusive quando as férias atravessam
+        o mês.
+      </p>
+      {lista.length === 0 && <p className="text-xs text-ink-muted">Nenhuma.</p>}
+      {lista.map((x, i) => {
+        const dias = x.inicio && x.fim ? diasCorridos(x.inicio, x.fim) : 0;
+        return (
+          <div key={x.id} className="flex flex-wrap items-center gap-2">
+            <input type="date" className={`${inputCls} w-40`} disabled={disabled} value={x.inicio} onChange={(e) => set(i, { inicio: e.target.value })} aria-label="Início das férias" />
+            <span className="text-xs text-ink-muted">a</span>
+            <input type="date" className={`${inputCls} w-40`} disabled={disabled} value={x.fim} onChange={(e) => set(i, { fim: e.target.value })} aria-label="Fim das férias" />
+            <span className={`text-xs ${dias > 30 ? "text-red-700 dark:text-red-400" : "text-ink-muted"}`}>{dias} dia(s)</span>
+            {!disabled && (
+              <button type="button" className="rounded p-1 text-ink-muted hover:text-red-700" onClick={() => onChange(lista.filter((_, j) => j !== i))} aria-label="Remover período">
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        );
+      })}
+      {!disabled && (
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2 py-0.5 text-xs hover:bg-muted"
+          onClick={() => onChange([...lista, { id: `${Date.now()}`, inicio: `${competencia}-01`, fim: `${competencia}-10` }])}
+        >
+          <Plus className="h-3 w-3" /> período
         </button>
       )}
     </section>

@@ -63,6 +63,9 @@ CREATE TABLE IF NOT EXISTS public.dp_folha_cadastro (
   -- Proventos e descontos FIXOS com prazo (consignado, pensão, gratificação):
   -- [{ id, tipo: 'provento'|'desconto', descricao, valor, inicio: 'AAAA-MM', fim: 'AAAA-MM'|null }]
   recorrentes           JSONB NOT NULL DEFAULT '[]'::jsonb,
+  -- Férias PROGRAMADAS: [{ id, inicio: 'AAAA-MM-DD', fim: 'AAAA-MM-DD' }]. Delas saem os
+  -- dias de férias de cada mês e os dias úteis que o VT não paga.
+  ferias                JSONB NOT NULL DEFAULT '[]'::jsonb,
   conta                 TEXT,
   observacao            TEXT,
   updated_by            UUID REFERENCES public.users(id) ON DELETE SET NULL,
@@ -76,7 +79,8 @@ CREATE TABLE IF NOT EXISTS public.dp_folha_lancamentos (
   -- NULL = AUTOMÁTICO (admissão/desligamento da Sólides menos as férias); número = informado.
   dias_trabalhados   NUMERIC(5, 2) CHECK (dias_trabalhados BETWEEN 0 AND 31),
   outros_proventos   NUMERIC(12, 2) NOT NULL DEFAULT 0,
-  dias_ferias        NUMERIC(5, 2) NOT NULL DEFAULT 0 CHECK (dias_ferias BETWEEN 0 AND 31),
+  -- NULL = automático (férias programadas no cadastro); número = informado.
+  dias_ferias        NUMERIC(5, 2) CHECK (dias_ferias BETWEEN 0 AND 31),
   -- NULL = calculado como no recibo (INSS sobre férias + 1/3); número = informado.
   inss_ferias        NUMERIC(12, 2) CHECK (inss_ferias >= 0),
   coparticipacao     NUMERIC(12, 2) NOT NULL DEFAULT 0,
@@ -119,6 +123,18 @@ CREATE TABLE IF NOT EXISTS public.dp_folha_rescisoes (
 
 CREATE INDEX IF NOT EXISTS dp_folha_rescisoes_comp_idx ON public.dp_folha_rescisoes (company_id, competencia);
 
+-- Mapeamento de colunas de planilhas de FORA (o resumo da contabilidade, a
+-- fatura da operadora), por empresa: guarda o NOME do cabeçalho de cada campo,
+-- para o DP apontar as colunas só na primeira vez.
+CREATE TABLE IF NOT EXISTS public.dp_folha_layouts (
+  company_id  UUID NOT NULL REFERENCES public.companies(id) ON DELETE CASCADE,
+  tipo        TEXT NOT NULL CHECK (tipo IN ('contabilidade', 'valores')),
+  mapeamento  JSONB NOT NULL,
+  updated_by  UUID REFERENCES public.users(id) ON DELETE SET NULL,
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (company_id, tipo)
+);
+
 -- Pessoas FORA da Sólides. O id é negativo para nunca colidir com solides_id.
 CREATE SEQUENCE IF NOT EXISTS public.dp_folha_avulso_seq;
 CREATE TABLE IF NOT EXISTS public.dp_folha_avulsos (
@@ -152,6 +168,7 @@ ALTER TABLE public.dp_folha_lancamentos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.dp_folha_fechamentos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.dp_folha_rescisoes   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.dp_folha_avulsos     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.dp_folha_layouts     ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS dp_folha_parametros_select ON public.dp_folha_parametros;
 CREATE POLICY dp_folha_parametros_select ON public.dp_folha_parametros FOR SELECT TO authenticated USING (public.dp_has_access());
@@ -163,6 +180,8 @@ DROP POLICY IF EXISTS dp_folha_fechamentos_select ON public.dp_folha_fechamentos
 CREATE POLICY dp_folha_fechamentos_select ON public.dp_folha_fechamentos FOR SELECT TO authenticated USING (public.dp_has_access());
 DROP POLICY IF EXISTS dp_folha_rescisoes_select ON public.dp_folha_rescisoes;
 CREATE POLICY dp_folha_rescisoes_select ON public.dp_folha_rescisoes FOR SELECT TO authenticated USING (public.dp_has_access());
+DROP POLICY IF EXISTS dp_folha_layouts_select ON public.dp_folha_layouts;
+CREATE POLICY dp_folha_layouts_select ON public.dp_folha_layouts FOR SELECT TO authenticated USING (public.dp_has_access());
 DROP POLICY IF EXISTS dp_folha_avulsos_select ON public.dp_folha_avulsos;
 CREATE POLICY dp_folha_avulsos_select ON public.dp_folha_avulsos FOR SELECT TO authenticated USING (public.dp_has_access());
 

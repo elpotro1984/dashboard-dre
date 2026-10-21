@@ -2,9 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useMemo, useEffect, useRef } from "react";
-import { AlertTriangle, CheckCircle2, ChevronDown, Loader2, Paperclip, Search, X, Zap } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, Loader2, Paperclip, RefreshCcw, Search, X, Zap } from "lucide-react";
 
 import { createRequest, verifyBudget } from "@/lib/ctrl/actions/requests";
+import { atualizarProjetosAgora } from "@/lib/ctrl/actions/projetos";
 import { extractAttachmentData } from "@/lib/ctrl/actions/attachment-ocr";
 import { MAX_ATTACHMENT_SIZE, uploadCtrlAttachment } from "@/lib/ctrl/attachment-upload";
 import { maskPixTelefone, pixTelefoneIsComplete } from "@/lib/ctrl/bancos";
@@ -104,6 +105,22 @@ export function NovaRequisicaoForm({
   const [projetoNome, setProjetoNome] = useState("");
   const [criandoProjeto, setCriandoProjeto] = useState(false);
   const [novoProjeto, setNovoProjeto] = useState("");
+  // Lista de projetos (cache atualizado ~1x/dia no servidor); o botão
+  // "Atualizar agora" força a repuxada da Omie e substitui a lista aqui.
+  const [projetosList, setProjetosList] = useState<string[]>(projetos);
+  const [atualizandoProjetos, setAtualizandoProjetos] = useState(false);
+
+  async function handleAtualizarProjetos() {
+    setAtualizandoProjetos(true);
+    try {
+      const { projetos: nomes } = await atualizarProjetosAgora();
+      setProjetosList(nomes);
+    } catch {
+      // Best-effort: falha ao atualizar não derruba o formulário.
+    } finally {
+      setAtualizandoProjetos(false);
+    }
+  }
 
   // ── Payment fields — auto-filled from supplier, still editable ──────────────
   const [favorecido, setFavorecido] = useState("");
@@ -993,17 +1010,13 @@ export function NovaRequisicaoForm({
           <label htmlFor="expense_type_id" className={LABEL_CLS}>
             Tipo de Despesa <span className="text-destructive">*</span>
           </label>
-          <select
-            id="expense_type_id"
-            name="expense_type_id"
-            required
+          <SearchSelect
+            options={expenseTypes.map((t) => ({ value: t.id, label: t.name }))}
             value={expenseTypeId}
-            onChange={(e) => setExpenseTypeId(e.target.value)}
-            className={INPUT_CLS}
-          >
-            <option value="">Selecione o tipo de despesa</option>
-            {expenseTypes.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
-          </select>
+            onChange={setExpenseTypeId}
+            placeholder="Busque o tipo de despesa pelo nome..."
+            ariaLabel="Tipo de despesa"
+          />
         </div>
       </div>
 
@@ -1132,20 +1145,35 @@ export function NovaRequisicaoForm({
           </div>
         ) : (
           <div className="flex gap-2">
-            <select
-              id="projeto"
-              value={projetoNome}
-              onChange={(e) => setProjetoNome(e.target.value)}
-              className={INPUT_CLS}
+            <div className="min-w-0 flex-1">
+              <SearchSelect
+                options={[
+                  { value: "", label: "Sem Projeto" },
+                  ...(projetoNome && !projetosList.includes(projetoNome)
+                    ? [{ value: projetoNome, label: `${projetoNome} (novo)` }]
+                    : []),
+                  ...projetosList.map((p) => ({ value: p, label: p })),
+                ]}
+                value={projetoNome}
+                onChange={setProjetoNome}
+                placeholder="Busque o projeto pelo nome..."
+                ariaLabel="Projeto"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleAtualizarProjetos}
+              disabled={atualizandoProjetos}
+              title="Atualizar a lista de projetos da Omie agora"
+              aria-label="Atualizar projetos da Omie"
+              className="shrink-0 rounded-md border px-3 hover:bg-muted disabled:opacity-50"
             >
-              <option value="">Sem Projeto</option>
-              {projetoNome && !projetos.includes(projetoNome) && (
-                <option value={projetoNome}>{projetoNome} (novo)</option>
+              {atualizandoProjetos ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCcw className="h-4 w-4" />
               )}
-              {projetos.map((p) => (
-                <option key={p} value={p}>{p}</option>
-              ))}
-            </select>
+            </button>
             <button
               type="button"
               className="shrink-0 rounded-md border px-3 text-sm font-medium hover:bg-muted"
@@ -2017,6 +2045,148 @@ function BudgetResultCard({
 // Filters by name OR CNPJ/CPF (digits-only match so user can type with or
 // without punctuation). Caps the rendered list at 50 — when there are more
 // matches, the user is asked to refine. Plain JS, no extra deps.
+
+// Combobox genérico com BUSCA POR NOME (campo de busca no topo da lista
+// suspensa), para listas grandes como Tipo de Despesa e Projeto. value "" = nada
+// selecionado; quando o value não está nas opções (ex.: projeto novo digitado no
+// "+ novo"), o próprio value é exibido. Mesma mecânica do SupplierCombobox, só
+// que filtrando por rótulo.
+function SearchSelect({
+  options,
+  value,
+  onChange,
+  placeholder,
+  ariaLabel,
+}: {
+  options: { value: string; label: string }[];
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  ariaLabel?: string;
+}) {
+  const [search, setSearch] = useState("");
+  const [isOpen, setIsOpen] = useState(false);
+  const [highlight, setHighlight] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const selected = options.find((o) => o.value === value);
+  const displayValue = isOpen ? search : selected ? selected.label : value;
+
+  const filtered = useMemo(() => {
+    const term = search.toLowerCase().trim();
+    if (!term) return options;
+    return options.filter((o) => o.label.toLowerCase().includes(term));
+  }, [search, options]);
+
+  useEffect(() => setHighlight(0), [search]);
+
+  useEffect(() => {
+    function onDoc(e: MouseEvent) {
+      if (!containerRef.current?.contains(e.target as Node)) {
+        setIsOpen(false);
+        setSearch("");
+      }
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, []);
+
+  function commit(o: { value: string; label: string }) {
+    onChange(o.value);
+    setIsOpen(false);
+    setSearch("");
+    inputRef.current?.blur();
+  }
+  function clear() {
+    onChange("");
+    setSearch("");
+    setIsOpen(true);
+    setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  const visible = filtered.slice(0, 50);
+
+  return (
+    <div ref={containerRef} className="relative">
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          ref={inputRef}
+          type="text"
+          autoComplete="off"
+          aria-label={ariaLabel}
+          value={displayValue}
+          onFocus={() => {
+            setIsOpen(true);
+            setSearch("");
+          }}
+          onChange={(e) => {
+            setSearch(e.target.value);
+            setIsOpen(true);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowDown") {
+              e.preventDefault();
+              setIsOpen(true);
+              setHighlight((h) => Math.min(h + 1, visible.length - 1));
+            } else if (e.key === "ArrowUp") {
+              e.preventDefault();
+              setHighlight((h) => Math.max(h - 1, 0));
+            } else if (e.key === "Enter") {
+              e.preventDefault();
+              if (visible[highlight]) commit(visible[highlight]);
+            } else if (e.key === "Escape") {
+              setIsOpen(false);
+              setSearch("");
+              inputRef.current?.blur();
+            }
+          }}
+          placeholder={placeholder}
+          className={`${INPUT_CLS} pl-8 ${value ? "pr-9" : ""}`}
+        />
+        {value ? (
+          <button
+            type="button"
+            onClick={clear}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-destructive"
+            aria-label="Limpar"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        ) : (
+          <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        )}
+      </div>
+
+      {isOpen && (
+        <div className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-md border bg-background shadow-md">
+          {visible.length === 0 ? (
+            <p className="px-3 py-2 text-sm text-muted-foreground">Nenhum resultado.</p>
+          ) : (
+            <ul role="listbox" className="py-1">
+              {visible.map((o, i) => (
+                <li
+                  key={o.value || "__none__"}
+                  role="option"
+                  aria-selected={i === highlight}
+                  onMouseEnter={() => setHighlight(i)}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    commit(o);
+                  }}
+                  className={`cursor-pointer px-3 py-2 text-sm ${i === highlight ? "bg-muted" : ""}`}
+                >
+                  {o.label}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function SupplierCombobox({
   suppliers,

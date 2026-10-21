@@ -258,3 +258,22 @@ test("jovem aprendiz é CLT com FGTS de 2% — não é estágio", () => {
   assert.ok(r.tercoFerias > 0);
   assert.equal(r.fgts, Math.round((r.salarioMes + r.totalFerias) * 0.02 * 100) / 100);
 });
+
+test("férias programadas: dias do mês, salário e VT EXATOS pelas datas", () => {
+  const bh = { transporteTipo: "bilhete" as const, transporteOpcao: "Bilhete BH" };
+  // 21/09 a 20/10/2026: em setembro, 10 dias de férias; dias úteis de 21 a 30/09 = 8
+  const ferias = [{ id: "1", inicio: "2026-09-21", fim: "2026-10-20" }];
+  const set = calcularFolhaPessoa(pessoa({}, { ...bh, ferias }), P, "2026-09");
+  assert.equal(set.automatico.diasFerias, 10);
+  assert.equal(set.salarioMes, 2000);
+  assert.equal(set.ferias, 1000);
+  assert.equal(set.automatico.vtDias, 21 - 8);
+  assert.doesNotMatch(set.memoria.valeTransporte ?? "", /ESTIMADO/);
+  // outubro: 20 dias de férias; úteis de 01 a 20/10 = 13 (12/10 feriado) → 21 − 13 = 8
+  const out = calcularFolhaPessoa(pessoa({}, { ...bh, ferias }), P, "2026-10");
+  assert.equal(out.automatico.diasFerias, 20);
+  assert.equal(out.salarioMes, 1000);
+  assert.equal(out.automatico.vtDias, 8);
+  // informado vence o programado
+  assert.equal(calcularFolhaPessoa(pessoa({}, { ...bh, ferias }, { diasFerias: 5 }), P, "2026-09").ferias, 500);
+});

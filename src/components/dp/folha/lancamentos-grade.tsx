@@ -16,8 +16,8 @@ import { brl0 } from "./formato";
 
 type CampoNum = Exclude<keyof DpCamposGrade, "situacao">;
 /** Os três que o sistema preenche sozinho: campo vazio = automático, com o valor em cinza. */
-type CampoAuto = "diasTrabalhados" | "inssFerias" | "vtDiasDesconto";
-const AUTO = new Set<CampoNum>(["diasTrabalhados", "inssFerias", "vtDiasDesconto"]);
+type CampoAuto = "diasFerias" | "diasTrabalhados" | "inssFerias" | "vtDiasDesconto";
+const AUTO = new Set<CampoNum>(["diasFerias", "diasTrabalhados", "inssFerias", "vtDiasDesconto"]);
 const COLUNAS: Array<{ k: CampoNum; rotulo: string; casas?: number }> = [
   { k: "diasFerias", rotulo: "Dias férias", casas: 2 },
   { k: "diasTrabalhados", rotulo: "Dias trab.", casas: 2 },

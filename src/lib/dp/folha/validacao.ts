@@ -11,6 +11,7 @@ import {
   type DpRecorrente,
   type DpSituacaoFolha,
 } from "@/lib/dp/folha/motor";
+import { diasCorridos, type DpPeriodoFerias } from "@/lib/dp/folha/calendario";
 import { PLANO_TIPOS, type DpFolhaParametros } from "@/lib/dp/folha/parametros";
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
@@ -60,6 +61,7 @@ export function validarCadastro(c: DpFolhaCadastro, p: DpFolhaParametros): DpFol
     semInss: Boolean(c.semInss),
     setorFolha: String(c.setorFolha ?? "").replace(/\s+/g, " ").trim().slice(0, 120) || null,
     recorrentes: validarRecorrentes(c.recorrentes ?? []),
+    ferias: validarFerias(c.ferias ?? []),
   };
 }
 
@@ -82,6 +84,29 @@ export function validarRecorrentes(lista: DpRecorrente[]): DpRecorrente[] {
   });
 }
 
+const RE_DIA = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Férias programadas: datas válidas, fim depois do início, no máximo 30 dias
+ * por período (a CLT permite fracionar em até 3) e sem sobreposição — dois
+ * períodos no mesmo dia contariam a mesma férias duas vezes.
+ */
+export function validarFerias(lista: DpPeriodoFerias[]): DpPeriodoFerias[] {
+  if (!Array.isArray(lista)) throw new Error("Lista de férias inválida.");
+  if (lista.length > 20) throw new Error("No máximo 20 períodos de férias por pessoa.");
+  const out = lista.map((f, i) => {
+    if (!RE_DIA.test(String(f?.inicio ?? "")) || !RE_DIA.test(String(f?.fim ?? ""))) throw new Error(`Férias ${i + 1}: datas inválidas.`);
+    if (f.fim < f.inicio) throw new Error(`Férias ${i + 1}: o fim é antes do início.`);
+    if (diasCorridos(f.inicio, f.fim) > 30) throw new Error(`Férias ${i + 1}: mais de 30 dias num período.`);
+    return { id: String(f.id || `${Date.now()}-${i}`).slice(0, 60), inicio: f.inicio, fim: f.fim };
+  });
+  const ord = out.slice().sort((a, b) => a.inicio.localeCompare(b.inicio));
+  for (let i = 1; i < ord.length; i++) {
+    if (ord[i].inicio <= ord[i - 1].fim) throw new Error("Há períodos de férias sobrepostos.");
+  }
+  return ord;
+}
+
 export function validarLancamento(l: DpFolhaLancamento): DpFolhaLancamento {
   if (!SITUACOES.includes(l.situacao)) throw new Error("Situação inválida.");
   const ajustes: DpFolhaLancamento["ajustes"] = {};
@@ -97,7 +122,7 @@ export function validarLancamento(l: DpFolhaLancamento): DpFolhaLancamento {
     situacao: l.situacao,
     diasTrabalhados: l.diasTrabalhados === null ? null : numero(l.diasTrabalhados, "Dias trabalhados", 0, 31),
     outrosProventos: r2(numero(l.outrosProventos, "Outros proventos", -1_000_000, 1_000_000)),
-    diasFerias: numero(l.diasFerias, "Dias de férias", 0, 31),
+    diasFerias: l.diasFerias === null ? null : numero(l.diasFerias, "Dias de férias", 0, 31),
     inssFerias: l.inssFerias === null ? null : r2(numero(l.inssFerias, "INSS das férias", 0, 100_000)),
     coparticipacao: r2(numero(l.coparticipacao, "Coparticipação", -100_000, 100_000)),
     outrosDescontos: r2(numero(l.outrosDescontos, "Outros descontos", -1_000_000, 1_000_000)),
@@ -125,6 +150,7 @@ export function linhaCadastro(c: DpFolhaCadastro) {
     sem_inss: c.semInss,
     setor_folha: c.setorFolha,
     recorrentes: c.recorrentes,
+    ferias: c.ferias,
   };
 }
 
