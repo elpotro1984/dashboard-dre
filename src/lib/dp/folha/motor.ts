@@ -319,6 +319,13 @@ export interface DpFolhaResultado extends DpFolhaValores {
   };
   /** Proventos e descontos fixos que entraram no mês. */
   recorrentes: Array<DpRecorrente & { parcela: string | null }>;
+  /**
+   * Bases de cálculo de cada imposto (a tela de Impostos mostra a conta com elas).
+   * `patronal` = base dos encargos da EMPRESA (INSS patronal, RAT, terceiros): CLT
+   * fora de afastamento e de licença-maternidade (STF, Tema 72: o patronal não
+   * incide sobre o salário-maternidade). Folha fechada antes deste campo não o tem.
+   */
+  bases?: { inss: number; irrf: number; fgts: number; patronal: number; aliquotaFgts: number };
 }
 
 // ── utilitários ────────────────────────────────────────────────────────────
@@ -740,6 +747,13 @@ export function calcularFolhaPessoa(e: DpFolhaEntrada, p: DpFolhaParametros, com
       diasFerias: progr.dias,
     },
     recorrentes: fixos,
+    bases: {
+      inss: ehClt && !afastado && !c.semInss && salario > 0 ? r2(salarioMes + totalFerias) : 0,
+      irrf: !semEncargos && !afastado ? salarioMes : 0,
+      fgts: ehClt && !afastado && !estagio ? r2(salarioMes + totalFerias) : 0,
+      patronal: ehClt && !afastado && !licenca ? r2(salarioMes + totalFerias) : 0,
+      aliquotaFgts: pctFgts,
+    },
   };
 }
 

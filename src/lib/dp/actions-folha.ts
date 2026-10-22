@@ -41,6 +41,7 @@ import { getDpCargosPagina } from "@/lib/dp/cargos-queries";
 import { listDpRegras } from "@/lib/dp/queries";
 import { contratoDaPlanilha, empresasPorRotulo, validarAvulso, type DpAvulsoEntrada } from "@/lib/dp/folha/avulsos";
 import { calcularRescisao, ROTULO_TIPO_RESCISAO, validarEntradaRescisao, type DpRescisaoEntrada } from "@/lib/dp/folha/rescisao";
+import { ALVOS_IMPOSTO, type DpAlvoImposto } from "@/lib/dp/folha/impostos";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 // Escrita da FOLHA GERENCIAL. Toda action de uma empresa passa por
@@ -143,6 +144,65 @@ export async function salvarLancamentoFolha(input: {
   }
 }
 
+/**
+ * Valor MANUAL de um imposto de uma pessoa no mês (tela Impostos), ou a volta
+ * ao calculado (`valor` null). INSS, IRRF, FGTS e salário-família viram ajuste
+ * da coluna do motor, com motivo obrigatório — o mesmo ajuste da janela da
+ * pessoa na Folha; o INSS do recibo de férias é o campo do lançamento (null =
+ * automático). Regrava o lançamento inteiro preservando o resto dele.
+ */
+export async function ajustarImpostoFolha(input: {
+  companyId: string;
+  competencia: string;
+  solidesId: number;
+  alvo: DpAlvoImposto;
+  valor: number | null;
+  motivo: string | null;
+}): Promise<DpFolhaResult> {
+  try {
+    const user = await requireDpEmpresa(input.companyId);
+    exigirCompetencia(input.competencia);
+    if (!ALVOS_IMPOSTO.includes(input.alvo)) throw new Error("Imposto inválido.");
+    if (input.valor !== null && (typeof input.valor !== "number" || !Number.isFinite(input.valor))) throw new Error("Valor inválido.");
+    const admin = createAdminClient();
+    await pessoaDaEmpresa(admin, input.solidesId, input.companyId);
+    await exigirAberta(admin, input.companyId, input.competencia);
+    const { data: row, error: eRow } = await admin
+      .from("dp_folha_lancamentos")
+      .select("*")
+      .eq("competencia", input.competencia)
+      .eq("solides_id", input.solidesId)
+      .maybeSingle();
+    if (eRow) throw eRow;
+    const atual = row ? lancamentoDoBanco(row) : { ...LANCAMENTO_PADRAO, ajustes: {} };
+    if (input.alvo === "inssFerias") {
+      atual.inssFerias = input.valor;
+    } else {
+      const ajustes = { ...atual.ajustes };
+      if (input.valor === null) delete ajustes[input.alvo];
+      else ajustes[input.alvo] = { valor: input.valor, motivo: (input.motivo ?? "").trim() };
+      atual.ajustes = ajustes;
+    }
+    const l = validarLancamento(atual);
+    const { error } = await admin.from("dp_folha_lancamentos").upsert(
+      {
+        competencia: input.competencia,
+        solides_id: input.solidesId,
+        ...linhaLancamento(l),
+        observacao: (row?.observacao as string | null) ?? null,
+        updated_by: user.id,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "competencia,solides_id" },
+    );
+    if (error) throw error;
+    revalidar();
+    return { ok: true, data: undefined };
+  } catch (error) {
+    return falha(error);
+  }
+}
+
 /** Quem da lista é desta empresa — uma leitura só para o lote inteiro. */
 async function solidesIdsDaEmpresa(admin: Admin, companyId: string): Promise<Set<number>> {
   const [{ data, error }, regras] = await Promise.all([
@@ -170,16 +230,20 @@ async function solidesIdsDaEmpresa(admin: Admin, companyId: string): Promise<Set
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function lancamentoDoBanco(r: any): DpFolhaLancamento {
+  // NULL é "automático", e Number(null) é 0: sem isto, regravar o lançamento
+  // (o ajuste de imposto regrava a linha inteira) transformaria o automático em
+  // "zero informado" — zero dias trabalhados, zero de INSS do recibo.
+  const opc = (v: unknown) => (v === null || v === undefined ? null : Number(v));
   return {
     situacao: r.situacao,
-    diasTrabalhados: Number(r.dias_trabalhados),
+    diasTrabalhados: opc(r.dias_trabalhados),
     outrosProventos: Number(r.outros_proventos),
-    diasFerias: Number(r.dias_ferias),
-    inssFerias: Number(r.inss_ferias),
+    diasFerias: opc(r.dias_ferias),
+    inssFerias: opc(r.inss_ferias),
     coparticipacao: Number(r.coparticipacao),
     outrosDescontos: Number(r.outros_descontos),
     comissao: Number(r.comissao),
-    vtDiasDesconto: Number(r.vt_dias_desconto),
+    vtDiasDesconto: opc(r.vt_dias_desconto),
     ajustes: r.ajustes && typeof r.ajustes === "object" ? r.ajustes : {},
   };
 }
