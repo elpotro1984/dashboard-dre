@@ -426,7 +426,7 @@ function CopiarDeEmpresa({ companyId, companyName }: { companyId: string; compan
                 {previa.centrosSemPar.length > 0 && (
                   <p className="text-xs text-amber-800 dark:text-amber-300">
                     Centros de custo de {previa.origemNome} que esta empresa não tem: {previa.centrosSemPar.join(", ")}. As linhas que os
-                    usavam entram sem centro — cadastre-o em Centros de custo e defina na linha.
+                    usavam entram sem centro — cadastre-o em Configurações › Centros de custo e defina na linha.
                   </p>
                 )}
                 <p className="text-xs text-ink-muted">

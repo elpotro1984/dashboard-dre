@@ -32,11 +32,12 @@ import {
   type DpSituacaoFolha,
 } from "@/lib/dp/folha/motor";
 import { ROTULO_PLANO, type DpFolhaParametros, type DpPlanoTipo } from "@/lib/dp/folha/parametros";
-import type { DpFolhaPessoa } from "@/lib/dp/folha/queries";
+import type { DpFolhaLinhaCargo, DpFolhaPessoa } from "@/lib/dp/folha/queries";
 
 import { DpAvulsoCampos } from "./avulso-form";
 import { inputCls, NumCampo, NumCampoOpcional } from "./campos";
 import { brl } from "./formato";
+import { DpListaCargos, DpPromocaoForm, DpPromocaoInfo } from "./promocao";
 
 const SOMAS: DpColunaFolha[] = ["totalEntradas", "totalFerias", "totalDescontos", "saldo", "quintoDiaUtil", "totalBeneficio", "totalExtras", "totalGeral"];
 const AJUSTAVEL = new Set<string>(COLUNAS_AJUSTAVEIS);
@@ -64,6 +65,7 @@ export function DpFolhaPessoaDialog({
   competencia,
   companyId,
   centros,
+  tabela,
   editavel,
   onClose,
 }: {
@@ -75,9 +77,12 @@ export function DpFolhaPessoaDialog({
   companyId: string;
   /** Centros de custo da empresa (cadastro do DP). */
   centros: Array<{ id: string; rotulo: string }>;
+  /** Tabela salarial da empresa — os cargos da promoção. */
+  tabela: DpFolhaLinhaCargo[];
   editavel: boolean;
   onClose: () => void;
 }) {
+  const [promovendo, setPromovendo] = useState<"lista" | DpFolhaLinhaCargo | null>(null);
   const [lanc, setLanc] = useState<DpFolhaLancamento>(() => structuredClone(pessoa.lancamento));
   const [cad, setCad] = useState<DpFolhaCadastro>(() => structuredClone(pessoa.cadastro));
   const [obs, setObs] = useState(pessoa.observacaoMes ?? "");
@@ -116,11 +121,14 @@ export function DpFolhaPessoaDialog({
           centroCusto: centroRotulo,
           empresaId: companyId,
           contrato: grupoContratoFolha(av ? av.tipoContrato : pessoa.tipoContrato),
-          salario: av ? av.salario : pessoa.salario,
+          // Promoção que vale no mês substitui o salário do cadastro (inclusive o do avulso).
+          salario: av && !pessoa.salarioOrigem ? av.salario : pessoa.salario,
           nascimento: av ? av.nascimento : pessoa.nascimento,
           admissao: av ? av.admissao : pessoa.admissao,
           desligamento: av ? av.desligamento : pessoa.desligamento,
           desligamentoEstimado: av ? false : pessoa.desligamentoEstimado,
+          salarioOrigem: pessoa.salarioOrigem,
+          salarioAviso: pessoa.salarioAviso,
           cadastro: cad,
           lancamento: lanc,
         },
@@ -202,7 +210,7 @@ export function DpFolhaPessoaDialog({
             {[pessoa.setor, pessoa.centroCusto && `centro de custo ${pessoa.centroCusto}`, pessoa.tipoContrato ?? "sem tipo de contrato"]
               .filter(Boolean)
               .join(" · ")}{" "}
-            · salário na Sólides {pessoa.salario === null ? "não informado" : brl(pessoa.salario)}
+            · {pessoa.avulso ? "salário do cadastro" : "salário na Sólides"} {pessoa.salarioSolides === null ? "não informado" : brl(pessoa.salarioSolides)}
             {!editavel && " · folha fechada — reabra para alterar"}
           </DialogDescription>
         </DialogHeader>
@@ -223,6 +231,42 @@ export function DpFolhaPessoaDialog({
             </button>
           </div>
         )}
+
+        <section className="space-y-2 rounded-md border border-border px-3 py-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+            <span>
+              <span className="text-ink-muted">Cargo na folha: </span>
+              <span className="font-medium text-ink-primary">{pessoa.cargo ?? "sem cargo na Sólides"}</span>
+              <span className="tabular-nums text-ink-muted"> · {pessoa.salario === null ? "sem salário" : brl(pessoa.salario)}</span>
+            </span>
+            {editavel && promovendo === null && (
+              <button type="button" onClick={() => setPromovendo("lista")} className="rounded-md border border-input px-2 py-1 text-xs font-medium hover:bg-muted">
+                Promover…
+              </button>
+            )}
+          </div>
+          <DpPromocaoInfo pessoa={pessoa} companyId={companyId} editavel={editavel} />
+          {promovendo === "lista" && (
+            <div className="overflow-hidden rounded-md border border-border">
+              <DpListaCargos tabela={tabela} atualId={pessoa.promocao?.linhaId ?? pessoa.linhaId} onEscolher={(l) => setPromovendo(l)} />
+              <div className="border-t border-border px-3 py-1.5 text-right">
+                <button type="button" onClick={() => setPromovendo(null)} className="text-xs text-ink-muted hover:underline">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+          {promovendo !== null && promovendo !== "lista" && (
+            <DpPromocaoForm
+              pessoa={pessoa}
+              linha={promovendo}
+              competencia={competencia}
+              companyId={companyId}
+              onFeito={() => setPromovendo(null)}
+              onCancelar={() => setPromovendo("lista")}
+            />
+          )}
+        </section>
 
         {r.avisos.length > 0 && (
           <ul className="space-y-1 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-sm text-amber-900 dark:text-amber-200">
@@ -399,7 +443,7 @@ export function DpFolhaPessoaDialog({
                   rotulo="Centro de custo"
                   dica={
                     centros.length === 0
-                      ? "Nenhum centro cadastrado nesta empresa — cadastre em Centros de custo."
+                      ? "Nenhum centro cadastrado nesta empresa — cadastre em Configurações › Centros de custo."
                       : pessoa.centroOrigem === "linha" && centroId === pessoa.centroId
                         ? "Padrão da linha da tabela salarial."
                         : undefined

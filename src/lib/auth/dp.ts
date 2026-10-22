@@ -63,10 +63,12 @@ export const DP_NAV_KEY_CARGOS = "dp-cargos";
 export const DP_CARGOS_PATH = "/dp/cargos";
 export const DP_NAV_KEY_SIMULACOES = "dp-simulacoes";
 export const DP_SIMULACOES_PATH = "/dp/simulacoes";
-export const DP_NAV_KEY_CENTROS = "dp-centros-custo";
-export const DP_CENTROS_PATH = "/dp/centros-custo";
 export const DP_NAV_KEY_CONFIG = "dp-configuracoes";
 export const DP_CONFIG_PATH = "/dp/configuracoes";
+/** Configurações da EMPRESA ativa — de todos do DP. */
+export const DP_CENTROS_PATH = "/dp/configuracoes/centros-custo";
+export const DP_ENCARGOS_PATH = "/dp/configuracoes/encargos";
+/** Configurações do GRUPO — só do gestor (ver isDpGestorPath). */
 export const DP_ACESSOS_PATH = "/dp/configuracoes/acessos";
 export const DP_PARAMETROS_FOLHA_PATH = "/dp/configuracoes/parametros";
 export const DP_NAV_KEY_FOLHA = "dp-folha";
@@ -111,12 +113,13 @@ export function isDpPath(pathname: string): boolean {
 }
 
 /**
- * Telas só do GESTOR: Configurações (Acessos, parâmetros) e o de-para de
- * empresas — este último decide a que empresa cada pessoa pertence, ou seja, o
- * que cada analista enxerga. A página repete a trava (`requireDpGestor`):
- * esconder do menu nunca é a única defesa.
+ * Telas só do GESTOR: as configurações do GRUPO — Acessos, Parâmetros da folha
+ * e o de-para de empresas (que decide a que empresa cada pessoa pertence, ou
+ * seja, o que cada analista enxerga). O hub de Configurações e as telas da
+ * empresa ativa (centros de custo, encargos) são de todos do DP desde
+ * 22/10/2026. A página repete a trava: esconder do menu nunca é a única defesa.
  */
 export function isDpGestorPath(pathname: string): boolean {
   const em = (base: string) => pathname === base || pathname.startsWith(`${base}/`);
-  return em(DP_CONFIG_PATH) || em(DP_EMPRESAS_PATH);
+  return em(DP_ACESSOS_PATH) || em(DP_PARAMETROS_FOLHA_PATH) || em(DP_EMPRESAS_PATH);
 }

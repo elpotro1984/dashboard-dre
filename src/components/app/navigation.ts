@@ -44,12 +44,10 @@ import { CAIXA_NAV_KEY_REAL, CAIXA_REAL_PATH } from "@/lib/auth/caixa";
 import { CONTRATOS_NAV_KEY, CONTRATOS_PATH } from "@/lib/auth/contratos";
 import {
   DP_CARGOS_PATH,
-  DP_CENTROS_PATH,
   DP_COLABORADORES_PATH,
   DP_CONFIG_PATH,
   DP_INDICADORES_PATH,
   DP_NAV_KEY_CARGOS,
-  DP_NAV_KEY_CENTROS,
   DP_NAV_KEY_COLABORADORES,
   DP_NAV_KEY_CONFIG,
   DP_NAV_KEY_INDICADORES,
@@ -441,21 +439,20 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { key: DP_NAV_KEY_DECIMO, title: "13º salário", icon: Calendar, scope: "global", href: DP_DECIMO_PATH, dpAccess: true },
       { key: DP_NAV_KEY_COLABORADORES, title: "Colaboradores", icon: Users, scope: "global", href: DP_COLABORADORES_PATH, dpAccess: true },
       { key: DP_NAV_KEY_CARGOS, title: "Cargos e salários", icon: Sliders, scope: "global", href: DP_CARGOS_PATH, dpAccess: true },
-      { key: DP_NAV_KEY_CENTROS, title: "Centros de custo", icon: Target, scope: "global", href: DP_CENTROS_PATH, dpAccess: true },
       { key: DP_NAV_KEY_SIMULACOES, title: "Simulações", icon: Calculator, scope: "global", href: DP_SIMULACOES_PATH, dpAccess: true },
+      // Centros de custo, encargos e (para o gestor) as configurações do grupo — ver /dp/configuracoes.
+      { key: DP_NAV_KEY_CONFIG, title: "Configurações", icon: Cog, scope: "global", href: DP_CONFIG_PATH, dpAccess: true },
     ],
   },
   {
     // Painéis comuns: IGNORAM o seletor de empresa e consolidam as empresas que
     // a pessoa pode ver (gestor = todas; analista = as liberadas para ela).
-    // Configurações é só do gestor (o de-para de empresas mora lá dentro).
     id: "dp_grupo",
     label: "DP · VISÃO DO GRUPO",
     items: [
       { key: DP_NAV_KEY_OVERVIEW, title: "Visão geral", icon: IdCard, scope: "global", href: DP_PATH, dpAccess: true },
       { key: DP_NAV_KEY_INDICADORES, title: "Indicadores", icon: BarChart3, scope: "global", href: DP_INDICADORES_PATH, dpAccess: true },
       { key: DP_NAV_KEY_FOLHA_GRUPO, title: "Folha do grupo", icon: Landmark, scope: "global", href: DP_FOLHA_GRUPO_PATH, dpAccess: true },
-      { key: DP_NAV_KEY_CONFIG, title: "Configurações", icon: Cog, scope: "global", href: DP_CONFIG_PATH, dpAccess: true, dpGestorOnly: true },
     ],
   },
   {

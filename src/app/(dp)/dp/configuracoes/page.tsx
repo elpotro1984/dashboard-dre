@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Building2, ChevronRight, Scale, Users } from "lucide-react";
+import { Building2, ChevronRight, Percent, Scale, Target, Users } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { DpSyncPanel } from "@/components/dp/sync-panel";
-import { DP_ACESSOS_PATH, DP_EMPRESAS_PATH, DP_PARAMETROS_FOLHA_PATH } from "@/lib/auth/dp";
+import { DP_ACESSOS_PATH, DP_CENTROS_PATH, DP_EMPRESAS_PATH, DP_ENCARGOS_PATH, DP_PARAMETROS_FOLHA_PATH } from "@/lib/auth/dp";
 import { getDpUser } from "@/lib/dp/auth";
+import { getDpEmpresaAtiva } from "@/lib/dp/empresa-ativa";
 import { DpNaoInstaladoError, lastDpSyncRun } from "@/lib/dp/queries";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -14,18 +15,34 @@ export const dynamic = "force-dynamic";
 interface ConfigCard {
   title: string;
   description: string;
-  href: string | null;
+  href: string;
   icon: LucideIcon;
 }
 
-// Telas de configuração do DP — só do GESTOR. Mesmo padrão de cards do hub do
-// Compras (/ctrl/configuracoes). Card sem href aparece como "em breve".
-const CARDS: ConfigCard[] = [
+// Configurações do DP em dois blocos (22/10/2026): as da EMPRESA ATIVA, de todos
+// do DP, e as do GRUPO, só do gestor (isDpGestorPath barra as rotas). Cargos e
+// salários fica no menu principal: é trabalho do dia a dia, não configuração.
+const DA_EMPRESA: ConfigCard[] = [
   {
-    title: "Acessos",
-    description: "Quem usa o DP, com qual papel (gestor ou analista) e quais empresas cada analista vê.",
-    href: DP_ACESSOS_PATH,
-    icon: Users,
+    title: "Centros de custo",
+    description: "Cadastro da empresa. O de cada pessoa vem da linha dela na tabela salarial; exceções na ficha.",
+    href: DP_CENTROS_PATH,
+    icon: Target,
+  },
+  {
+    title: "Encargos da empresa",
+    description: "Regime tributário e alíquotas patronais (INSS, RAT × FAP, terceiros) — o mesmo cadastro do Orçamento.",
+    href: DP_ENCARGOS_PATH,
+    icon: Percent,
+  },
+];
+
+const DO_GRUPO: ConfigCard[] = [
+  {
+    title: "Parâmetros da folha",
+    description: "INSS, IRRF, salário-família, planos de saúde por faixa etária, VT e alimentação — com vigência.",
+    href: DP_PARAMETROS_FOLHA_PATH,
+    icon: Scale,
   },
   {
     title: "Empresas (de-para da Sólides)",
@@ -34,74 +51,88 @@ const CARDS: ConfigCard[] = [
     icon: Building2,
   },
   {
-    title: "Parâmetros da folha",
-    description: "INSS, IRRF, salário-família, planos de saúde por faixa etária, VT e alimentação — com vigência.",
-    href: DP_PARAMETROS_FOLHA_PATH,
-    icon: Scale,
+    title: "Acessos",
+    description: "Quem usa o DP, com qual papel (gestor ou analista) e quais empresas cada analista vê.",
+    href: DP_ACESSOS_PATH,
+    icon: Users,
   },
 ];
+
+function Cards({ cards }: { cards: ConfigCard[] }) {
+  return (
+    <div className="grid gap-4 sm:grid-cols-2">
+      {cards.map((card) => {
+        const Icon = card.icon;
+        return (
+          <Link
+            key={card.title}
+            href={card.href}
+            className="group flex items-start gap-4 rounded-lg border bg-card p-5 transition-colors hover:border-primary/40 hover:bg-muted/40"
+          >
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground group-hover:text-foreground">
+              <Icon className="h-5 w-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1 font-semibold text-ink-primary">
+                {card.title}
+                <ChevronRight className="h-4 w-4 opacity-0 transition-opacity group-hover:opacity-100" />
+              </div>
+              <p className="mt-0.5 text-sm text-ink-muted">{card.description}</p>
+            </div>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
 
 export default async function DpConfiguracoesPage() {
   const user = await getDpUser();
   if (!user) redirect("/");
-  // O middleware já redireciona a analista; esta é a 2ª trava.
-  if (user.role !== "gestor") redirect("/dp");
+  const gestor = user.role === "gestor";
 
+  const db = createAdminClient();
+  const { ativa } = await getDpEmpresaAtiva(db, user);
   let lastRun = null;
-  try {
-    lastRun = await lastDpSyncRun(createAdminClient());
-  } catch (error) {
-    if (!(error instanceof DpNaoInstaladoError)) throw error;
+  if (gestor) {
+    try {
+      lastRun = await lastDpSyncRun(db);
+    } catch (error) {
+      if (!(error instanceof DpNaoInstaladoError)) throw error;
+    }
   }
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <div>
         <h1 className="text-xl font-semibold text-ink-primary">Configurações do DP</h1>
-        <p className="text-sm text-ink-muted">Cadastros e parâmetros do módulo. Só o gestor vê esta área.</p>
-      </div>
-
-      <div className="grid gap-4 sm:grid-cols-2">
-        {CARDS.map((card) => {
-          const Icon = card.icon;
-          const corpo = (
-            <>
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground group-hover:text-foreground">
-                <Icon className="h-5 w-5" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1 font-semibold text-ink-primary">
-                  {card.title}
-                  {card.href ? (
-                    <ChevronRight className="h-4 w-4 opacity-0 transition-opacity group-hover:opacity-100" />
-                  ) : (
-                    <span className="ml-1 rounded bg-muted px-1.5 py-0.5 text-xs font-normal text-ink-muted">em breve</span>
-                  )}
-                </div>
-                <p className="mt-0.5 text-sm text-ink-muted">{card.description}</p>
-              </div>
-            </>
-          );
-          return card.href ? (
-            <Link
-              key={card.title}
-              href={card.href}
-              className="group flex items-start gap-4 rounded-lg border bg-card p-5 transition-colors hover:border-primary/40 hover:bg-muted/40"
-            >
-              {corpo}
-            </Link>
-          ) : (
-            <div key={card.title} className="flex items-start gap-4 rounded-lg border border-dashed bg-card p-5 opacity-70">
-              {corpo}
-            </div>
-          );
-        })}
+        <p className="text-sm text-ink-muted">Cadastros e parâmetros do módulo.</p>
       </div>
 
       <section className="space-y-2">
-        <h2 className="text-base font-semibold text-ink-primary">Sincronização com a Sólides</h2>
-        <DpSyncPanel lastRun={lastRun} />
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-base font-semibold text-ink-primary">Desta empresa</h2>
+          <span className="text-sm text-ink-muted">{ativa ? ativa.name : "nenhuma empresa liberada"} · troque no seletor do topo</span>
+        </div>
+        <Cards cards={DA_EMPRESA} />
       </section>
+
+      {gestor && (
+        <>
+          <section className="space-y-2">
+            <div className="flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-base font-semibold text-ink-primary">Do grupo</h2>
+              <span className="text-sm text-ink-muted">só o gestor vê</span>
+            </div>
+            <Cards cards={DO_GRUPO} />
+          </section>
+
+          <section className="space-y-2">
+            <h2 className="text-base font-semibold text-ink-primary">Sincronização com a Sólides</h2>
+            <DpSyncPanel lastRun={lastRun} />
+          </section>
+        </>
+      )}
     </div>
   );
 }

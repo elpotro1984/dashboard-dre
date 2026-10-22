@@ -25,8 +25,10 @@ import {
   listAvulsos,
   getFolhaEmpresa,
   listParametrosVigencias,
+  listPromocoes,
   parametrosDaCompetencia,
 } from "@/lib/dp/folha/queries";
+import { aplicarPromocao, validarPromocao } from "@/lib/dp/folha/promocao";
 import {
   herdarDoMesAnterior,
   linhaCadastro,
@@ -381,6 +383,115 @@ export async function definirCentroCustoFolha(input: { companyId: string; solide
   }
 }
 
+// ── promoção ───────────────────────────────────────────────────────────────
+
+function semPromocoes(error: { code?: string } | null): boolean {
+  return error?.code === "PGRST205" || error?.code === "42P01";
+}
+
+/**
+ * PROMOÇÃO feita na folha: o cargo novo é uma LINHA da tabela salarial da
+ * empresa (cargo e setor copiados dela) e o salário vem sugerido da linha, mas
+ * é o informado que vale. A folha usa o novo a partir de `vigencia` e mostra
+ * "pendente na Sólides" até a sincronização trazer o mesmo salário — a regra é
+ * de folha/promocao.ts. Grava o retrato do que a Sólides tinha no registro
+ * (é por ele que se sabe se ela já foi atualizada) e o que a folha usava no mês
+ * anterior ao início. Mesma pessoa e mesmo mês de início substituem.
+ */
+export async function registrarPromocao(input: {
+  companyId: string;
+  solidesId: number;
+  vigencia: string;
+  linhaId: string;
+  salario: number;
+  motivo: string | null;
+}): Promise<DpFolhaResult> {
+  try {
+    const user = await requireDpEmpresa(input.companyId);
+    const admin = createAdminClient();
+    await pessoaDaEmpresa(admin, input.solidesId, input.companyId);
+    const { data: linha, error: eLinha } = await admin
+      .from("dp_tabela_salarial")
+      .select("id, setor, cargo")
+      .eq("id", input.linhaId)
+      .eq("company_id", input.companyId)
+      .maybeSingle();
+    if (eLinha) throw eLinha;
+    if (!linha) throw new Error("O cargo escolhido não está na tabela salarial desta empresa.");
+    const v = validarPromocao({ vigencia: input.vigencia, cargo: linha.cargo as string, salario: input.salario, motivo: input.motivo });
+    await exigirAberta(admin, input.companyId, v.vigencia);
+
+    // O cadastro de hoje (Sólides, ou o do avulso) e o que a folha usava antes do início.
+    let base: { salario: number | null; cargo: string | null; avulso: boolean };
+    if (input.solidesId < 0) {
+      const { data, error } = await admin.from("dp_folha_avulsos").select("salario").eq("pessoa_id", input.solidesId).maybeSingle();
+      if (error) throw error;
+      base = { salario: data?.salario === null || data?.salario === undefined ? null : Number(data.salario), cargo: null, avulso: true };
+    } else {
+      const { data, error } = await admin.from("dp_colaboradores").select("salario, cargo_nome").eq("solides_id", input.solidesId).maybeSingle();
+      if (error) throw error;
+      base = {
+        salario: data?.salario === null || data?.salario === undefined ? null : Number(data.salario),
+        cargo: (data?.cargo_nome as string | null) ?? null,
+        avulso: false,
+      };
+    }
+    const outras = ((await listPromocoes(admin, input.companyId)).get(input.solidesId) ?? []).filter((p) => p.vigencia !== v.vigencia);
+    const anterior = aplicarPromocao(base, outras, somarMeses(v.vigencia, -1));
+
+    const { error } = await admin.from("dp_folha_promocoes").upsert(
+      {
+        company_id: input.companyId,
+        solides_id: input.solidesId,
+        vigencia: v.vigencia,
+        linha_id: linha.id as string,
+        setor: (linha.setor as string) ?? "",
+        cargo: v.cargo,
+        salario: v.salario,
+        cargo_anterior: anterior.cargo,
+        salario_anterior: anterior.salario,
+        salario_solides_no_registro: base.avulso ? null : base.salario,
+        motivo: v.motivo,
+        created_by: user.id,
+        created_at: new Date().toISOString(),
+      },
+      { onConflict: "solides_id,vigencia" },
+    );
+    if (error) {
+      if (semPromocoes(error)) throw new Error("Promoções ainda não instaladas no banco (migration 20261022120000).");
+      throw error;
+    }
+    revalidar();
+    return { ok: true, data: undefined };
+  } catch (error) {
+    return falha(error);
+  }
+}
+
+/** Desfaz uma promoção registrada na folha — só com o mês de início ainda aberto. */
+export async function desfazerPromocao(input: { companyId: string; id: string }): Promise<DpFolhaResult> {
+  try {
+    await requireDpEmpresa(input.companyId);
+    const admin = createAdminClient();
+    const { data: p, error: eP } = await admin
+      .from("dp_folha_promocoes")
+      .select("id, solides_id, vigencia")
+      .eq("id", input.id)
+      .eq("company_id", input.companyId)
+      .maybeSingle();
+    if (eP) throw eP;
+    if (!p) throw new Error("Promoção não encontrada nesta empresa.");
+    await pessoaDaEmpresa(admin, Number(p.solides_id), input.companyId);
+    await exigirAberta(admin, input.companyId, p.vigencia as string);
+    const { error } = await admin.from("dp_folha_promocoes").delete().eq("id", input.id).eq("company_id", input.companyId);
+    if (error) throw error;
+    revalidar();
+    return { ok: true, data: undefined };
+  } catch (error) {
+    return falha(error);
+  }
+}
+
 // ── pessoas FORA da Sólides ────────────────────────────────────────────────
 
 function linhaAvulso(a: DpAvulsoEntrada) {
@@ -450,10 +561,36 @@ export async function excluirAvulso(input: { companyId: string; pessoaId: number
     const { error } = await admin.from("dp_folha_avulsos").delete().eq("pessoa_id", input.pessoaId).eq("company_id", input.companyId);
     if (error) throw error;
     await admin.from("dp_folha_cadastro").delete().eq("solides_id", input.pessoaId);
+    await admin.from("dp_folha_promocoes").delete().eq("solides_id", input.pessoaId).eq("company_id", input.companyId);
     revalidar();
     return { ok: true, data: undefined };
   } catch (error) {
     return falha(error);
+  }
+}
+
+/**
+ * As promoções do avulso passam para a pessoa da Sólides, com o salário dela de
+ * HOJE como o do registro: ficam pendentes até a Sólides trazê-las (ou já
+ * refletidas, se trouxe). Mês de início que a pessoa da Sólides já tem fica com
+ * a dela.
+ */
+async function moverPromocoesDoAvulso(admin: Admin, companyId: string, pessoaId: number, solidesId: number): Promise<void> {
+  const [{ data: doAvulso, error }, { data: daSolides }, { data: colab }] = await Promise.all([
+    admin.from("dp_folha_promocoes").select("id, vigencia").eq("solides_id", pessoaId).eq("company_id", companyId),
+    admin.from("dp_folha_promocoes").select("vigencia").eq("solides_id", solidesId),
+    admin.from("dp_colaboradores").select("salario").eq("solides_id", solidesId).maybeSingle(),
+  ]);
+  if (semPromocoes(error)) return;
+  if (error) throw error;
+  const jaTem = new Set((daSolides ?? []).map((r) => r.vigencia as string));
+  for (const p of doAvulso ?? []) {
+    if (jaTem.has(p.vigencia as string)) continue;
+    const { error: eUp } = await admin
+      .from("dp_folha_promocoes")
+      .update({ solides_id: solidesId, salario_solides_no_registro: colab?.salario ?? null })
+      .eq("id", p.id as string);
+    if (eUp) throw eUp;
   }
 }
 
@@ -498,6 +635,7 @@ export async function unificarAvulso(input: { companyId: string; pessoaId: numbe
       if (error) throw error;
     }
     await admin.from("dp_folha_rescisoes").update({ solides_id: input.solidesId }).eq("solides_id", input.pessoaId).eq("company_id", input.companyId);
+    await moverPromocoesDoAvulso(admin, input.companyId, input.pessoaId, input.solidesId);
     const { error } = await admin
       .from("dp_folha_avulsos")
       .update({ unificado_com: input.solidesId, updated_by: user.id, updated_at: agora })

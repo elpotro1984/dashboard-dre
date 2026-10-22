@@ -7,6 +7,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Lock, LockOpen, Penc
 
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toaster";
+import { DP_ENCARGOS_PATH } from "@/lib/auth/dp";
 import { formatDateTimeBR } from "@/lib/ctrl/datetime";
 import { ajustarImpostoFolha } from "@/lib/dp/actions-folha";
 import {
@@ -439,7 +440,7 @@ function Patronal({ dados, busca }: { dados: DpImpostosDados; busca: string }) {
   const soma = (k: "base" | "inssPatronal" | "rat" | "terceiros" | "total") => linhas.reduce((s, l) => s + l[k], 0);
   const origem =
     dados.origemEncargos.tipo === "cadastro"
-      ? `cadastro de encargos do Orçamento (ano ${dados.origemEncargos.ano})`
+      ? `cadastro de encargos da empresa (ano ${dados.origemEncargos.ano})`
       : `padrão do regime ${dados.origemEncargos.regime === "simples_nacional" ? "Simples Nacional" : "normal"} — esta empresa não tem alíquotas cadastradas`;
 
   return (
@@ -451,7 +452,11 @@ function Patronal({ dados, busca }: { dados: DpImpostosDados; busca: string }) {
         </p>
         <p className="text-xs text-ink-muted">
           Estimativa gerencial, sobre o salário do mês + férias de quem é CLT. Não incide em estágio, PJ, sócio nem sobre o salário-maternidade.
-          As alíquotas são as do cadastro de encargos da empresa no Orçamento — as mesmas das Simulações.
+          As alíquotas são as do cadastro de encargos da empresa (o mesmo do Orçamento e das Simulações), em{" "}
+          <Link href={DP_ENCARGOS_PATH} className="underline hover:text-ink-primary">
+            Configurações › Encargos da empresa
+          </Link>
+          .
         </p>
       </div>
       {linhas.length === 0 ? (

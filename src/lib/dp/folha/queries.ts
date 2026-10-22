@@ -5,6 +5,7 @@ import { avulsoNaCompetencia, type DpAvulso } from "@/lib/dp/folha/avulsos";
 import { colaboradorNoMes } from "@/lib/dp/folha/calendario";
 import { rescisoesSugeridas, textoVariacao, variacoesContraAnterior, type DpRescisaoSugerida } from "@/lib/dp/folha/conferencia";
 import { casarNome } from "@/lib/dp/folha/importacao";
+import { aplicarPromocao, promocaoVigente, proximaPromocao, type DpEstadoPromocao, type DpPromocao } from "@/lib/dp/folha/promocao";
 import type { DpRescisaoEntrada, DpRescisaoResultado } from "@/lib/dp/folha/rescisao";
 import { indexarRegras, resolverEmpresa } from "@/lib/dp/empresa";
 import {
@@ -120,7 +121,22 @@ export interface DpFolhaPessoa {
   /** Avulso que agora aparece na Sólides, na mesma empresa: unificar. */
   unificarCom: { solidesId: number; nome: string } | null;
   tipoContrato: string | null;
+  /** Salário que a folha usa: o da Sólides, ou o da promoção registrada na folha enquanto a Sólides não a reflete. */
   salario: number | null;
+  /** Cargo que a folha mostra (mesma regra do salário). */
+  cargo: string | null;
+  /** Como está na Sólides hoje (avulso: o cadastro dele) — o "antes" de uma promoção. */
+  cargoSolides: string | null;
+  salarioSolides: number | null;
+  /** Quando o salário não é o da Sólides: de onde veio (memória) e o que fazer (aviso). */
+  salarioOrigem: string | null;
+  salarioAviso: string | null;
+  /** Linha da tabela salarial pela regra do DP (exceção ?? cargo da Sólides) — o ponto de partida da escolha. */
+  linhaId: string | null;
+  /** A promoção que vale no mês, com o estado contra a Sólides. */
+  promocao: DpPromocaoNaFolha | null;
+  /** A próxima promoção registrada, com início depois deste mês. */
+  promocaoAgendada: DpPromocao | null;
   nascimento: string | null;
   admissao: string | null;
   /** Desligamento: o da Sólides, ou o dia em que a sincronização percebeu a saída (`desligamentoEstimado`). */
@@ -136,6 +152,21 @@ export interface DpFolhaPessoa {
   cadastro: DpFolhaCadastro;
   lancamento: DpFolhaLancamento;
   observacaoMes: string | null;
+}
+
+export interface DpPromocaoNaFolha extends DpPromocao {
+  estado: DpEstadoPromocao;
+  /** Vai na memória do salário quando a folha usa a promoção. */
+  origem: string | null;
+  aviso: string | null;
+}
+
+/** Linha da tabela salarial oferecida na escolha do cargo. */
+export interface DpFolhaLinhaCargo {
+  id: string;
+  setor: string;
+  cargo: string;
+  salario: number;
 }
 
 export interface DpFolhaRescisao {
@@ -174,6 +205,8 @@ export interface DpFolhaEmpresa {
   rescisoes: DpFolhaRescisao[];
   /** Centros de custo da empresa (cadastro do DP), para escolher na folha. */
   centros: Array<{ id: string; rotulo: string }>;
+  /** Tabela salarial da empresa: os cargos que a promoção oferece. */
+  tabela: DpFolhaLinhaCargo[];
   /** Desligados no mês sem rescisão lançada. */
   rescisoesSugeridas: DpRescisaoSugerida[];
 }
@@ -237,6 +270,61 @@ async function listRescisoes(db: AdminClient, companyId: string, competencia: st
   }));
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toPromocao(r: any): DpPromocao {
+  const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+  return {
+    id: r.id as string,
+    solidesId: Number(r.solides_id),
+    vigencia: r.vigencia as string,
+    linhaId: (r.linha_id as string | null) ?? null,
+    setor: (r.setor as string) ?? "",
+    cargo: r.cargo as string,
+    salario: Number(r.salario),
+    cargoAnterior: (r.cargo_anterior as string | null) ?? null,
+    salarioAnterior: num(r.salario_anterior),
+    salarioSolidesNoRegistro: num(r.salario_solides_no_registro),
+    motivo: (r.motivo as string | null) ?? null,
+    criadaEm: r.created_at as string,
+  };
+}
+
+/** Promoções registradas na folha da empresa, por pessoa. Sem a migration: nenhuma (a folha segue). */
+export async function listPromocoes(db: AdminClient, companyId: string): Promise<Map<number, DpPromocao[]>> {
+  const { data, error } = await db.from("dp_folha_promocoes").select("*").eq("company_id", companyId).order("vigencia");
+  if (ausente(error)) return new Map();
+  check(error, "dp_folha_promocoes");
+  const porPessoa = new Map<number, DpPromocao[]>();
+  for (const r of data ?? []) {
+    const p = toPromocao(r);
+    porPessoa.set(p.solidesId, [...(porPessoa.get(p.solidesId) ?? []), p]);
+  }
+  return porPessoa;
+}
+
+/** O cargo e o salário que a folha usa no mês, com a promoção vigente e a agendada. */
+function comPromocao(
+  base: { salario: number | null; cargo: string | null; avulso: boolean },
+  lista: DpPromocao[],
+  competencia: string,
+): Pick<
+  DpFolhaPessoa,
+  "salario" | "cargo" | "cargoSolides" | "salarioSolides" | "salarioOrigem" | "salarioAviso" | "promocao" | "promocaoAgendada"
+> {
+  const a = aplicarPromocao(base, lista, competencia);
+  const vigente = promocaoVigente(lista, competencia);
+  return {
+    salario: a.salario,
+    cargo: a.cargo,
+    cargoSolides: base.cargo,
+    salarioSolides: base.salario,
+    salarioOrigem: a.origem,
+    salarioAviso: a.aviso,
+    promocao: vigente && a.estado ? { ...vigente, estado: a.estado, origem: a.origem, aviso: a.aviso } : null,
+    promocaoAgendada: proximaPromocao(lista, competencia),
+  };
+}
+
 /**
  * Quem entra na folha da empresa no mês: os ATIVOS dela, e o desligado que já
  * tem lançamento naquela competência (o último mês de quem saiu).
@@ -283,18 +371,19 @@ export async function listPessoasDaFolha(
   db: AdminClient,
   companyId: string,
   competencia: string,
-): Promise<{ pessoas: DpFolhaPessoa[]; centros: Array<{ id: string; rotulo: string }> }> {
-  const [regras, colabsRes, lancRes, pagina, avulsos] = await Promise.all([
+): Promise<{ pessoas: DpFolhaPessoa[]; centros: Array<{ id: string; rotulo: string }>; tabela: DpFolhaLinhaCargo[] }> {
+  const [regras, colabsRes, lancRes, pagina, avulsos, promocoes] = await Promise.all([
     listDpRegras(db),
     db
       .from("dp_colaboradores")
       .select(
-        "id, solides_id, nome, ativo, unidade_id, departamento_id, departamento_nome, tipo_contrato, salario, data_nascimento, dependentes, data_admissao, data_desligamento, desligado_detectado_em, experiencia_fim, experiencia_duracao",
+        "id, solides_id, nome, ativo, unidade_id, departamento_id, departamento_nome, cargo_nome, tipo_contrato, salario, data_nascimento, dependentes, data_admissao, data_desligamento, desligado_detectado_em, experiencia_fim, experiencia_duracao",
       )
       .order("nome"),
     db.from("dp_folha_lancamentos").select("*").eq("competencia", competencia),
     getDpCargosPagina(db, companyId).catch(() => null),
     listAvulsos(db, companyId),
+    listPromocoes(db, companyId),
   ]);
   check(colabsRes.error, "dp_colaboradores");
   check(lancRes.error, "dp_folha_lancamentos");
@@ -334,6 +423,7 @@ export async function listPessoasDaFolha(
   // Centro de custo pela MESMA regra da tela de cargos (exceção da pessoa ?? padrão da linha).
   const enqPorColab = new Map((pagina?.enquadramento ?? []).map((r) => [r.colaboradorId, r]));
   const centros = (pagina?.centros ?? []).map((c) => ({ id: c.id, rotulo: rotuloCentro(c) }));
+  const tabela: DpFolhaLinhaCargo[] = (pagina?.tabela ?? []).map((l) => ({ id: l.id, setor: l.setor, cargo: l.cargo, salario: l.salario }));
 
   const pessoas: DpFolhaPessoa[] = daEmpresa.map((r) => {
     const cad = cadPorSolides.get(Number(r.solides_id));
@@ -350,7 +440,12 @@ export async function listPessoasDaFolha(
       avulso: null,
       unificarCom: null,
       tipoContrato: r.tipo_contrato as string | null,
-      salario: r.salario === null ? null : Number(r.salario),
+      ...comPromocao(
+        { salario: r.salario === null ? null : Number(r.salario), cargo: (r.cargo_nome as string | null) ?? null, avulso: false },
+        promocoes.get(Number(r.solides_id)) ?? [],
+        competencia,
+      ),
+      linhaId: enqPorColab.get(r.id as string)?.linhaId ?? null,
       nascimento: (r.data_nascimento as string | null) ?? null,
       admissao: (r.data_admissao as string | null) ?? null,
       desligamento:
@@ -388,7 +483,8 @@ export async function listPessoasDaFolha(
       avulso: a,
       unificarCom: c.tipo === "exato" || c.tipo === "parcial" ? { solidesId: c.solidesId, nome: c.nomeSolides } : null,
       tipoContrato: a.tipoContrato,
-      salario: a.salario,
+      ...comPromocao({ salario: a.salario, cargo: null, avulso: true }, promocoes.get(a.pessoaId) ?? [], competencia),
+      linhaId: null,
       nascimento: a.nascimento,
       admissao: a.admissao,
       desligamento: a.desligamento,
@@ -404,11 +500,11 @@ export async function listPessoasDaFolha(
     });
   }
   pessoas.sort((x, y) => x.nome.localeCompare(y.nome, "pt-BR"));
-  return { pessoas, centros };
+  return { pessoas, centros, tabela };
 }
 
 async function montarFolha(db: AdminClient, companyId: string, competencia: string): Promise<DpFolhaEmpresa> {
-  const [vigencias, fechRes, rescisoes, { pessoas, centros }] = await Promise.all([
+  const [vigencias, fechRes, rescisoes, { pessoas, centros, tabela }] = await Promise.all([
     listParametrosVigencias(db),
     db.from("dp_folha_fechamentos").select("resultado, fechado_em, users(name, email)").eq("company_id", companyId).eq("competencia", competencia).maybeSingle(),
     listRescisoes(db, companyId, competencia),
@@ -435,6 +531,7 @@ async function montarFolha(db: AdminClient, companyId: string, competencia: stri
       linhas: Array.isArray(res?.linhas) ? res.linhas : [],
       rescisoes: Array.isArray(res?.rescisoes) ? res.rescisoes : rescisoes,
       centros,
+      tabela,
       rescisoesSugeridas: rescisoesSugeridas(pessoas, Array.isArray(res?.rescisoes) ? res.rescisoes : rescisoes, competencia),
     };
   }
@@ -451,6 +548,7 @@ async function montarFolha(db: AdminClient, companyId: string, competencia: stri
     linhas,
     rescisoes,
     centros,
+    tabela,
     rescisoesSugeridas: rescisoesSugeridas(pessoas, rescisoes, competencia),
   };
 }
@@ -468,6 +566,8 @@ export function entradaDe(p: DpFolhaPessoa, companyId: string): DpFolhaEntrada {
     admissao: p.admissao,
     desligamento: p.desligamento,
     desligamentoEstimado: p.desligamentoEstimado,
+    salarioOrigem: p.salarioOrigem,
+    salarioAviso: p.salarioAviso,
     cadastro: p.cadastro,
     lancamento: p.lancamento,
   };

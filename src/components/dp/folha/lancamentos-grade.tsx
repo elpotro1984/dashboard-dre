@@ -162,6 +162,8 @@ export function DpLancamentosGrade({
         admissao: p.admissao,
         desligamento: p.desligamento,
         desligamentoEstimado: p.desligamentoEstimado,
+        salarioOrigem: p.salarioOrigem,
+        salarioAviso: p.salarioAviso,
         cadastro: p.cadastro,
         lancamento: { ...c, ajustes: p.lancamento.ajustes },
       },

@@ -12,7 +12,7 @@ import { formatDateTimeBR } from "@/lib/ctrl/datetime";
 import { fecharFolha, reabrirFolha } from "@/lib/dp/actions-folha";
 import { ROTULO_SITUACAO, somarFolha, type DpFolhaResultado } from "@/lib/dp/folha/motor";
 import { ROTULO_PLANO, rotuloCompetencia, somarMeses, type DpFolhaParametros } from "@/lib/dp/folha/parametros";
-import type { DpFolhaEmpresa, DpFolhaPessoa } from "@/lib/dp/folha/queries";
+import type { DpFolhaEmpresa, DpFolhaLinhaCargo, DpFolhaPessoa } from "@/lib/dp/folha/queries";
 import { totalizar } from "@/lib/dp/folha/totais";
 
 import { brl, brl0 } from "./formato";
@@ -21,6 +21,7 @@ import { DpImportarFolhaDialog } from "./importar-dialog";
 import { DpLancamentosGrade } from "./lancamentos-grade";
 import { DpConferenciaContabilidade, DpValoresPlanilha } from "./planilhas-externas";
 import { DpFolhaPessoaDialog } from "./pessoa-dialog";
+import { DpCargoCelula, DpPromocaoSelo } from "./promocao";
 import { DpFolhaRescisoes } from "./rescisoes";
 import { DpTotaisTabela } from "./totais-tabela";
 
@@ -236,7 +237,15 @@ export function DpFolhaClient({
           ) : aba === "folha" ? (
             <TabelaFolha linhas={visiveis} total={total} onAbrir={setAberta} pessoaPor={pessoaPor} />
           ) : aba === "cadastro" ? (
-            <TabelaCadastro pessoas={folha.pessoas.filter((p) => visiveis.some((l) => l.solidesId === p.solidesId))} parametros={folha.parametros} onAbrir={setAberta} />
+            <TabelaCadastro
+              pessoas={folha.pessoas.filter((p) => idsVisiveis.has(p.solidesId))}
+              parametros={folha.parametros}
+              onAbrir={setAberta}
+              tabela={folha.tabela ?? []}
+              competencia={competencia}
+              companyId={companyId}
+              editavel={editavel}
+            />
           ) : aba === "beneficios" ? (
             <TabelaBeneficios linhas={visiveis} pessoaPor={pessoaPor} />
           ) : aba === "rescisoes" ? (
@@ -282,6 +291,7 @@ export function DpFolhaClient({
           competencia={competencia}
           companyId={companyId}
           centros={folha.centros}
+          tabela={folha.tabela ?? []}
           editavel={editavel}
           onClose={() => setAberta(null)}
         />
@@ -354,13 +364,14 @@ function TabelaFolha({
                 <span className="font-medium text-ink-primary">{l.nome}</span>
                 {l.avisos.length > 0 && <AlertTriangle className="ml-1 inline h-3.5 w-3.5 text-amber-600" aria-label="Há avisos" />}
                 {aj > 0 && <Pencil className="ml-1 inline h-3.5 w-3.5 text-amber-600" aria-label={`${aj} ajuste(s) manual(is)`} />}
+                {pessoaPor.get(l.solidesId) && <DpPromocaoSelo pessoa={pessoaPor.get(l.solidesId)!} />}
                 {pessoaPor.get(l.solidesId)?.avulso && (
                   <span className="ml-2 rounded bg-amber-500/10 px-1.5 text-xs text-amber-800 dark:text-amber-300">
                     {pessoaPor.get(l.solidesId)?.unificarCom ? "na Sólides — unificar" : "fora da Sólides"}
                   </span>
                 )}
                 <div className="text-xs text-ink-muted">
-                  {[l.setor, l.situacao !== "normal" ? ROTULO_SITUACAO[l.situacao] : null].filter(Boolean).join(" · ") || "—"}
+                  {[pessoaPor.get(l.solidesId)?.cargo, l.setor, l.situacao !== "normal" ? ROTULO_SITUACAO[l.situacao] : null].filter(Boolean).join(" · ") || "—"}
                 </div>
               </td>
               <td className={td}>{brl0(l.salarioMes)}</td>
@@ -392,12 +403,31 @@ function TabelaFolha({
   );
 }
 
-function TabelaCadastro({ pessoas, parametros, onAbrir }: { pessoas: DpFolhaPessoa[]; parametros: DpFolhaParametros; onAbrir: (id: number) => void }) {
+function TabelaCadastro({
+  pessoas,
+  parametros,
+  onAbrir,
+  tabela,
+  competencia,
+  companyId,
+  editavel,
+}: {
+  pessoas: DpFolhaPessoa[];
+  parametros: DpFolhaParametros;
+  onAbrir: (id: number) => void;
+  tabela: DpFolhaLinhaCargo[];
+  competencia: string;
+  companyId: string;
+  editavel: boolean;
+}) {
   return (
-    <table className="w-full min-w-[1000px] text-sm">
+    <table className="w-full min-w-[1200px] text-sm">
       <thead className="text-left text-ink-muted">
         <tr className="border-b border-border">
           <th className="py-2 pr-3 font-medium">Colaborador</th>
+          <th className="py-2 pr-3 font-medium" title="Escolha outro cargo da tabela salarial para registrar uma promoção">
+            Cargo
+          </th>
           <th className="py-2 pr-3 font-medium">Plano de saúde</th>
           <th className="py-2 pr-3 text-right font-medium">Odonto</th>
           <th className="py-2 pr-3 text-right font-medium">Alimentação</th>
@@ -418,6 +448,9 @@ function TabelaCadastro({ pessoas, parametros, onAbrir }: { pessoas: DpFolhaPess
               <td className="py-1.5 pr-3">
                 <span className="font-medium text-ink-primary">{p.nome}</span>
                 {!p.temCadastro && <span className="ml-2 rounded bg-amber-500/10 px-1.5 text-xs text-amber-800 dark:text-amber-300">sem cadastro</span>}
+              </td>
+              <td className="py-1 pr-3">
+                <DpCargoCelula pessoa={p} tabela={tabela} competencia={competencia} companyId={companyId} editavel={editavel} />
               </td>
               <td className="py-1.5 pr-3">
                 {ROTULO_PLANO[c.planoSaude]}

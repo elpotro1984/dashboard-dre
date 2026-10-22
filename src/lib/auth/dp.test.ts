@@ -26,10 +26,14 @@ test("e-mail bloqueado não entra no DP nem com linha de gestor (sem caixa)", ()
   assert.equal(resolveDpRole(rows, "lucas@quokka.net.br"), "gestor");
 });
 
-test("isDpGestorPath: Configurações e de-para de empresas; telas da empresa não", () => {
-  assert.equal(isDpGestorPath("/dp/configuracoes"), true);
+test("isDpGestorPath: configurações do grupo e de-para de empresas; hub e telas da empresa não", () => {
   assert.equal(isDpGestorPath("/dp/configuracoes/acessos"), true);
+  assert.equal(isDpGestorPath("/dp/configuracoes/parametros"), true);
   assert.equal(isDpGestorPath("/dp/empresas"), true);
+  assert.equal(isDpGestorPath("/dp/configuracoes"), false);
+  assert.equal(isDpGestorPath("/dp/configuracoes/centros-custo"), false);
+  assert.equal(isDpGestorPath("/dp/configuracoes/encargos"), false);
+  assert.equal(isDpGestorPath("/dp/configuracoes/acessosx"), false);
   assert.equal(isDpGestorPath("/dp/cargos"), false);
   assert.equal(isDpGestorPath("/dp/colaboradores"), false);
   assert.equal(isDpGestorPath("/dp/configuracoesx"), false);

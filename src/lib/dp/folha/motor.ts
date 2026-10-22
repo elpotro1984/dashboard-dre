@@ -201,6 +201,10 @@ export interface DpFolhaEntrada {
   desligamento: string | null;
   /** A Sólides não deu a data: o desligamento é o dia em que a sincronização percebeu a saída. */
   desligamentoEstimado?: boolean;
+  /** De onde veio o salário quando não é o da Sólides (promoção registrada na folha) — vai na memória. */
+  salarioOrigem?: string | null;
+  /** O que o DP precisa fazer sobre o salário (ex.: atualizar a Sólides depois de uma promoção). */
+  salarioAviso?: string | null;
   cadastro: DpFolhaCadastro;
   lancamento: DpFolhaLancamento;
 }
@@ -437,6 +441,7 @@ export function calcularFolhaPessoa(e: DpFolhaEntrada, p: DpFolhaParametros, com
   if (e.contrato === "outro") avisos.push("Sem tipo de contrato na Sólides — calculado como CLT.");
   if (e.contrato === "socio") avisos.push("Sócio: calculado como PJ (sem INSS, IRRF e FGTS na folha), como na planilha.");
   if (e.salario === null) avisos.push("Sem salário na Sólides — salário considerado zero.");
+  if (e.salarioAviso) avisos.push(e.salarioAviso);
   const salario = e.salario ?? 0;
   const dia = salario / 30;
 
@@ -483,7 +488,7 @@ export function calcularFolhaPessoa(e: DpFolhaEntrada, p: DpFolhaParametros, com
   const salarioProporcional = afastado ? 0 : dia * dias;
   memoria.salarioMes = afastado
     ? "Afastado: sem salário na folha."
-    : `${brl(salario)} ÷ 30 × ${n(dias)} dias (${origemDias})` +
+    : `${brl(salario)}${e.salarioOrigem ? ` (${e.salarioOrigem})` : ""} ÷ 30 × ${n(dias)} dias (${origemDias})` +
       (l.outrosProventos ? ` + ${brl(l.outrosProventos)} de outros proventos` : "") +
       (fixoProv ? ` + fixos: ${rotFixos("provento")}` : "") +
       ".";
