@@ -16,6 +16,12 @@ export const ACTIVE_CTRL_ORG_COOKIE = "active_ctrl_org";
 // Empresa ativa do Departamento Pessoal (id de companies). Validada na leitura
 // contra as empresas que a pessoa pode ver — ver @/lib/dp/empresa-ativa.
 export const ACTIVE_DP_EMPRESA_COOKIE = "active_dp_empresa";
+// Confirmação EXPLÍCITA da empresa do Compras nesta sessão de login. Guarda o
+// `session_id` do Supabase Auth em que o usuário escolheu a empresa na tela de
+// seleção obrigatória (CtrlOrgGate). Novo login = novo session_id = pergunta de
+// novo. O `active_ctrl_org` acima continua lembrando a ÚLTIMA empresa (só para
+// marcar "última utilizada" na seleção), mas sozinho não libera as telas.
+export const CTRL_ORG_CONFIRMED_COOKIE = "ctrl_org_confirmed";
 
 export type ActiveModule = "dre" | "ctrl" | "case" | "viagens" | "vb" | "caixa" | "dp";
 
@@ -56,6 +62,12 @@ export async function readActiveDpEmpresa(): Promise<string | null> {
   return store.get(ACTIVE_DP_EMPRESA_COOKIE)?.value ?? null;
 }
 
+/** Lê o session_id em que a empresa do Compras foi confirmada (ou null). */
+export async function readCtrlOrgConfirmedSession(): Promise<string | null> {
+  const store = await cookies();
+  return store.get(CTRL_ORG_CONFIRMED_COOKIE)?.value ?? null;
+}
+
 /**
  * Le o filtro de empresas compartilhado (Dashboard/Fluxo/Budget) do cookie.
  * Retorna a lista de company ids salva pela ultima selecao do usuario, ou []
@@ -87,4 +99,15 @@ export const CONTEXT_COOKIE_OPTIONS = {
   maxAge: 60 * 60 * 24 * 365,
   sameSite: "lax" as const,
   httpOnly: false, // readable from client-only code if ever needed; not sensitive
+};
+
+/**
+ * Opções do cookie de confirmação da empresa do Compras: cookie de SESSÃO (sem
+ * maxAge — some ao fechar o navegador). O vínculo com o session_id do login é o
+ * que garante o "pergunta a cada login"; a falta de maxAge é reforço.
+ */
+export const CTRL_ORG_CONFIRMED_COOKIE_OPTIONS = {
+  path: "/",
+  sameSite: "lax" as const,
+  httpOnly: false, // o SignOutButton apaga pelo client ao sair
 };

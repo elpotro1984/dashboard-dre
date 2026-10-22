@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClientIfAvailable } from "@/lib/supabase/admin";
-import { requireCtrlRole, requireCtrlRoleOrFullView } from "@/lib/ctrl/auth";
+import { ctrlActiveOrgError, requireCtrlRole, requireCtrlRoleOrFullView } from "@/lib/ctrl/auth";
 import { ctrlReadClient } from "@/lib/ctrl/injected-identity";
 import {
   APPROVAL_ROUTING,
@@ -128,6 +128,9 @@ export interface CreateRequestInput {
   // (>= 2 setores) e o `amount` efetivo é a soma delas; `sector_id` recebe o 1º.
   is_rateio?: boolean;
   rateio?: { sector_id: string; amount: number }[];
+  // Empresa do Compras em que o formulário FOI ABERTO. Se não for mais a ativa
+  // (troca em outra aba), a criação é recusada — ver ctrlActiveOrgError.
+  expected_org_id?: string | null;
 }
 
 // ─── Budget Verification ──────────────────────────────────────────────────────
@@ -607,6 +610,12 @@ export async function createRequest(data: CreateRequestInput) {
     "contas_a_pagar",
     "admin"
   );
+
+  // Empresa: a requisição tem de ser criada na empresa que a tela mostrava.
+  // Vale para os dois caminhos (1 setor e rateio), por isso fica antes do desvio.
+  const orgErr = ctrlActiveOrgError(ctx, data.expected_org_id);
+  if (orgErr) return { error: orgErr };
+
   const adminClient = createAdminClientIfAvailable();
   const supabase = adminClient ?? (await createClient());
 
@@ -3094,9 +3103,15 @@ export async function enqueueSendToPayment(
   // Categoria Omie escolhida no envio (requestId → codigo) para tipos "grupo"
   // (ex.: Investimentos). Gravada como override antes de enfileirar.
   categorias?: Record<string, string>,
+  // Empresa do Compras em que a tela FOI ABERTA. Sem ela, ou se a empresa ativa
+  // mudou (outra aba), nada é enfileirado — ver ctrlActiveOrgError.
+  expectedOrgId?: string | null,
 ) {
   // Mesma alçada da tela Contas a Pagar (ver previewPrevisaoMatches).
   const ctx = await requireCtrlRoleOrFullView("contas_a_pagar", "csc", "admin");
+
+  const orgErr = ctrlActiveOrgError(ctx, expectedOrgId);
+  if (orgErr) return { error: orgErr };
 
   if (!payingCompanyId) return { error: "Empresa pagadora é obrigatória." };
   if (requestIds.length === 0) return { error: "Nenhuma requisição selecionada." };

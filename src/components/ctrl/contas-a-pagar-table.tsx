@@ -15,6 +15,7 @@ import {
 import { resyncContaPagar } from "@/lib/ctrl/actions/contapagar-launch";
 import { getOmieCategoriasForCompany } from "@/lib/ctrl/actions/omie-mapping";
 import { CATEGORIA_NO_ENVIO_ENABLED } from "@/lib/ctrl/feature-flags";
+import { CtrlOrgChip, useCtrlActiveOrg } from "@/components/ctrl/ctrl-active-org";
 import { PaymentInfoThreadModal } from "@/components/ctrl/payment-info-thread-modal";
 import { EditExpenseRoutingModal } from "@/components/ctrl/edit-expense-routing-modal";
 import {
@@ -135,6 +136,9 @@ function PaymentInfo({ supplier }: { supplier: Supplier | null }) {
 
 export function ContasAPagarTable({ requests, ctrlRoles, companies, sectors, expenseTypes, canOperate = false }: Props) {
   const router = useRouter();
+  // Empresa do Compras em que a tela foi aberta: vai ao servidor no envio à
+  // Omie (expectedOrgId) e aparece em destaque na confirmação do envio.
+  const activeOrg = useCtrlActiveOrg();
 
   const [activeTab, setActiveTab] = useState<Tab>("aprovado");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -426,6 +430,7 @@ export function ContasAPagarTable({ requests, ctrlRoles, companies, sectors, exp
         companyId,
         decisoes,
         CATEGORIA_NO_ENVIO_ENABLED ? categoriaEscolhas : undefined,
+        activeOrg?.id ?? null,
       );
       if ("error" in result) {
         notify(String(result.error), false, 10000);
@@ -917,6 +922,26 @@ export function ContasAPagarTable({ requests, ctrlRoles, companies, sectors, exp
               <h3 className="font-semibold">Enviar {selected.size} Requisição(ões) para Pagamento</h3>
             </div>
             <div className="px-6 py-4 space-y-4">
+              {/* Empresa do Compras — o lançamento na Omie não tem volta, então
+                  quem acessa mais de uma empresa confere aqui antes de enviar. */}
+              {activeOrg?.multi && (
+                <div
+                  className="space-y-1.5 rounded-lg border-2 px-4 py-3"
+                  style={{ borderColor: activeOrg.color.solid }}
+                >
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Envio à Omie da empresa
+                  </p>
+                  <CtrlOrgChip org={activeOrg} />
+                  {payingCompanyId && (
+                    <p className="text-sm">
+                      Pagadora:{" "}
+                      <strong>{companies.find((c) => c.id === payingCompanyId)?.name ?? "—"}</strong>
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Resumo */}
               <div className="rounded-lg bg-muted/40 px-4 py-3 text-sm">
                 <div className="flex justify-between">
@@ -1026,7 +1051,11 @@ export function ContasAPagarTable({ requests, ctrlRoles, companies, sectors, exp
                 disabled={isPending || !payingCompanyId}
                 className="rounded-md bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isPending ? "Verificando previsões..." : "Confirmar Envio"}
+                {isPending
+                  ? "Verificando previsões..."
+                  : activeOrg?.multi
+                    ? `Confirmar Envio — ${activeOrg.nome}`
+                    : "Confirmar Envio"}
               </button>
             </div>
           </div>
@@ -1106,7 +1135,11 @@ export function ContasAPagarTable({ requests, ctrlRoles, companies, sectors, exp
                 disabled={isPending}
                 className="rounded-md bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-50"
               >
-                {isPending ? "Enfileirando..." : "Confirmar e enviar"}
+                {isPending
+                  ? "Enfileirando..."
+                  : activeOrg?.multi
+                    ? `Confirmar e enviar — ${activeOrg.nome}`
+                    : "Confirmar e enviar"}
               </button>
             </div>
           </div>

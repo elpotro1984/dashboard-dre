@@ -7,9 +7,12 @@ import {
   ACTIVE_MODULE_COOKIE,
   ACTIVE_SEGMENT_COOKIE,
   CONTEXT_COOKIE_OPTIONS,
+  CTRL_ORG_CONFIRMED_COOKIE,
+  CTRL_ORG_CONFIRMED_COOKIE_OPTIONS,
   VALID_MODULES,
 } from "@/lib/context/active-context";
 import { getCurrentSessionContext } from "@/lib/auth/session";
+import { currentCtrlConfirmationKey } from "@/lib/ctrl/orgs";
 
 interface ContextUpdateBody {
   module?: "dre" | "ctrl" | "case" | "viagens";
@@ -22,7 +25,7 @@ interface ContextUpdateBody {
 
 export async function POST(request: Request) {
   // Check authentication
-  const { user } = await getCurrentSessionContext();
+  const { user, supabase } = await getCurrentSessionContext();
   if (!user) {
     return NextResponse.json({ error: "Nao autorizado" }, { status: 401 });
   }
@@ -61,6 +64,14 @@ export async function POST(request: Request) {
     // O slug é validado na leitura (getCtrlOrgContext cai na 1ª empresa se o
     // usuário não tiver acesso ao slug), então aqui basta o formato.
     store.set(ACTIVE_CTRL_ORG_COOKIE, body.ctrlOrgSlug, CONTEXT_COOKIE_OPTIONS);
+    // Escolher a empresa É a confirmação deste login (seleção obrigatória do
+    // Compras). Grava a MESMA chave que getCtrlOrgContext compara. Slug sem
+    // acesso não passa: a leitura o trata como cookie inválido e pergunta de novo.
+    store.set(
+      CTRL_ORG_CONFIRMED_COOKIE,
+      await currentCtrlConfirmationKey(supabase, user.id),
+      CTRL_ORG_CONFIRMED_COOKIE_OPTIONS,
+    );
   }
 
   if (body.dpEmpresaId !== undefined) {

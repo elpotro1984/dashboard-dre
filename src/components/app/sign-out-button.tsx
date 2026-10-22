@@ -14,6 +14,9 @@ export function SignOutButton() {
     setLoading(true);
     const supabase = createClient();
     await supabase.auth.signOut();
+    // A empresa do Compras é escolhida a cada login: apaga a confirmação deste
+    // (o vínculo com o session_id já a invalidaria; isto deixa explícito).
+    document.cookie = "ctrl_org_confirmed=; Max-Age=0; path=/";
     router.replace("/login");
     router.refresh();
   };

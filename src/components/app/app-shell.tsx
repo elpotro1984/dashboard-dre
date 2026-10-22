@@ -4,8 +4,9 @@ import { Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
 
-import { CtrlOrgSwitcher } from "@/components/app/ctrl-org-switcher";
+import { CtrlOrgBanner } from "@/components/app/ctrl-org-switcher";
 import { DpEmpresaSwitcher } from "@/components/app/dp-empresa-switcher";
+import { CtrlActiveOrgProvider } from "@/components/ctrl/ctrl-active-org";
 import { Logo, LogoFull } from "@/components/app/logo";
 import { NavLinks, visibleNavKeys } from "@/components/app/nav-links";
 import { NotificationsLink } from "@/components/app/notifications-link";
@@ -53,6 +54,12 @@ interface AppShellProps {
   activeDpEmpresaId?: string | null;
   /** Slug da empresa ativa do Compras. */
   activeCtrlOrgSlug?: string | null;
+  /**
+   * A seleção obrigatória da empresa do Compras está na tela (o layout trocou a
+   * página por ela): a faixa da empresa ativa fica escondida, senão afirmaria
+   * uma empresa que o usuário ainda não escolheu.
+   */
+  ctrlOrgSelectionPending?: boolean;
   contractsOnly?: boolean;
   isFranqueado?: boolean;
   /** Perfil 'csc' — cópia do franqueado + tela "Validação Relatório". */
@@ -101,6 +108,7 @@ export function AppShell({
   dpEmpresas,
   activeDpEmpresaId,
   activeCtrlOrgSlug,
+  ctrlOrgSelectionPending,
   contractsOnly,
   isFranqueado,
   isCsc,
@@ -297,13 +305,8 @@ export function AppShell({
                 linha de descrição abaixo dele). Repetir o nome na topbar
                 deixava o mesmo texto duas vezes no topo de toda página. */}
             <div className="ch-topbar__right">
-              {/* Empresa ativa do Compras (multiempresa). Só o layout do Compras
-                  passa `ctrlOrgs`; nos demais módulos a lista vem vazia e o
-                  seletor se esconde sozinho (assim como com uma empresa só). NÃO
-                  gatear por `activeModule` aqui: ele reflete o cookie do último
-                  módulo aberto, não a rota — e escondia o seletor no Compras. */}
-              <CtrlOrgSwitcher orgs={ctrlOrgs ?? []} activeSlug={activeCtrlOrgSlug ?? null} />
-              {/* Empresa ativa do DP: só o layout do DP passa a lista (mesma regra do Compras). */}
+              {/* Empresa ativa do DP: só o layout do DP passa a lista. (A do
+                  Compras virou a faixa colorida abaixo da barra.) */}
               <DpEmpresaSwitcher empresas={dpEmpresas ?? []} activeId={activeDpEmpresaId ?? null} />
               {/* Sino: módulo Compras (padrão) ou, para quem só valida
                   relatórios BI (perfil CSC, sem Compras), a própria tela de
@@ -324,7 +327,20 @@ export function AppShell({
             </div>
           </header>
 
-          <main className={isHome ? undefined : "p-5 md:p-7"}>{children}</main>
+          {/* Empresa ativa do Compras (multiempresa), em faixa colorida fixa
+              abaixo da barra. Só o layout do Compras passa `ctrlOrgs`; nos
+              demais módulos a lista vem vazia e a faixa se esconde sozinha
+              (assim como com uma empresa só). NÃO gatear por `activeModule`
+              aqui: ele reflete o cookie do último módulo aberto, não a rota. */}
+          {!ctrlOrgSelectionPending && (
+            <CtrlOrgBanner orgs={ctrlOrgs ?? []} activeSlug={activeCtrlOrgSlug ?? null} />
+          )}
+
+          <main className={isHome ? undefined : "p-5 md:p-7"}>
+            <CtrlActiveOrgProvider orgs={ctrlOrgs ?? []} activeSlug={activeCtrlOrgSlug ?? null}>
+              {children}
+            </CtrlActiveOrgProvider>
+          </main>
         </div>
       </div>
       </TourProvider>

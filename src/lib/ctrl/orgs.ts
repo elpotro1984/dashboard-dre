@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { readActiveCtrlOrgSlug } from "@/lib/context/active-context";
+import { readActiveCtrlOrgSlug, readCtrlOrgConfirmedSession } from "@/lib/context/active-context";
+import { confirmationKey, needsOrgConfirmation, sessionIdFromAccessToken } from "@/lib/ctrl/org-gate";
 import { isCtrlOrgRole, type CtrlOrgRole } from "@/lib/ctrl/roles";
 
 // Empresa do Compras (a "organização de compras" — grupo de CNPJs). Ver
@@ -26,6 +27,32 @@ export interface CtrlOrgContext {
    * ignorado na resolução. Ver o spec de 2026-10-07.
    */
   activeOrgRole: CtrlOrgRole | null;
+  /**
+   * true = o usuário acessa mais de uma empresa e ainda NÃO escolheu a empresa
+   * neste login: o layout do Compras troca o conteúdo pela tela de seleção
+   * obrigatória e as ações críticas recusam. Ver @/lib/ctrl/org-gate.
+   */
+  needsConfirmation: boolean;
+}
+
+/**
+ * Chave do login atual para a confirmação da empresa (session_id do Supabase
+ * Auth). Lida do access token do cookie — sem ida à rede; o usuário já foi
+ * validado por getUser() na sessão. Usada aqui e pela rota /api/context, que
+ * grava a confirmação: as duas pontas TÊM de calcular a mesma chave.
+ */
+export async function currentCtrlConfirmationKey(
+  supabase: SupabaseClient,
+  userId: string,
+): Promise<string> {
+  let sessionId: string | null = null;
+  try {
+    const { data } = await supabase.auth.getSession();
+    sessionId = sessionIdFromAccessToken(data.session?.access_token);
+  } catch {
+    sessionId = null;
+  }
+  return confirmationKey(sessionId, userId);
 }
 
 /**
@@ -39,7 +66,11 @@ export interface CtrlOrgContext {
  * cookie estiver ausente ou apontar para uma empresa que o usuário não acessa,
  * cai na primeira (nunca erra por cookie velho).
  */
-export async function getCtrlOrgContext(supabase: SupabaseClient): Promise<CtrlOrgContext> {
+export async function getCtrlOrgContext(
+  supabase: SupabaseClient,
+  /** Usuário da sessão — necessário para a seleção obrigatória. Sem ele não há gate. */
+  userId?: string | null,
+): Promise<CtrlOrgContext> {
   const { data } = await supabase
     .from("ctrl_orgs")
     .select("id, nome, slug")
@@ -70,6 +101,23 @@ export async function getCtrlOrgContext(supabase: SupabaseClient): Promise<CtrlO
   // Precedência: cookie válido → 1ª empresa concedida → 1ª visível (fallback).
   const active = byCookie ?? firstGranted ?? orgs[0] ?? null;
 
+  // Seleção obrigatória a cada login (só com mais de uma empresa). O fallback
+  // acima continua escolhendo uma empresa para nada quebrar, mas enquanto a
+  // escolha não for confirmada neste login o layout não mostra dado nenhum.
+  let needsConfirmation = false;
+  if (userId && orgs.length > 1) {
+    const [confirmedKey, currentKey] = await Promise.all([
+      readCtrlOrgConfirmedSession(),
+      currentCtrlConfirmationKey(supabase, userId),
+    ]);
+    needsConfirmation = needsOrgConfirmation({
+      orgCount: orgs.length,
+      confirmedKey,
+      currentKey,
+      cookieSlugValid: Boolean(byCookie),
+    });
+  }
+
   return {
     orgs,
     orgIds,
@@ -78,6 +126,7 @@ export async function getCtrlOrgContext(supabase: SupabaseClient): Promise<CtrlO
     // Admin pode não ter linha para a empresa ativa (vê todas via RLS) → null,
     // que a resolução trata como "usa o global" (e admin é ignorado de todo jeito).
     activeOrgRole: active ? roleByOrg.get(active.id) ?? null : null,
+    needsConfirmation,
   };
 }
 

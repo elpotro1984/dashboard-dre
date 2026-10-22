@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { AlertTriangle, CheckCircle2, ChevronDown, Loader2, Paperclip, RefreshCcw, Search, X, Zap } from "lucide-react";
 
+import { CtrlOrgChip, useCtrlActiveOrg } from "@/components/ctrl/ctrl-active-org";
 import { createRequest, verifyBudget } from "@/lib/ctrl/actions/requests";
 import { atualizarProjetosAgora } from "@/lib/ctrl/actions/projetos";
 import { extractAttachmentData } from "@/lib/ctrl/actions/attachment-ocr";
@@ -65,6 +66,9 @@ export function NovaRequisicaoForm({
   usdIofRate = 3.5,
 }: Props) {
   const router = useRouter();
+  // Empresa do Compras em que o formulário foi aberto: vai ao servidor no envio
+  // (expected_org_id) e aparece em destaque ao lado do botão Enviar.
+  const activeOrg = useCtrlActiveOrg();
   // Competência default segue o calendário de Brasília, não o relógio do navegador.
   const currentYear = currentYearBR();
   const currentMonth = currentMonthBR();
@@ -735,6 +739,7 @@ export function NovaRequisicaoForm({
     }
 
     const result = await createRequest({
+      expected_org_id: activeOrg?.id ?? null,
       title: descriptionValue,
       description: descriptionValue || undefined,
       attachment_path: finalAttachmentPath,
@@ -1895,6 +1900,21 @@ export function NovaRequisicaoForm({
         )}
       </div>
 
+      {/* Empresa da requisição — em destaque ao lado do envio, para quem
+          acessa mais de uma empresa conferir antes de clicar. */}
+      {activeOrg?.multi && (
+        <div
+          className="flex flex-wrap items-center gap-3 rounded-lg border-2 px-4 py-3"
+          style={{ borderColor: activeOrg.color.solid }}
+        >
+          <span className="text-sm font-medium">Esta requisição será criada na empresa</span>
+          <CtrlOrgChip org={activeOrg} />
+          <span className="text-xs text-muted-foreground">
+            Não é essa? Use &quot;Trocar empresa&quot; na faixa do topo antes de enviar.
+          </span>
+        </div>
+      )}
+
       {/* Actions */}
       <div className="flex items-center justify-end gap-3 border-t pt-4">
         <button
@@ -1912,7 +1932,11 @@ export function NovaRequisicaoForm({
           title={!canSubmit ? "Verifique o orçamento antes de enviar" : undefined}
           className="rounded-md bg-violet-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-violet-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {loading ? "Enviando..." : "Enviar Requisição"}
+          {loading
+            ? "Enviando..."
+            : activeOrg?.multi
+              ? `Enviar Requisição — ${activeOrg.nome}`
+              : "Enviar Requisição"}
         </button>
       </div>
       {needsVerification && !canSubmit && (

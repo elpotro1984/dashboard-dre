@@ -1,6 +1,7 @@
 import { getSessionContext } from "@/lib/auth/session";
 import { hasCtrlFullView } from "@/lib/ctrl/full-view";
 import { getInjectedCtrlUser } from "@/lib/ctrl/injected-identity";
+import { activeOrgActionError } from "@/lib/ctrl/org-gate";
 import { getCtrlOrgContext, type CtrlOrg } from "@/lib/ctrl/orgs";
 import { resolveCtrlRolesForOrg } from "@/lib/ctrl/roles";
 import type { CtrlRole, UserProfileType } from "@/lib/supabase/types";
@@ -28,6 +29,12 @@ export interface CtrlUserContext {
   orgIds: string[];
   /** Empresa ATIVA (cookie validado contra orgs; senão a 1ª). null só se não há empresa. */
   orgId: string | null;
+  /**
+   * A empresa ativa foi ESCOLHIDA neste login (seleção obrigatória — ver
+   * @/lib/ctrl/org-gate). Opcional: a identidade injetada pela API externa tem a
+   * empresa fixada pela chave e não passa pela seleção.
+   */
+  orgConfirmed?: boolean;
 }
 
 /** Retorna o contexto do usuário na Controladoria, ou null se sem acesso. */
@@ -41,7 +48,7 @@ export async function getCtrlUser(): Promise<CtrlUserContext | null> {
   }
 
   // Empresa ativa do Compras (RLS de ctrl_orgs recorta ao que o usuário acessa).
-  const orgCtx = await getCtrlOrgContext(ctx.supabase);
+  const orgCtx = await getCtrlOrgContext(ctx.supabase, ctx.user.id);
 
   // Papéis do Compras NA EMPRESA ATIVA: o override de ctrl_user_orgs.role
   // estreita o papel por empresa; sem override (null) cai no papel global de
@@ -65,7 +72,31 @@ export async function getCtrlUser(): Promise<CtrlUserContext | null> {
     orgs: orgCtx.orgs,
     orgIds: orgCtx.orgIds,
     orgId: orgCtx.activeOrgId,
+    orgConfirmed: !orgCtx.needsConfirmation,
   };
+}
+
+/**
+ * Guarda das ações do Compras que não têm volta (criar requisição, enviar à
+ * Omie). A tela manda a empresa em que FOI ABERTA (`expectedOrgId`); se ela não
+ * for mais a ativa — o usuário trocou de empresa em outra aba — a ação é
+ * recusada, em vez de gravar na empresa nova sem ninguém perceber. Devolve a
+ * mensagem de recusa ou null.
+ *
+ * A API externa (identidade injetada) tem a empresa fixada pela chave de API e
+ * não passa por aqui.
+ */
+export function ctrlActiveOrgError(
+  ctx: CtrlUserContext,
+  expectedOrgId: string | null | undefined,
+): string | null {
+  if (getInjectedCtrlUser()) return null;
+  return activeOrgActionError({
+    orgCount: ctx.orgs.length,
+    confirmed: ctx.orgConfirmed !== false,
+    activeOrgId: ctx.orgId,
+    expectedOrgId,
+  });
 }
 
 /** Verifica se o contexto possui ao menos um dos roles informados. */

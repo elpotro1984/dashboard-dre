@@ -18,7 +18,7 @@ export const MANUAL_SUBTITLE =
   "Requisições, aprovações e contas a pagar no Control Hub";
 export const MANUAL_ORG = "Grupo Viva · Control Hub";
 export const MANUAL_VERSION = "1.0";
-export const MANUAL_UPDATED_AT = "22/09/2026";
+export const MANUAL_UPDATED_AT = "22/10/2026";
 
 // ─── Perfis (público-alvo de cada seção) ─────────────────────────────────────
 
@@ -139,6 +139,13 @@ export const MANUAL_SECTIONS: ManualSection[] = [
         title: "Não está vendo os setores na hora de criar?",
         text:
           "A lista de setores mostra apenas os setores vinculados ao seu usuário. Se ela vier vazia, seu usuário ainda não foi vinculado a nenhum setor — peça o vínculo ao administrador do Control Hub.",
+      },
+      {
+        kind: "callout",
+        tone: "critico",
+        title: "Trabalha em mais de uma empresa? Confira sempre a faixa do topo",
+        text:
+          "Quem tem acesso a mais de uma empresa escolhe a empresa **a cada login**, antes de qualquer tela abrir. A empresa escolhida fica numa **faixa colorida no topo de todas as telas** (\"Você está trabalhando em…\"), e é nela que todas as requisições e envios à Omie são feitos. Para mudar, use **Trocar empresa** na faixa — a troca pede confirmação. O nome da empresa também aparece no botão de enviar a requisição e na confirmação do envio à Omie. Se você trocar a empresa em outra aba, a aba antiga pede para recarregar, e um envio feito por ela é recusado sem gravar nada.",
       },
     ],
   },

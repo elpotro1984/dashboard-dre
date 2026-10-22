@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 
 import { AppShell } from "@/components/app/app-shell";
+import { CtrlOrgGate } from "@/components/ctrl/ctrl-org-gate";
+import { readActiveCtrlOrgSlug } from "@/lib/context/active-context";
 import { canAccessBiValidation } from "@/lib/auth/bi-validation";
 import { getSessionContext } from "@/lib/auth/session";
 import { resolveLayoutContext } from "@/lib/context/modules";
@@ -67,8 +69,21 @@ export default async function CtrlLayout({ children }: { children: React.ReactNo
     ? await getUnreadNotificationsCount(profile.id)
     : 0;
 
-  // Empresas do Compras (multiempresa) para o seletor do cabeçalho.
-  const orgCtx = await getCtrlOrgContext(supabase);
+  // Empresas do Compras (multiempresa) para a faixa da empresa ativa.
+  const orgCtx = await getCtrlOrgContext(supabase, ctx.user.id);
+
+  // Seleção obrigatória a cada login (quem acessa mais de uma empresa): a
+  // página NÃO é renderizada — nenhum dado de tela aparece antes da escolha. A
+  // última empresa usada só ganha uma etiqueta; nada vem pré-selecionado.
+  const lastCtrlOrgSlug = orgCtx.needsConfirmation ? await readActiveCtrlOrgSlug() : null;
+  const content = orgCtx.needsConfirmation ? (
+    <CtrlOrgGate
+      orgs={orgCtx.orgs}
+      lastSlug={orgCtx.orgs.some((o) => o.slug === lastCtrlOrgSlug) ? lastCtrlOrgSlug : null}
+    />
+  ) : (
+    children
+  );
 
   // Papéis do Compras NA EMPRESA ATIVA — alimentam o MENU lateral do Compras
   // (quais itens aparecem). O override por empresa estreita aqui; com override
@@ -102,6 +117,7 @@ export default async function CtrlLayout({ children }: { children: React.ReactNo
       activeSegmentSlug={activeSegmentSlug}
       ctrlOrgs={orgCtx.orgs}
       activeCtrlOrgSlug={orgCtx.activeOrg?.slug ?? null}
+      ctrlOrgSelectionPending={orgCtx.needsConfirmation}
       canBiValidation={canAccessBiValidation(profile)}
       // Visão completa do módulo Compras (override nominal): só faz sentido
       // para quem já tem o módulo — não concede o módulo a ninguém.
@@ -114,7 +130,7 @@ export default async function CtrlLayout({ children }: { children: React.ReactNo
       // user_module_roles (module='tour') — ver @/lib/tour/seen.
       tourSeen={profile?.tour_seen ?? false}
     >
-      {children}
+      {content}
     </AppShell>
   );
 }
