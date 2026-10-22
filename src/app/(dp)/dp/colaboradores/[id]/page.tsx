@@ -156,6 +156,11 @@ export default async function DpColaboradorPage({ params }: { params: { id: stri
               )}
               <Campo label="Salário" value={c.salario === null ? "não informado na Sólides" : formatBRL(c.salario)} />
             </dl>
+            {vinculoRow?.alertaTabela && (
+              <p className="mt-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-900 dark:text-red-200">
+                {vinculoRow.alertaTabela}
+              </p>
+            )}
           </CardContent>
         </Card>
 

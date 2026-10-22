@@ -115,3 +115,26 @@ export function alertasExperiencia(
   }
   return out.sort((a, b) => a.diasRestantes - b.diasRestantes || a.nome.localeCompare(b.nome, "pt-BR"));
 }
+
+/**
+ * O primeiro vencimento DEPOIS da janela — o que a Visão geral mostra quando
+ * ninguém vence nos próximos dias. Sem ele o cartão vazio sumia, e a tela
+ * parecia não ter o alerta.
+ */
+export function proximoVencimentoExperiencia(
+  pessoas: Parameters<typeof alertasExperiencia>[0],
+  hoje: string,
+  janela = JANELA_ALERTA_EXPERIENCIA,
+): DpAlertaExperiencia | null {
+  let melhor: DpAlertaExperiencia | null = null;
+  for (const p of pessoas) {
+    if (!p.ativo) continue;
+    for (const per of periodosExperiencia(p)) {
+      const dias = diasEntre(hoje, per.fim);
+      if (dias > janela && (!melhor || dias < melhor.diasRestantes)) {
+        melhor = { id: p.id, nome: p.nome, periodo: per.numero, fim: per.fim, diasRestantes: dias };
+      }
+    }
+  }
+  return melhor;
+}

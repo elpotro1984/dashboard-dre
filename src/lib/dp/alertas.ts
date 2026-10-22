@@ -4,7 +4,7 @@ import { todayBR } from "@/lib/ctrl/datetime";
 import { indexarRegras, resolverEmpresa } from "@/lib/dp/empresa";
 import { podeVerEmpresa, type DpEscopo } from "@/lib/dp/escopo";
 import { listDpRegras } from "@/lib/dp/queries";
-import { alertasExperiencia, type DpAlertaExperiencia } from "@/lib/dp/vinculo";
+import { alertasExperiencia, proximoVencimentoExperiencia, type DpAlertaExperiencia } from "@/lib/dp/vinculo";
 import type { createAdminClient } from "@/lib/supabase/admin";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
@@ -21,6 +21,18 @@ export interface DpAlertaExperienciaComEmpresa extends DpAlertaExperiencia {
  * contratual não aparecem para mais ninguém).
  */
 export async function listarAlertasExperiencia(db: AdminClient, escopo: DpEscopo): Promise<DpAlertaExperienciaComEmpresa[]> {
+  return (await lerExperiencia(db, escopo)).alertas;
+}
+
+/**
+ * Os alertas da janela E o próximo vencimento depois dela — a Visão geral do
+ * DP mostra o cartão sempre, e com a janela vazia diz quando é o próximo (o
+ * cartão que sumia fazia parecer que o alerta não existia).
+ */
+export async function lerExperiencia(
+  db: AdminClient,
+  escopo: DpEscopo,
+): Promise<{ alertas: DpAlertaExperienciaComEmpresa[]; proximo: DpAlertaExperienciaComEmpresa | null }> {
   const [regras, companies, colabs] = await Promise.all([
     listDpRegras(db),
     db.from("companies").select("id, name"),
@@ -53,5 +65,8 @@ export async function listarAlertasExperiencia(db: AdminClient, escopo: DpEscopo
       duracao: r.experiencia_duracao as string | null,
     }];
   });
-  return alertasExperiencia(pessoas, todayBR()).map((a) => ({ ...a, empresa: empresaDe.get(a.id) ?? null }));
+  const hoje = todayBR();
+  const comEmpresa = <T extends DpAlertaExperiencia>(a: T) => ({ ...a, empresa: empresaDe.get(a.id) ?? null });
+  const proximo = proximoVencimentoExperiencia(pessoas, hoje);
+  return { alertas: alertasExperiencia(pessoas, hoje).map(comEmpresa), proximo: proximo ? comEmpresa(proximo) : null };
 }

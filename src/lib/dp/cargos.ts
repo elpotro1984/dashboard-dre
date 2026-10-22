@@ -90,3 +90,38 @@ export function enquadrar(input: {
     Math.abs(diferenca) < TOLERANCIA_REAIS ? "no_nivel" : diferenca < 0 ? "abaixo" : "acima";
   return { status, diferenca, percentual };
 }
+
+// ── Alerta: salário da Sólides fora da tabela ───────────────────────────────
+//
+// Pedido do dono do projeto (22/10/2026): destacar em VERMELHO quem tem o
+// salário da Sólides diferente do salário da linha da tabela salarial — só
+// quando a empresa TEM tabela e a pessoa tem linha (sem tabela, sem linha ou
+// sem salário não há o que comparar). A Sólides é a fonte: o alerta nunca muda
+// salário nenhum, e só some quando a Sólides for corrigida e a sincronização
+// trouxer o valor da tabela. Também é calculado na leitura, nunca gravado —
+// por isso some sozinho.
+
+/** O salário da Sólides está fora da tabela (acima ou abaixo, além da tolerância)? */
+export function salarioForaDaTabela(e: DpEnquadramento): boolean {
+  return e.status === "abaixo" || e.status === "acima";
+}
+
+const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+/** A frase do alerta, igual em todas as telas. Null quando não há alerta. */
+export function textoAlertaTabela(input: {
+  salario: number | null;
+  salarioTabela: number | null;
+  linhaRotulo: string | null;
+  enquadramento: DpEnquadramento;
+}): string | null {
+  const e = input.enquadramento;
+  if (!salarioForaDaTabela(e) || input.salario === null || input.salarioTabela === null || e.diferenca === null) return null;
+  const sinal = e.diferenca > 0 ? "+" : "−";
+  const pct = e.percentual === null ? "" : `, ${sinal}${Math.abs(e.percentual).toLocaleString("pt-BR")}%`;
+  return (
+    `Salário na Sólides (${brl(input.salario)}) ${e.status === "abaixo" ? "abaixo" : "acima"} da tabela ` +
+    `(${input.linhaRotulo ? `${input.linhaRotulo}: ` : ""}${brl(input.salarioTabela)}; ${sinal}${brl(Math.abs(e.diferenca))}${pct}). ` +
+    `A folha segue o valor da Sólides — corrija lá; o alerta some quando a sincronização trouxer o salário da tabela.`
+  );
+}

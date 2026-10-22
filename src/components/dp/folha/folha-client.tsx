@@ -21,7 +21,7 @@ import { DpImportarFolhaDialog } from "./importar-dialog";
 import { DpLancamentosGrade } from "./lancamentos-grade";
 import { DpConferenciaContabilidade, DpValoresPlanilha } from "./planilhas-externas";
 import { DpFolhaPessoaDialog } from "./pessoa-dialog";
-import { DpCargoCelula, DpPromocaoSelo } from "./promocao";
+import { DpCargoCelula, DpPromocaoSelo, SeloTabela } from "./promocao";
 import { DpFolhaRescisoes } from "./rescisoes";
 import { DpTotaisTabela } from "./totais-tabela";
 
@@ -90,6 +90,8 @@ export function DpFolhaClient({
   const comAjuste = folha.linhas.filter((l) => Object.keys(l.ajustados ?? {}).length > 0).length;
   const foraSolides = folha.pessoas.filter((p) => p.avulso).length;
   const paraUnificar = folha.pessoas.filter((p) => p.unificarCom).length;
+  // Folha fechada é retrato: o vermelho de hoje não pinta um mês que já foi.
+  const foraTabela = editavel ? folha.pessoas.filter((p) => p.alertaTabela).length : 0;
 
   const totais = useMemo(
     () =>
@@ -172,6 +174,12 @@ export function DpFolhaClient({
         {comAviso > 0 && <span className="text-amber-700 dark:text-amber-400"> {comAviso} com aviso para conferir.</span>}
         {comAjuste > 0 && <span> {comAjuste} com ajuste manual.</span>}
         {foraSolides > 0 && <span> {foraSolides} fora da Sólides{paraUnificar > 0 ? ` (${paraUnificar} já aparece lá — unificar)` : ""}.</span>}
+        {foraTabela > 0 && (
+          <span className="text-red-700 dark:text-red-400">
+            {" "}
+            {foraTabela} com salário da Sólides diferente da tabela salarial (em vermelho) — a folha usa o da Sólides; corrija lá.
+          </span>
+        )}
       </p>
 
       <div className="flex flex-wrap gap-1 border-b border-border">
@@ -235,7 +243,7 @@ export function DpFolhaClient({
               <DpValoresPlanilha companyId={companyId} competencia={competencia} editavel={editavel} />
             </div>
           ) : aba === "folha" ? (
-            <TabelaFolha linhas={visiveis} total={total} onAbrir={setAberta} pessoaPor={pessoaPor} />
+            <TabelaFolha linhas={visiveis} total={total} onAbrir={setAberta} pessoaPor={pessoaPor} alertaTabela={editavel} />
           ) : aba === "cadastro" ? (
             <TabelaCadastro
               pessoas={folha.pessoas.filter((p) => idsVisiveis.has(p.solidesId))}
@@ -331,11 +339,14 @@ function TabelaFolha({
   total,
   onAbrir,
   pessoaPor,
+  alertaTabela,
 }: {
   linhas: DpFolhaResultado[];
   total: ReturnType<typeof somarFolha>;
   onAbrir: (id: number) => void;
   pessoaPor: Map<number, DpFolhaPessoa>;
+  /** Pintar quem tem salário fora da tabela (só na folha aberta). */
+  alertaTabela: boolean;
 }) {
   const th = "py-2 pr-3 text-right font-medium";
   const td = "py-1.5 pr-3 text-right tabular-nums";
@@ -358,13 +369,20 @@ function TabelaFolha({
       <tbody>
         {linhas.map((l) => {
           const aj = Object.keys(l.ajustados ?? {}).length;
+          const fora = alertaTabela ? pessoaPor.get(l.solidesId)?.alertaTabela ?? null : null;
           return (
-            <tr key={l.solidesId} className="cursor-pointer border-b border-border hover:bg-muted/50" onClick={() => onAbrir(l.solidesId)}>
+            <tr
+              key={l.solidesId}
+              className={`cursor-pointer border-b border-border ${fora ? "bg-red-500/10 hover:bg-red-500/15" : "hover:bg-muted/50"}`}
+              title={fora ?? undefined}
+              onClick={() => onAbrir(l.solidesId)}
+            >
               <td className="py-1.5 pr-3">
                 <span className="font-medium text-ink-primary">{l.nome}</span>
                 {l.avisos.length > 0 && <AlertTriangle className="ml-1 inline h-3.5 w-3.5 text-amber-600" aria-label="Há avisos" />}
                 {aj > 0 && <Pencil className="ml-1 inline h-3.5 w-3.5 text-amber-600" aria-label={`${aj} ajuste(s) manual(is)`} />}
                 {pessoaPor.get(l.solidesId) && <DpPromocaoSelo pessoa={pessoaPor.get(l.solidesId)!} />}
+                {fora && <SeloTabela />}
                 {pessoaPor.get(l.solidesId)?.avulso && (
                   <span className="ml-2 rounded bg-amber-500/10 px-1.5 text-xs text-amber-800 dark:text-amber-300">
                     {pessoaPor.get(l.solidesId)?.unificarCom ? "na Sólides — unificar" : "fora da Sólides"}
@@ -443,11 +461,18 @@ function TabelaCadastro({
       <tbody>
         {pessoas.map((p) => {
           const c = p.cadastro;
+          const fora = editavel ? p.alertaTabela : null;
           return (
-            <tr key={p.solidesId} className="cursor-pointer border-b border-border hover:bg-muted/50" onClick={() => onAbrir(p.solidesId)}>
+            <tr
+              key={p.solidesId}
+              className={`cursor-pointer border-b border-border ${fora ? "bg-red-500/10 hover:bg-red-500/15" : "hover:bg-muted/50"}`}
+              title={fora ?? undefined}
+              onClick={() => onAbrir(p.solidesId)}
+            >
               <td className="py-1.5 pr-3">
                 <span className="font-medium text-ink-primary">{p.nome}</span>
                 {!p.temCadastro && <span className="ml-2 rounded bg-amber-500/10 px-1.5 text-xs text-amber-800 dark:text-amber-300">sem cadastro</span>}
+                {fora && <SeloTabela />}
               </td>
               <td className="py-1 pr-3">
                 <DpCargoCelula pessoa={p} tabela={tabela} competencia={competencia} companyId={companyId} editavel={editavel} />

@@ -131,6 +131,8 @@ export interface DpFolhaPessoa {
   /** Quando o salário não é o da Sólides: de onde veio (memória) e o que fazer (aviso). */
   salarioOrigem: string | null;
   salarioAviso: string | null;
+  /** Salário da Sólides fora da tabela salarial: a frase do alerta (linha em vermelho). Null = sem alerta. */
+  alertaTabela: string | null;
   /** Linha da tabela salarial pela regra do DP (exceção ?? cargo da Sólides) — o ponto de partida da escolha. */
   linhaId: string | null;
   /** A promoção que vale no mês, com o estado contra a Sólides. */
@@ -446,6 +448,7 @@ export async function listPessoasDaFolha(
         competencia,
       ),
       linhaId: enqPorColab.get(r.id as string)?.linhaId ?? null,
+      alertaTabela: enqPorColab.get(r.id as string)?.alertaTabela ?? null,
       nascimento: (r.data_nascimento as string | null) ?? null,
       admissao: (r.data_admissao as string | null) ?? null,
       desligamento:
@@ -485,6 +488,7 @@ export async function listPessoasDaFolha(
       tipoContrato: a.tipoContrato,
       ...comPromocao({ salario: a.salario, cargo: null, avulso: true }, promocoes.get(a.pessoaId) ?? [], competencia),
       linhaId: null,
+      alertaTabela: null,
       nascimento: a.nascimento,
       admissao: a.admissao,
       desligamento: a.desligamento,
@@ -568,6 +572,7 @@ export function entradaDe(p: DpFolhaPessoa, companyId: string): DpFolhaEntrada {
     desligamentoEstimado: p.desligamentoEstimado,
     salarioOrigem: p.salarioOrigem,
     salarioAviso: p.salarioAviso,
+    tabelaAviso: p.alertaTabela,
     cadastro: p.cadastro,
     lancamento: p.lancamento,
   };

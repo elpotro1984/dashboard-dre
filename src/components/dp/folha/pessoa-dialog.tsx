@@ -129,6 +129,7 @@ export function DpFolhaPessoaDialog({
           desligamentoEstimado: av ? false : pessoa.desligamentoEstimado,
           salarioOrigem: pessoa.salarioOrigem,
           salarioAviso: pessoa.salarioAviso,
+          tabelaAviso: pessoa.alertaTabela,
           cadastro: cad,
           lancamento: lanc,
         },

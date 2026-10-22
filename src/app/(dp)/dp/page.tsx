@@ -5,8 +5,9 @@ import { DpListaAlertasExperiencia } from "@/components/dp/alertas-experiencia";
 import { DpNaoInstalado } from "@/components/dp/nao-instalado";
 import { DpSyncPanel } from "@/components/dp/sync-panel";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatDateTimeBR } from "@/lib/ctrl/datetime";
-import { listarAlertasExperiencia } from "@/lib/dp/alertas";
+import { formatDateTimeBR, formatDayBR } from "@/lib/ctrl/datetime";
+import { lerExperiencia } from "@/lib/dp/alertas";
+import { JANELA_ALERTA_EXPERIENCIA } from "@/lib/dp/vinculo";
 import { getDpUser } from "@/lib/dp/auth";
 import { recortarPorEmpresa } from "@/lib/dp/escopo";
 import { descreverEvento } from "@/lib/dp/historico";
@@ -35,8 +36,11 @@ export default async function DpOverviewPage() {
       listDpColaboradores(db).then((rows) => recortarPorEmpresa(user, rows, (r) => r.empresa.companyId)),
       gestor ? lastDpSyncRun(db) : Promise.resolve(null),
       listDpEventosRecentes(db, desde, user),
-      // Coluna da base cadastral ausente (migration 20261002150000) não derruba a Visão geral.
-      listarAlertasExperiencia(db, user).catch(() => null),
+      // Falha na leitura não derruba a Visão geral — o cartão diz que não leu.
+      lerExperiencia(db, user).catch((e: unknown) => {
+        console.error("[dp] experiência:", e instanceof Error ? e.message : e);
+        return null;
+      }),
     ]);
   } catch (error) {
     if (error instanceof DpNaoInstaladoError) return <DpNaoInstalado />;
@@ -97,16 +101,38 @@ export default async function DpOverviewPage() {
           </CardContent>
         </Card>
       )}
-      {alertasExp && alertasExp.length > 0 && (
-        <Card className="border-amber-500/40">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Experiência vencendo nos próximos 15 dias</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <DpListaAlertasExperiencia alertas={alertasExp} />
-          </CardContent>
-        </Card>
-      )}
+      {/* Sempre à vista: vazio, o cartão diz quando é o próximo vencimento. */}
+      <Card className={alertasExp && alertasExp.alertas.length > 0 ? "border-amber-500/40" : undefined}>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Experiência vencendo nos próximos {JANELA_ALERTA_EXPERIENCIA} dias</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          {alertasExp === null ? (
+            <p className="text-ink-muted">Não foi possível ler os períodos de experiência agora.</p>
+          ) : alertasExp.alertas.length > 0 ? (
+            <DpListaAlertasExperiencia alertas={alertasExp.alertas} />
+          ) : (
+            <p className="text-ink-muted">
+              Ninguém com período vencendo nos próximos {JANELA_ALERTA_EXPERIENCIA} dias.
+              {alertasExp.proximo && (
+                <>
+                  {" "}
+                  O próximo é em {formatDayBR(alertasExp.proximo.fim)} (em {alertasExp.proximo.diasRestantes} dias):{" "}
+                  <Link href={`/dp/colaboradores/${alertasExp.proximo.id}`} className="text-ink-primary hover:underline">
+                    {alertasExp.proximo.nome}
+                  </Link>
+                  , {alertasExp.proximo.periodo === 1 ? "fim do 1º período" : "fim da prorrogação"}
+                  {alertasExp.proximo.empresa ? ` · ${alertasExp.proximo.empresa}` : ""}.
+                </>
+              )}
+            </p>
+          )}
+          <p className="text-xs text-ink-muted">
+            Só CLT. O fim do 1º período e o tamanho dele (“2 x 45 dias”) vêm da Sólides; a prorrogação é o fim do 1º + o mesmo
+            tamanho. O alerta também aparece na tela inicial de quem tem o DP.
+          </p>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader className="pb-2">

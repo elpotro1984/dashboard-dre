@@ -11,6 +11,7 @@ import { rotuloCompetencia, somarMeses, type DpFolhaParametros } from "@/lib/dp/
 import type { DpFolhaPessoa } from "@/lib/dp/folha/queries";
 import type { DpCamposGrade } from "@/lib/dp/folha/validacao";
 
+import { SeloTabela } from "./promocao";
 import { inputCls, NumCampo, NumCampoOpcional } from "./campos";
 import { brl0 } from "./formato";
 
@@ -164,6 +165,7 @@ export function DpLancamentosGrade({
         desligamentoEstimado: p.desligamentoEstimado,
         salarioOrigem: p.salarioOrigem,
         salarioAviso: p.salarioAviso,
+        tabelaAviso: p.alertaTabela,
         cadastro: p.cadastro,
         lancamento: { ...c, ajustes: p.lancamento.ajustes },
       },
@@ -226,12 +228,17 @@ export function DpLancamentosGrade({
             {linhas.map(({ p, c, r }, i) => {
               const sujo = sujos.includes(p.solidesId);
               return (
-                <tr key={p.solidesId} className={`border-b border-border ${sujo ? "bg-amber-500/5" : ""}`}>
+                <tr
+                  key={p.solidesId}
+                  className={`border-b border-border ${sujo ? "bg-amber-500/5" : p.alertaTabela && editavel ? "bg-red-500/10" : ""}`}
+                  title={p.alertaTabela && editavel ? p.alertaTabela : undefined}
+                >
                   <td className="py-1 pr-2">
                     <button type="button" className="text-left font-medium text-ink-primary hover:underline" onClick={() => onAbrir(p.solidesId)}>
                       {p.nome}
                     </button>
                     {sujo && <span className="ml-1 text-xs text-amber-700 dark:text-amber-400">não salvo</span>}
+                    {p.alertaTabela && editavel && <SeloTabela />}
                     {r.recorrentes.length > 0 && (
                       <span className="ml-1 text-xs text-ink-muted" title={r.recorrentes.map((x) => `${x.descricao}${x.parcela ? ` ${x.parcela}` : ""}`).join(" · ")}>
                         · {r.recorrentes.length} fixo(s)

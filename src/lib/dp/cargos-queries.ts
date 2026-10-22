@@ -1,6 +1,6 @@
 import "server-only";
 
-import { enquadrar, rotuloLinha, sugerirLinha, type DpEnquadramento, type DpLinhaSalarial } from "@/lib/dp/cargos";
+import { enquadrar, rotuloLinha, sugerirLinha, textoAlertaTabela, type DpEnquadramento, type DpLinhaSalarial } from "@/lib/dp/cargos";
 import { indexarRegras, resolverEmpresa } from "@/lib/dp/empresa";
 import { DpNaoInstaladoError, listDpRegras } from "@/lib/dp/queries";
 import { resolverCentroCusto, resolverLinha, type DpOrigemCentro, type DpOrigemLinha } from "@/lib/dp/vinculo";
@@ -56,6 +56,8 @@ export interface DpEnquadramentoRow {
   salario: number | null;
   salarioTabela: number | null;
   enquadramento: DpEnquadramento;
+  /** Salário da Sólides fora da tabela: a frase do alerta (vermelho nas telas). Null = sem alerta. */
+  alertaTabela: string | null;
 }
 
 export interface DpReajusteRow {
@@ -233,6 +235,7 @@ export async function getDpCargosPagina(db: AdminClient, companyId: string): Pro
     }
     if (linha) pessoasPorLinha.set(linha.id, (pessoasPorLinha.get(linha.id) ?? 0) + 1);
     const salario = r.salario === null ? null : Number(r.salario);
+    const enquadramento = enquadrar({ temEmpresa: true, salario, salarioNivel: linha?.salario ?? null });
     return {
       colaboradorId: r.id as string,
       nome: r.nome as string,
@@ -249,7 +252,13 @@ export async function getDpCargosPagina(db: AdminClient, companyId: string): Pro
       origemCentro: centroObj ? centro.origem : null,
       salario,
       salarioTabela: linha?.salario ?? null,
-      enquadramento: enquadrar({ temEmpresa: true, salario, salarioNivel: linha?.salario ?? null }),
+      enquadramento,
+      alertaTabela: textoAlertaTabela({
+        salario,
+        salarioTabela: linha?.salario ?? null,
+        linhaRotulo: linha ? rotuloLinha(linha) : null,
+        enquadramento,
+      }),
     };
   });
 

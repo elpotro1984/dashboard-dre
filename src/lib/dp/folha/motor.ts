@@ -205,6 +205,8 @@ export interface DpFolhaEntrada {
   salarioOrigem?: string | null;
   /** O que o DP precisa fazer sobre o salário (ex.: atualizar a Sólides depois de uma promoção). */
   salarioAviso?: string | null;
+  /** Salário da Sólides fora da tabela salarial (alerta só; o salário segue o da Sólides). */
+  tabelaAviso?: string | null;
   cadastro: DpFolhaCadastro;
   lancamento: DpFolhaLancamento;
 }
@@ -442,6 +444,7 @@ export function calcularFolhaPessoa(e: DpFolhaEntrada, p: DpFolhaParametros, com
   if (e.contrato === "socio") avisos.push("Sócio: calculado como PJ (sem INSS, IRRF e FGTS na folha), como na planilha.");
   if (e.salario === null) avisos.push("Sem salário na Sólides — salário considerado zero.");
   if (e.salarioAviso) avisos.push(e.salarioAviso);
+  if (e.tabelaAviso) avisos.push(e.tabelaAviso);
   const salario = e.salario ?? 0;
   const dia = salario / 30;
 

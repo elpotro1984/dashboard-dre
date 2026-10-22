@@ -22,8 +22,21 @@ const INITIAL: FilterTableSnapshot = { values: { situacao: ["Ativo"] }, ranges: 
  * empresa" do gestor) — por isso não há coluna Empresa. No balde sem empresa
  * entra a Unidade da Sólides, que é o que o de-para precisa.
  */
-export function DpColaboradoresClient({ rows, semEmpresa = false }: { rows: DpColaboradorRow[]; semEmpresa?: boolean }) {
+export function DpColaboradoresClient({
+  rows,
+  semEmpresa = false,
+  foraDaTabela = [],
+}: {
+  rows: DpColaboradorRow[];
+  semEmpresa?: boolean;
+  /**
+   * Ids de quem tem o salário da Sólides diferente da tabela salarial. Só o
+   * SINAL vem ao navegador — o salário não: esta lista não carrega salário.
+   */
+  foraDaTabela?: string[];
+}) {
   const [visible, setVisible] = useState<DpColaboradorRow[]>(() => rows.filter((r) => r.ativo));
+  const fora = useMemo(() => new Set(foraDaTabela), [foraDaTabela]);
 
   // Memoizado: a FilterTable recalcula tudo quando `columns` muda de identidade.
   const columns = useMemo<FilterColumn<DpColaboradorRow>[]>(
@@ -73,6 +86,22 @@ export function DpColaboradoresClient({ rows, semEmpresa = false }: { rows: DpCo
         plain: (r) => formatDayBR(r.dataAdmissao),
         sortVal: (r) => r.dataAdmissao ?? "",
       },
+      ...(fora.size > 0
+        ? [
+            {
+              key: "tabela",
+              label: "Tabela salarial",
+              plain: (r: DpColaboradorRow) => (fora.has(r.id) ? "Salário ≠ tabela" : "—"),
+              sortVal: (r: DpColaboradorRow) => (fora.has(r.id) ? "0" : "1"),
+              cell: (r: DpColaboradorRow) =>
+                fora.has(r.id) ? (
+                  <span className="rounded bg-red-500/15 px-1.5 text-xs font-medium text-red-800 dark:text-red-300">salário ≠ tabela</span>
+                ) : (
+                  "—"
+                ),
+            },
+          ]
+        : []),
       {
         key: "situacao",
         label: "Situação",
@@ -81,7 +110,7 @@ export function DpColaboradoresClient({ rows, semEmpresa = false }: { rows: DpCo
         cell: (r) => (r.ativo ? "Ativo" : <span className="text-ink-muted">Desligado</span>),
       },
     ],
-    [semEmpresa],
+    [semEmpresa, fora],
   );
 
   return (
@@ -96,12 +125,20 @@ export function DpColaboradoresClient({ rows, semEmpresa = false }: { rows: DpCo
             </Link>
           </>
         )}
+        {fora.size > 0 && (
+          <span className="text-red-700 dark:text-red-400">
+            {" · "}
+            {fora.size} com salário da Sólides diferente da tabela salarial (em vermelho). Corrija na Sólides — o sistema não muda o
+            salário; o alerta some quando a sincronização trouxer o valor da tabela. O detalhe está em Cargos e salários › Enquadramento.
+          </span>
+        )}
       </p>
       <FilterTable
         rows={rows}
         columns={columns}
         rowKey={(r) => r.id}
         onVisibleChange={setVisible}
+        rowClassName={(r) => (fora.has(r.id) ? "bg-red-500/10" : undefined)}
         initialState={INITIAL}
         emptyMessage={
           rows.length === 0

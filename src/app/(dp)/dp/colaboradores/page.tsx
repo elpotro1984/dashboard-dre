@@ -5,6 +5,7 @@ import { DpColaboradoresClient } from "@/components/dp/colaboradores-client";
 import { DpNaoInstalado } from "@/components/dp/nao-instalado";
 import { DP_COLABORADORES_PATH } from "@/lib/auth/dp";
 import { getDpUser } from "@/lib/dp/auth";
+import { getDpCargosPagina } from "@/lib/dp/cargos-queries";
 import { getDpEmpresaAtiva } from "@/lib/dp/empresa-ativa";
 import { DpNaoInstaladoError, listDpColaboradores } from "@/lib/dp/queries";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -39,6 +40,18 @@ export default async function DpColaboradoresPage({ searchParams }: { searchPara
   const rows = semEmpresaView ? semEmpresa : ativa ? todos.filter((r) => r.empresa.companyId === ativa.id) : [];
   const semEmpresaAtivos = semEmpresa.filter((r) => r.ativo).length;
 
+  // Salário da Sólides fora da tabela salarial (empresa com tabela e pessoa com
+  // linha). Só os ids vão ao navegador. Tabela não instalada não derruba a lista.
+  const foraDaTabela =
+    !semEmpresaView && ativa
+      ? await getDpCargosPagina(db, ativa.id)
+          .then((p) => p.enquadramento.filter((r) => r.alertaTabela).map((r) => r.colaboradorId))
+          .catch((error) => {
+            if (error instanceof DpNaoInstaladoError) return [];
+            throw error;
+          })
+      : [];
+
   return (
     <div className="mx-auto max-w-7xl space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -71,7 +84,7 @@ export default async function DpColaboradoresPage({ searchParams }: { searchPara
       {!semEmpresaView && !ativa ? (
         <p className="text-sm text-ink-muted">Nenhuma empresa liberada para você no Departamento Pessoal.</p>
       ) : (
-        <DpColaboradoresClient key={semEmpresaView ? "sem" : ativa?.id} rows={rows} semEmpresa={semEmpresaView} />
+        <DpColaboradoresClient key={semEmpresaView ? "sem" : ativa?.id} rows={rows} semEmpresa={semEmpresaView} foraDaTabela={foraDaTabela} />
       )}
     </div>
   );

@@ -934,12 +934,7 @@ function Enquadramento({ rows, semCargo }: { rows: DpEnquadramentoRow[]; semCarg
         sortVal: (r) => r.enquadramento.percentual ?? -9999,
         numeric: (r) => r.enquadramento.diferenca,
         cell: (r) => {
-          const cor =
-            r.enquadramento.status === "abaixo"
-              ? "text-amber-700 dark:text-amber-400"
-              : r.enquadramento.status === "acima"
-                ? "text-sky-700 dark:text-sky-400"
-                : "";
+          const cor = r.alertaTabela ? "font-medium text-red-700 dark:text-red-400" : "";
           return <span className={`tabular-nums ${cor}`}>{textoDiferenca(r)}</span>;
         },
       },
@@ -968,10 +963,18 @@ function Enquadramento({ rows, semCargo }: { rows: DpEnquadramentoRow[]; semCarg
         </p>
       </CardHeader>
       <CardContent>
-        <FilterTable rows={rows} columns={columns} rowKey={(r) => r.colaboradorId} emptyMessage="Nenhum colaborador ativo nesta empresa." />
+        <FilterTable
+          rows={rows}
+          columns={columns}
+          rowKey={(r) => r.colaboradorId}
+          rowClassName={(r) => (r.alertaTabela ? "bg-red-500/10" : undefined)}
+          emptyMessage="Nenhum colaborador ativo nesta empresa."
+        />
         <p className="mt-2 text-xs text-ink-muted">
           Salário é o cadastrado na Sólides; o da tabela é o da linha vinculada. Diferença de menos de R$ 1 conta como “no salário da
-          tabela”. Abaixo em âmbar, acima em azul.
+          tabela”. Acima ou abaixo da tabela fica em vermelho — aqui, na lista de colaboradores e na folha. A Sólides manda: o sistema
+          não muda o salário, e o vermelho some quando a sincronização trouxer o valor da tabela (ou quando a linha da pessoa for
+          corrigida, se o erro era o vínculo).
         </p>
       </CardContent>
     </Card>

@@ -103,6 +103,11 @@ export function DpListaCargos({
   );
 }
 
+/** Etiqueta da linha em vermelho: salário da Sólides diferente da tabela salarial (a frase completa vai no title da linha). */
+export function SeloTabela() {
+  return <span className="ml-2 rounded bg-red-500/15 px-1.5 text-xs font-medium text-red-800 dark:text-red-300">salário ≠ tabela</span>;
+}
+
 /** O que a promoção da pessoa está fazendo agora — a etiqueta da linha. */
 export function DpPromocaoSelo({ pessoa }: { pessoa: DpFolhaPessoa }) {
   const p = pessoa.promocao;
