@@ -4,10 +4,11 @@ import { revalidatePath } from "next/cache";
 import * as XLSX from "xlsx";
 
 import { DP_CARGOS_PATH } from "@/lib/auth/dp";
-import { requireDpEmpresa } from "@/lib/dp/auth";
+import { exigirEmpresa, requireDpEmpresa } from "@/lib/dp/auth";
 import { chaveNome } from "@/lib/dp/cargos";
-import { getDpTabela } from "@/lib/dp/cargos-queries";
-import { lerPercentual, ordemEntre, parseTabelaPlanilha, planejarImportacao } from "@/lib/dp/tabela-salarial";
+import { getDpTabela, listDpCentrosCusto, listDpEmpresasComQuadro } from "@/lib/dp/cargos-queries";
+import { podeVerEmpresa } from "@/lib/dp/escopo";
+import { lerPercentual, ordemEntre, parseTabelaPlanilha, planejarCopia, planejarImportacao } from "@/lib/dp/tabela-salarial";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 // Escrita da tabela salarial e do de-para Sólides → linha. Toda action passa
@@ -304,6 +305,133 @@ export async function importarTabela(form: FormData): Promise<DpCargoResult<DpIm
         problemas: lido.ok.problemas,
       },
     };
+  } catch (error) {
+    return falha(error);
+  }
+}
+
+export interface DpOrigemCopia {
+  companyId: string;
+  nome: string;
+  linhas: number;
+}
+
+/**
+ * De onde dá para copiar a tabela: as empresas que ESTA pessoa vê (a analista
+ * só as dela), que têm tabela, menos a própria. Contagem exata por empresa —
+ * uma leitura das linhas de todas truncaria em 1.000 (a VE Franqueadora sozinha
+ * tem 660).
+ */
+export async function listarOrigensDeCopia(input: { companyId: string }): Promise<DpCargoResult<DpOrigemCopia[]>> {
+  try {
+    const user = await requireDpEmpresa(input.companyId);
+    const admin = createAdminClient();
+    const empresas = (await listDpEmpresasComQuadro(admin)).filter((e) => e.id !== input.companyId && podeVerEmpresa(user, e.id));
+    const contagens = await Promise.all(
+      empresas.map(async (e) => {
+        const { count, error } = await admin.from("dp_tabela_salarial").select("id", { count: "exact", head: true }).eq("company_id", e.id);
+        if (error) throw error;
+        return { companyId: e.id, nome: e.name, linhas: count ?? 0 };
+      }),
+    );
+    return { ok: true, data: contagens.filter((c) => c.linhas > 0).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")) };
+  } catch (error) {
+    return falha(error);
+  }
+}
+
+export interface DpPreviaCopia {
+  origemNome: string;
+  linhasOrigem: number;
+  linhasDestino: number;
+  novas: number;
+  iguais: number;
+  diferentes: number;
+  /** Salários trocados pelos da origem (só com `atualizarSalarios`). */
+  atualizadas: number;
+  soNoDestino: number;
+  comCentro: number;
+  centrosSemPar: string[];
+  aplicado: boolean;
+}
+
+/**
+ * Copia a tabela salarial de outra empresa para ESTA (a do seletor do topo).
+ * Sem `confirmar`, só a prévia — nada é gravado. Regra em `planejarCopia`:
+ * aditiva (insere o novo, nunca apaga), salário de linha que já existe só muda
+ * com `atualizarSalarios`, centro de custo pelo NOME (é cadastro por empresa).
+ * O de-para com a Sólides e o histórico de reajustes são da empresa e não vêm.
+ * A origem também passa pelo escopo: a analista não copia de empresa que não vê.
+ */
+export async function copiarTabelaDeEmpresa(input: {
+  companyId: string;
+  origemId: string;
+  atualizarSalarios: boolean;
+  confirmar: boolean;
+}): Promise<DpCargoResult<DpPreviaCopia>> {
+  try {
+    const user = await requireDpEmpresa(input.companyId);
+    exigirEmpresa(user, input.origemId);
+    if (!input.origemId || input.origemId === input.companyId) throw new Error("Escolha uma OUTRA empresa para copiar.");
+    const admin = createAdminClient();
+    await empresaExiste(admin, input.companyId);
+    const [{ data: origemEmp }, origem, destino, centrosOrigem, centrosDestino] = await Promise.all([
+      admin.from("companies").select("name").eq("id", input.origemId).maybeSingle(),
+      getDpTabela(admin, input.origemId),
+      getDpTabela(admin, input.companyId),
+      listDpCentrosCusto(admin, input.origemId),
+      listDpCentrosCusto(admin, input.companyId),
+    ]);
+    if (!origemEmp) throw new Error("Empresa de origem não encontrada.");
+    const origemNome = origemEmp.name as string;
+    if (origem.length === 0) throw new Error(`A tabela salarial de ${origemNome} está vazia — nada a copiar.`);
+    const nomeCentro = new Map(centrosOrigem.map((c) => [c.id, c.nome]));
+    const plano = planejarCopia(
+      origem.map((l) => ({ setor: l.setor, cargo: l.cargo, salario: l.salario, centroNome: l.centroCustoId ? nomeCentro.get(l.centroCustoId) ?? null : null })),
+      destino,
+      centrosDestino,
+      input.atualizarSalarios,
+    );
+    const previa: DpPreviaCopia = {
+      origemNome,
+      linhasOrigem: origem.length,
+      linhasDestino: destino.length,
+      novas: plano.inserir.length,
+      iguais: plano.iguais,
+      diferentes: plano.diferentes,
+      atualizadas: plano.atualizar.length,
+      soNoDestino: plano.soNoDestino,
+      comCentro: plano.comCentro,
+      centrosSemPar: plano.centrosSemPar,
+      aplicado: false,
+    };
+    if (!input.confirmar) return { ok: true, data: previa };
+    if (plano.inserir.length === 0 && plano.atualizar.length === 0) throw new Error("Nada a copiar: a tabela daqui já tem todas as linhas de " + origemNome + ".");
+
+    const agora = new Date().toISOString();
+    // Em lotes, para 600 linhas não virarem 600 idas sequenciais ao banco.
+    for (let i = 0; i < plano.atualizar.length; i += 25) {
+      const lote = plano.atualizar.slice(i, i + 25);
+      const res = await Promise.all(
+        lote.map((a) =>
+          admin.from("dp_tabela_salarial").update({ salario: a.salario, updated_by: user.id, updated_at: agora }).eq("id", a.id).eq("company_id", input.companyId),
+        ),
+      );
+      const erro = res.find((r) => r.error)?.error;
+      if (erro) throw erro;
+    }
+    if (plano.inserir.length > 0) {
+      // Novas entram no fim, na ordem da origem.
+      let ordem = destino.length ? destino[destino.length - 1].ordem : 0;
+      const rows = plano.inserir.map((l) => {
+        ordem += 1;
+        return { ...campos(l), centro_custo_id: l.centroCustoId, company_id: input.companyId, ordem, updated_by: user.id };
+      });
+      const { error } = await admin.from("dp_tabela_salarial").insert(rows);
+      if (error) throw error;
+    }
+    revalidar();
+    return { ok: true, data: { ...previa, aplicado: true } };
   } catch (error) {
     return falha(error);
   }

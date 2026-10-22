@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Download, Percent, Plus, Search, Trash2, Upload, Wand2, X } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Copy, Download, Percent, Plus, Search, Trash2, Upload, Wand2, X } from "lucide-react";
 
 import { FilterTable, type FilterColumn } from "@/components/data-table/filter-table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -12,15 +12,19 @@ import { useToast } from "@/components/ui/toaster";
 import {
   apagarTabela,
   aplicarReajuste,
+  copiarTabelaDeEmpresa,
   criarLinha,
   excluirLinha,
   importarTabela,
+  listarOrigensDeCopia,
   moverLinha,
   ordenarTabela,
   salvarLinha,
   vincularCargosSolides,
   type DpCargoResult,
   type DpImportacaoResultado,
+  type DpOrigemCopia,
+  type DpPreviaCopia,
 } from "@/lib/dp/actions-cargos";
 import { chaveNome, rotuloLinha, ROTULO_ENQUADRAMENTO, type DpEnquadramentoStatus } from "@/lib/dp/cargos";
 import { definirCentroDaLinha } from "@/lib/dp/actions-cadastro";
@@ -158,6 +162,7 @@ function TabelaSalarial({
             className="hidden"
             onChange={(e) => e.target.files?.[0] && importar(e.target.files[0])}
           />
+          <CopiarDeEmpresa companyId={companyId} companyName={companyName} />
           <div className="mx-1 h-6 w-px bg-border" />
           <div className="flex items-center gap-1.5">
             <div className="relative">
@@ -285,6 +290,168 @@ function TabelaSalarial({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * "Copiar de outra empresa": escolhe a empresa de origem, vê a prévia e só
+ * então grava. A cópia é aditiva (nada daqui é apagado) e o salário de uma
+ * linha que já existe só muda se a caixa for marcada — é o número da outra
+ * empresa, e trocá-lo mexe no enquadramento de quem já está na linha.
+ */
+function CopiarDeEmpresa({ companyId, companyName }: { companyId: string; companyName: string }) {
+  const [aberto, setAberto] = useState(false);
+  const [origens, setOrigens] = useState<DpOrigemCopia[] | null>(null);
+  const [origemId, setOrigemId] = useState("");
+  const [atualizar, setAtualizar] = useState(false);
+  const [previa, setPrevia] = useState<DpPreviaCopia | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const [carregando, startCarga] = useTransition();
+  const { pending, showToast, router, start } = useAcao();
+
+  const fechar = (v: boolean) => {
+    setAberto(v);
+    if (!v) {
+      setOrigemId("");
+      setAtualizar(false);
+      setPrevia(null);
+      setErro(null);
+    }
+  };
+
+  // Lista de origens ao abrir (contagem de linhas por empresa, no servidor).
+  useEffect(() => {
+    if (!aberto || origens !== null) return;
+    startCarga(async () => {
+      const res = await listarOrigensDeCopia({ companyId });
+      if (res.ok) setOrigens(res.data);
+      else setErro(res.error);
+    });
+  }, [aberto, origens, companyId]);
+
+  // Prévia a cada escolha (empresa ou a caixa de salários): nada é gravado aqui.
+  useEffect(() => {
+    if (!aberto || !origemId) return;
+    startCarga(async () => {
+      const res = await copiarTabelaDeEmpresa({ companyId, origemId, atualizarSalarios: atualizar, confirmar: false });
+      if (res.ok) {
+        setPrevia(res.data);
+        setErro(null);
+      } else setErro(res.error);
+    });
+  }, [aberto, origemId, atualizar, companyId]);
+
+  const copiar = () =>
+    start(async () => {
+      const res = await copiarTabelaDeEmpresa({ companyId, origemId, atualizarSalarios: atualizar, confirmar: true });
+      if (!res.ok) {
+        showToast({ title: "Tabela não copiada", description: res.error, variant: "destructive" });
+        return;
+      }
+      const d = res.data;
+      showToast({
+        title: `${d.novas} linha(s) copiada(s) de ${d.origemNome}${d.atualizadas ? ` · ${d.atualizadas} salário(s) atualizado(s)` : ""}`,
+        variant: "success",
+      });
+      fechar(false);
+      router.refresh();
+    });
+
+  const nada = previa !== null && previa.novas === 0 && previa.atualizadas === 0;
+
+  return (
+    <>
+      <button type="button" className={botaoCls} disabled={pending} onClick={() => setAberto(true)}>
+        <Copy className="h-4 w-4" /> Copiar de outra empresa
+      </button>
+      <Dialog open={aberto} onOpenChange={(v) => !pending && fechar(v)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Copiar a tabela salarial de outra empresa</DialogTitle>
+            <DialogDescription>
+              As linhas entram na tabela de <strong>{companyName}</strong>. Nada que já está aqui é apagado.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-sm">
+            <label className="block space-y-1">
+              <span className="text-ink-muted">Copiar de</span>
+              <select
+                className={inputCls}
+                value={origemId}
+                onChange={(e) => {
+                  setPrevia(null);
+                  setAtualizar(false);
+                  setOrigemId(e.target.value);
+                }}
+                disabled={pending || origens === null || origens.length === 0}
+                aria-label="Empresa de origem"
+              >
+                <option value="">{origens === null ? "Carregando empresas…" : "Escolha a empresa…"}</option>
+                {(origens ?? []).map((o) => (
+                  <option key={o.companyId} value={o.companyId}>
+                    {o.nome} — {o.linhas} linha(s)
+                  </option>
+                ))}
+              </select>
+            </label>
+            {origens !== null && origens.length === 0 && (
+              <p className="text-ink-muted">Nenhuma outra empresa que você vê tem tabela salarial cadastrada.</p>
+            )}
+            {erro && <p className="text-red-700">{erro}</p>}
+            {origemId && carregando && !previa && <p className="text-ink-muted">Calculando a prévia…</p>}
+            {previa && (
+              <div className="space-y-2 rounded-md border border-border px-3 py-2">
+                <p>
+                  <strong>{previa.novas}</strong> linha(s) nova(s) entram no fim da tabela, na ordem de {previa.origemNome}.
+                </p>
+                {previa.iguais > 0 && <p className="text-ink-muted">{previa.iguais} já existem aqui com o mesmo salário.</p>}
+                {previa.diferentes > 0 && (
+                  <div className="space-y-1">
+                    <p>
+                      {previa.diferentes} já existem aqui com salário <strong>diferente</strong>.
+                    </p>
+                    <label className="flex items-center gap-2">
+                      <input type="checkbox" checked={atualizar} onChange={(e) => setAtualizar(e.target.checked)} disabled={pending} />
+                      Trocar pelo salário de {previa.origemNome}
+                    </label>
+                    {atualizar && (
+                      <p className="text-xs text-amber-800 dark:text-amber-300">
+                        {previa.atualizadas} salário(s) desta tabela serão substituídos — muda o enquadramento de quem está nessas linhas.
+                      </p>
+                    )}
+                  </div>
+                )}
+                {previa.soNoDestino > 0 && <p className="text-ink-muted">{previa.soNoDestino} linha(s) que só existem aqui ficam como estão.</p>}
+                {previa.comCentro > 0 && <p className="text-ink-muted">{previa.comCentro} das novas levam o centro de custo de mesmo nome que esta empresa já tem.</p>}
+                {previa.centrosSemPar.length > 0 && (
+                  <p className="text-xs text-amber-800 dark:text-amber-300">
+                    Centros de custo de {previa.origemNome} que esta empresa não tem: {previa.centrosSemPar.join(", ")}. As linhas que os
+                    usavam entram sem centro — cadastre-o em Centros de custo e defina na linha.
+                  </p>
+                )}
+                <p className="text-xs text-ink-muted">
+                  O de-para com os cargos da Sólides e o histórico de reajustes são de cada empresa e não vêm junto.
+                </p>
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <button type="button" className={botaoCls} disabled={pending} onClick={() => fechar(false)}>
+              Cancelar
+            </button>
+            <button
+              type="button"
+              disabled={pending || carregando || !previa || nada}
+              onClick={copiar}
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              <Copy className="h-4 w-4" />
+              {pending ? "Copiando…" : nada ? "Nada a copiar" : `Copiar ${previa?.novas ?? 0} linha(s)${previa?.atualizadas ? ` e atualizar ${previa.atualizadas}` : ""}`}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

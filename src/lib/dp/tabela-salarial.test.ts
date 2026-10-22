@@ -7,6 +7,7 @@ import {
   lerSalario,
   ordemEntre,
   parseTabelaPlanilha,
+  planejarCopia,
   planejarImportacao,
   previaReajuste,
   reajustar,
@@ -95,6 +96,39 @@ test("importação: atualiza, insere e MANTÉM o que ficou fora da planilha", ()
   assert.deepEqual(plano.inserir.map((l) => l.cargo), ["ANALISTA 3"]);
   assert.equal(plano.iguais, 1);
   assert.equal(plano.foraDaPlanilha, 1);
+});
+
+test("cópia de outra empresa: insere o novo, não apaga nada e só troca salário quando pedido", () => {
+  const origem = [
+    { setor: "Comercial", cargo: "Analista 1", salario: 4200, centroNome: "Comercial" },
+    { setor: "Comercial", cargo: "Analista 2", salario: 5000, centroNome: null },
+    { setor: "Financeiro", cargo: "Assistente 1", salario: 3000, centroNome: "ADM" },
+    { setor: "Financeiro", cargo: "Assistente 2", salario: 3300, centroNome: "comercial" },
+  ];
+  const existentes = [
+    { id: "a", setor: "comercial", cargo: "ANALISTA 1", salario: 4000 }, // mesmo cargo, salário diferente
+    { id: "b", setor: "Comercial", cargo: "Analista 2", salario: 5000 }, // igual
+    { id: "c", setor: "TI", cargo: "Dev", salario: 7000 }, // só existe aqui
+  ];
+  const centros = [{ id: "cc-1", nome: "Comercial" }];
+  const sem = planejarCopia(origem, existentes, centros, false);
+  assert.deepEqual(sem.atualizar, []); // sem pedir, o salário daqui fica
+  assert.equal(sem.diferentes, 1);
+  assert.equal(sem.iguais, 1);
+  assert.equal(sem.soNoDestino, 1);
+  assert.deepEqual(
+    sem.inserir,
+    [
+      { setor: "Financeiro", cargo: "Assistente 1", salario: 3000, centroCustoId: null }, // "ADM" não existe aqui
+      { setor: "Financeiro", cargo: "Assistente 2", salario: 3300, centroCustoId: "cc-1" }, // casa sem caixa/acento
+    ],
+  );
+  assert.equal(sem.comCentro, 1);
+  assert.deepEqual(sem.centrosSemPar, ["ADM"]);
+  const com = planejarCopia(origem, existentes, centros, true);
+  assert.deepEqual(com.atualizar, [{ id: "a", salario: 4200, de: 4000 }]);
+  // Destino vazio: copia tudo
+  assert.equal(planejarCopia(origem, [], [], false).inserir.length, 4);
 });
 
 test("reajuste: >= 0, teto de sanidade e arredondamento igual ao do banco", () => {

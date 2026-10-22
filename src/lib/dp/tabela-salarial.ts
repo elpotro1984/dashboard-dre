@@ -172,6 +172,69 @@ export function planejarImportacao(planilha: DpTabelaPlanilhaLinha[], existentes
   return { inserir, atualizar, iguais, foraDaPlanilha };
 }
 
+// ── Cópia de outra empresa ──────────────────────────────────────────────────
+
+export interface DpPlanoCopia {
+  /** Linhas novas, na ordem da origem, com o centro de custo já traduzido para o destino. */
+  inserir: Array<{ setor: string; cargo: string; salario: number; centroCustoId: string | null }>;
+  /** Só preenchido com `atualizarSalarios`: linhas que já existem aqui e passam a ter o salário da origem. */
+  atualizar: Array<{ id: string; salario: number; de: number }>;
+  /** Já existem aqui com o mesmo salário. */
+  iguais: number;
+  /** Já existem aqui com salário DIFERENTE (atualizadas ou mantidas, conforme a opção). */
+  diferentes: number;
+  /** Linhas que só existem aqui — ficam como estão. */
+  soNoDestino: number;
+  /** Linhas novas que levaram o centro de custo (o destino tem um centro com o mesmo nome). */
+  comCentro: number;
+  /** Centros da origem que o destino não tem: as linhas novas que os usavam entram sem centro. */
+  centrosSemPar: string[];
+}
+
+/**
+ * "Copiar de outra empresa": a mesma regra da importação por planilha — casa
+ * por setor + cargo, insere o que é novo e NUNCA apaga o que só existe aqui —,
+ * com uma diferença deliberada: o salário de uma linha que JÁ EXISTE só é
+ * trocado quando pedido (`atualizarSalarios`). Na planilha o usuário escreveu
+ * o número de propósito; na cópia, o número é da outra empresa, e sobrescrever
+ * a tabela daqui sem pedir mudaria o enquadramento de quem já está nela.
+ *
+ * Centro de custo é cadastro POR EMPRESA (o id da origem não existe aqui):
+ * a linha nova leva o centro do destino com o MESMO NOME, e entra sem centro
+ * quando não há par — dito na prévia, nunca criado por conta própria.
+ */
+export function planejarCopia(
+  origem: Array<{ setor: string; cargo: string; salario: number; centroNome: string | null }>,
+  existentes: DpTabelaExistente[],
+  centrosDestino: Array<{ id: string; nome: string }>,
+  atualizarSalarios: boolean,
+): DpPlanoCopia {
+  const plano = planejarImportacao(
+    origem.map((l, i) => ({ linha: i + 1, setor: l.setor, cargo: l.cargo, salario: l.salario })),
+    existentes,
+  );
+  const centroPorNome = new Map(centrosDestino.map((c) => [chaveNome(c.nome), c.id]));
+  const origemPorChave = new Map(origem.map((l) => [chaveLinha(l), l]));
+  const semPar = new Set<string>();
+  let comCentro = 0;
+  const inserir = plano.inserir.map((l) => {
+    const nome = origemPorChave.get(chaveLinha(l))?.centroNome?.trim() || null;
+    const centroCustoId = nome ? centroPorNome.get(chaveNome(nome)) ?? null : null;
+    if (centroCustoId) comCentro += 1;
+    else if (nome) semPar.add(nome);
+    return { setor: l.setor, cargo: l.cargo, salario: l.salario, centroCustoId };
+  });
+  return {
+    inserir,
+    atualizar: atualizarSalarios ? plano.atualizar : [],
+    iguais: plano.iguais,
+    diferentes: plano.atualizar.length,
+    soNoDestino: plano.foraDaPlanilha,
+    comCentro,
+    centrosSemPar: Array.from(semPar).sort((a, b) => a.localeCompare(b, "pt-BR")),
+  };
+}
+
 // ── Reajuste ────────────────────────────────────────────────────────────────
 
 /** Teto de sanidade: 1.000% num campo de reajuste é quase sempre um zero a mais. */
