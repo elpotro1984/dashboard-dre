@@ -90,6 +90,7 @@ async function getContasAPagar(orgId: string | null) {
       approved_at,
       ctrl_suppliers(
         name,
+        nome_fantasia,
         cnpj_cpf,
         status,
         chave_pix,

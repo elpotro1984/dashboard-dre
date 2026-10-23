@@ -25,7 +25,19 @@ export type Supplier = {
   // consulta traz a coluna; quando ausente, o selo de "não homologado" não é
   // exibido — a trava de verdade é do servidor.
   status?: string | null;
+  // Nome fantasia (ctrl_suppliers.nome_fantasia). Opcional pelo mesmo motivo do
+  // status; vazio nos cadastros antigos vindos da Omie — ver supplierDisplayName.
+  nome_fantasia?: string | null;
 };
+
+/**
+ * Nome do fornecedor para LISTAS: o nome fantasia, que é como a equipe conhece
+ * o fornecedor; a razão social quando ele não tem (cadastros antigos da Omie).
+ */
+export function supplierDisplayName(sup: Pick<Supplier, "name" | "nome_fantasia"> | null | undefined): string {
+  if (!sup) return "";
+  return sup.nome_fantasia?.trim() || sup.name;
+}
 
 export type NamedRef = { name: string } | { name: string }[] | null;
 

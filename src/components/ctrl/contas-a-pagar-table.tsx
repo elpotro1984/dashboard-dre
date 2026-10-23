@@ -22,6 +22,7 @@ import {
   RequestDetailModal,
   resolveSupplier,
   resolveNamed,
+  supplierDisplayName,
   fmt,
   valueMatchesSearch,
   type Supplier,
@@ -302,7 +303,10 @@ export function ContasAPagarTable({ requests, ctrlRoles, companies, sectors, exp
       .filter((r) => {
         if (!term) return true;
         const sup = resolveSupplier(r.ctrl_suppliers);
+        // Busca pelos dois nomes: a tela mostra o fantasia, mas quem tem a
+        // razão social em mãos (nota, boleto) também precisa achar.
         if (sup?.name && sup.name.toLowerCase().includes(term)) return true;
+        if (sup?.nome_fantasia && sup.nome_fantasia.toLowerCase().includes(term)) return true;
         if (r.title.toLowerCase().includes(term)) return true;
         if (termDigits && String(r.request_number).startsWith(termDigits)) return true;
         // Busca por VALOR (ex.: "222,60", "1.234,56", "1234").
@@ -354,7 +358,7 @@ export function ContasAPagarTable({ requests, ctrlRoles, companies, sectors, exp
       {
         key: "fornecedor",
         type: "text",
-        getValue: (r) => resolveSupplier(r.ctrl_suppliers)?.name ?? "",
+        getValue: (r) => supplierDisplayName(resolveSupplier(r.ctrl_suppliers)),
       },
       {
         key: "tipo_despesa",
@@ -468,7 +472,7 @@ export function ContasAPagarTable({ requests, ctrlRoles, companies, sectors, exp
         return {
           id: r.id,
           number: r.request_number,
-          supplier: sup?.name ?? "—",
+          supplier: supplierDisplayName(sup) || "—",
           status: sup?.status ?? "pendente",
         };
       });
@@ -676,7 +680,17 @@ export function ContasAPagarTable({ requests, ctrlRoles, companies, sectors, exp
                       {sup ? (
                         <div className="max-w-[13rem]">
                           <div className="flex flex-wrap items-center gap-1.5">
-                            <p className="truncate font-medium" title={sup.name}>{sup.name}</p>
+                            {/* Nome fantasia na lista; a razão social fica no tooltip. */}
+                            <p
+                              className="truncate font-medium"
+                              title={
+                                supplierDisplayName(sup) !== sup.name
+                                  ? `${supplierDisplayName(sup)} — razão social: ${sup.name}`
+                                  : sup.name
+                              }
+                            >
+                              {supplierDisplayName(sup)}
+                            </p>
                             <SupplierNotApprovedBadge status={sup.status} />
                           </div>
                           {sup.cnpj_cpf && <p className="text-xs text-muted-foreground">{sup.cnpj_cpf}</p>}
