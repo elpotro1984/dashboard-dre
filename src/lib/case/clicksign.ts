@@ -12,7 +12,10 @@ export interface ClickSignSigner {
   name: string;
   email: string;
   cpf: string | null;
-  /** Papel no ClickSign: "contractor" (parte), "witness" (testemunha)… */
+  /**
+   * Papel no ClickSign, que aparece no e-mail de conclusão ("assinou como …"):
+   * "contractor" = contratante, "contractee" = contratada, "witness" = testemunha.
+   */
   signAs?: string;
   /**
    * Grupo de assinatura em ordem (1 assina primeiro, depois 2, …). Assinantes do

@@ -373,7 +373,7 @@ async function approveAndSend(db: DB, userId: string, prepared: PreparedContract
   for (const t of testemunhasQueAssinam(c)) {
     signers.push({ name: t.nome ?? "Testemunha", email: t.email, cpf: t.cpf, signAs: "witness", group: 1 });
   }
-  signers.push({ name: CONTRATADO_SIGNER.name, email: CONTRATADO_SIGNER.email, cpf: CONTRATADO_SIGNER.cpf, signAs: "contractor", group: 2 });
+  signers.push({ name: CONTRATADO_SIGNER.name, email: CONTRATADO_SIGNER.email, cpf: CONTRATADO_SIGNER.cpf, signAs: "contractee", group: 2 });
 
   try {
     const sig = await createSignatureRequest(
