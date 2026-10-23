@@ -114,25 +114,30 @@ export function CtrlOrgBanner({ orgs, activeSlug }: { orgs: CtrlOrgOption[]; act
 
   return (
     <>
+      {/* Superfície levemente tingida + filete na cor da empresa: destaca sem
+          competir com o vermelho, que segue sendo o único acento do sistema. */}
       <div
-        className="sticky top-[50px] z-[29] flex flex-wrap items-center gap-x-4 gap-y-2 px-[var(--ch-band-x)] py-2.5 shadow-sm"
-        style={{ background: color.solid, color: color.onSolid }}
+        className="sticky top-[50px] z-[29] flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-l-4 px-[var(--ch-band-x)] py-2"
+        style={{
+          background: color.tint,
+          borderLeftColor: color.solid,
+          borderBottomColor: "var(--line-strong)",
+          color: "var(--color-text)",
+        }}
         role="status"
         aria-label={`Empresa ativa do Compras: ${active.nome}`}
       >
         <div className="flex min-w-0 items-center gap-2.5">
-          <Building2 className="h-5 w-5 shrink-0" strokeWidth={2} />
-          <span className="text-xs font-medium uppercase tracking-wider opacity-90">
+          <Building2 className="h-4 w-4 shrink-0" strokeWidth={2} style={{ color: color.solid }} />
+          <span className="text-xs font-medium uppercase tracking-wider" style={{ color: "var(--ink-55)" }}>
             Você está trabalhando em
           </span>
-          <span className="truncate text-base font-extrabold uppercase tracking-wide">{active.nome}</span>
+          <span className="truncate text-sm font-bold uppercase tracking-wide" style={{ color: color.solid }}>
+            {active.nome}
+          </span>
         </div>
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-white/60 bg-white/15 px-3 py-1.5 text-sm font-semibold transition-colors hover:bg-white/25"
-        >
-          <ArrowLeftRight className="h-4 w-4" strokeWidth={2} />
+        <button type="button" onClick={() => setOpen(true)} className="ch-btn ch-btn--secondary ml-auto">
+          <ArrowLeftRight className="h-3.5 w-3.5" strokeWidth={2} />
           Trocar empresa
         </button>
       </div>
@@ -179,7 +184,7 @@ export function CtrlOrgBanner({ orgs, activeSlug }: { orgs: CtrlOrgOption[]; act
                   type="button"
                   onClick={() => setTarget(null)}
                   disabled={pending}
-                  className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50"
+                  className="ch-btn ch-btn--secondary ch-btn--lg"
                 >
                   Voltar
                 </button>
@@ -187,8 +192,7 @@ export function CtrlOrgBanner({ orgs, activeSlug }: { orgs: CtrlOrgOption[]; act
                   type="button"
                   onClick={confirmSwitch}
                   disabled={pending}
-                  className="inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-semibold disabled:opacity-60"
-                  style={{ background: ctrlOrgColor(target.slug).solid, color: ctrlOrgColor(target.slug).onSolid }}
+                  className="ch-btn ch-btn--primary ch-btn--lg"
                 >
                   {pending && <Loader2 className="h-4 w-4 animate-spin" />}
                   Trocar para {target.nome}
@@ -213,7 +217,7 @@ export function CtrlOrgBanner({ orgs, activeSlug }: { orgs: CtrlOrgOption[]; act
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-md bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-700"
+              className="ch-btn ch-btn--primary ch-btn--lg mt-5 w-full"
             >
               <RefreshCw className="h-4 w-4" />
               Recarregar a página

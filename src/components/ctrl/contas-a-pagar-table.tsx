@@ -926,8 +926,8 @@ export function ContasAPagarTable({ requests, ctrlRoles, companies, sectors, exp
                   quem acessa mais de uma empresa confere aqui antes de enviar. */}
               {activeOrg?.multi && (
                 <div
-                  className="space-y-1.5 rounded-lg border-2 px-4 py-3"
-                  style={{ borderColor: activeOrg.color.solid }}
+                  className="space-y-1.5 rounded-[var(--radius-md)] border px-4 py-3"
+                  style={{ borderColor: "var(--line-strong)" }}
                 >
                   <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Envio à Omie da empresa

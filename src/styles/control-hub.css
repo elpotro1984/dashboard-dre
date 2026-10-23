@@ -107,6 +107,19 @@
   --shadow-lg: 0 8px 20px var(--ch-shadow-h);
 
   --radius-xl: 16px;
+
+  /* Empresas do Compras (faixa "Você está trabalhando em", seleção do
+     login). Tons TERROSOS e dessaturados, da mesma família quente dos
+     neutros — distinguem uma empresa da outra sem competir com o
+     vermelho, que segue sendo o único acento. O vermelho fica fora desta
+     lista de propósito. Uso via ctrlOrgColor (src/lib/ctrl/org-gate.ts). */
+  --ch-org-1: #3d5a6c; /* ardósia */
+  --ch-org-2: #6a5470; /* ameixa */
+  --ch-org-3: #56664a; /* oliva */
+  --ch-org-4: #8a5a3b; /* terracota */
+  --ch-org-5: #3f6763; /* verde-água fechado */
+  --ch-org-6: #7a6440; /* ocre */
+  --ch-org-ink: #ffffff; /* tinta sobre o tom cheio */
 }
 
 /* =========================================================
@@ -138,6 +151,17 @@
 
   /* O accent clareou: tinta branca sobre ele não passa de 3:1. */
   --ch-accent-ink: #1a1817;
+
+  /* Empresas do Compras no escuro: os mesmos tons, clareados para ler
+     sobre o carvão; a tinta sobre o tom cheio passa a ser escura. */
+  --ch-org-1: #9db7c7;
+  --ch-org-2: #c2adc8;
+  --ch-org-3: #b0c09f;
+  --ch-org-4: #d8a782;
+  --ch-org-5: #9ec4bf;
+  --ch-org-6: #d2bc8c;
+  --ch-org-ink: #1a1817;
+
   /* Rótulo vermelho sobre a superfície tingida. Usa o -700 e não o
      accent puro por medida: accent sobre o tingido dá 3,9:1, abaixo do
      mínimo para texto pequeno; o -700 dá 5,9:1 e continua lendo vermelho. */

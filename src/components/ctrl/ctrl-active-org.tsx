@@ -46,8 +46,8 @@ export function useCtrlActiveOrg(): CtrlActiveOrg | null {
 export function CtrlOrgChip({ org, className = "" }: { org: CtrlActiveOrg; className?: string }) {
   return (
     <span
-      className={`inline-flex items-center rounded-md px-2.5 py-1 text-sm font-bold uppercase tracking-wide ${className}`}
-      style={{ background: org.color.solid, color: org.color.onSolid }}
+      className={`inline-flex items-center rounded-[var(--radius-sm)] border-l-4 px-2.5 py-1 text-sm font-bold uppercase tracking-wide ${className}`}
+      style={{ background: org.color.tint, borderLeftColor: org.color.solid, color: org.color.solid }}
     >
       {org.nome}
     </span>

@@ -77,23 +77,32 @@ export function activeOrgActionError(input: {
 }
 
 /** Paleta das empresas: cores bem distintas entre si, legíveis com texto branco. */
+/**
+ * Cor de uma empresa — sempre via token do design system (--ch-org-N, em
+ * control-hub.css), nunca hex solto: os tons são terrosos e dessaturados, da
+ * família quente dos neutros, e mudam sozinhos no tema escuro.
+ */
 export interface CtrlOrgColor {
-  /** Fundo sólido (faixa, chip). */
+  /** Tom cheio (filete, marcador, botão de confirmar). */
   solid: string;
   /** Texto sobre `solid`. */
   onSolid: string;
+  /** Superfície levemente tingida (fundo da faixa, chip, cartão). */
+  tint: string;
 }
 
-const PALETTE: CtrlOrgColor[] = [
-  { solid: "#1d4ed8", onSolid: "#ffffff" }, // azul
-  { solid: "#7e22ce", onSolid: "#ffffff" }, // roxo
-  { solid: "#047857", onSolid: "#ffffff" }, // verde
-  { solid: "#c2410c", onSolid: "#ffffff" }, // laranja
-  { solid: "#be123c", onSolid: "#ffffff" }, // vermelho
-  { solid: "#0e7490", onSolid: "#ffffff" }, // ciano
-  { solid: "#a16207", onSolid: "#ffffff" }, // âmbar
-  { solid: "#4338ca", onSolid: "#ffffff" }, // índigo
-];
+const PALETTE_SIZE = 6;
+
+function paletteColor(n: number): CtrlOrgColor {
+  const token = `var(--ch-org-${n + 1})`;
+  return {
+    solid: token,
+    onSolid: "var(--ch-org-ink)",
+    tint: `color-mix(in srgb, ${token} 12%, var(--color-surface))`,
+  };
+}
+
+const PALETTE: CtrlOrgColor[] = Array.from({ length: PALETTE_SIZE }, (_, i) => paletteColor(i));
 
 // Empresas conhecidas com cor fixa — a mesma para todo usuário, qualquer que
 // seja a lista de empresas que ele enxerga. As demais caem no hash do slug.

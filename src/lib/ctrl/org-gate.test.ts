@@ -76,5 +76,7 @@ test("activeOrgActionError: várias empresas sem confirmação recusa antes de c
 test("ctrlOrgColor: Viva e Feat têm cores fixas e diferentes; slug desconhecido é estável", () => {
   assert.notEqual(ctrlOrgColor("viva-company").solid, ctrlOrgColor("feat-producoes").solid);
   assert.deepEqual(ctrlOrgColor("empresa-x"), ctrlOrgColor("empresa-x"));
-  assert.ok(ctrlOrgColor(null).solid.startsWith("#"));
+  // Sempre token do design system, nunca hex solto.
+  assert.match(ctrlOrgColor(null).solid, /^var\(--ch-org-\d\)$/);
+  assert.match(ctrlOrgColor("empresa-x").tint, /var\(--ch-org-\d\)/);
 });

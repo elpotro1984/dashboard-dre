@@ -1904,8 +1904,8 @@ export function NovaRequisicaoForm({
           acessa mais de uma empresa conferir antes de clicar. */}
       {activeOrg?.multi && (
         <div
-          className="flex flex-wrap items-center gap-3 rounded-lg border-2 px-4 py-3"
-          style={{ borderColor: activeOrg.color.solid }}
+          className="flex flex-wrap items-center gap-3 rounded-[var(--radius-md)] border px-4 py-3"
+          style={{ background: "var(--color-surface)", borderColor: "var(--line-strong)" }}
         >
           <span className="text-sm font-medium">Esta requisição será criada na empresa</span>
           <CtrlOrgChip org={activeOrg} />

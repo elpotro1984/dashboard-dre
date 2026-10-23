@@ -37,7 +37,10 @@ export function CtrlOrgGate({ orgs, lastSlug }: { orgs: CtrlOrgOption[]; lastSlu
 
   return (
     <div className="mx-auto flex max-w-xl flex-col items-center py-10 md:py-16">
-      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-violet-100 text-violet-700 dark:bg-violet-950/50 dark:text-violet-300">
+      <span
+        className="flex h-12 w-12 items-center justify-center rounded-full"
+        style={{ background: "var(--accent-tint)", color: "var(--color-accent-700)" }}
+      >
         <Building2 className="h-6 w-6" />
       </span>
       <h1 className="mt-4 text-center text-2xl font-semibold">Em qual empresa você vai trabalhar?</h1>
@@ -56,12 +59,12 @@ export function CtrlOrgGate({ orgs, lastSlug }: { orgs: CtrlOrgOption[]; lastSlu
               type="button"
               onClick={() => choose(o.slug)}
               disabled={pendingSlug !== null}
-              className="group flex w-full items-center gap-4 rounded-xl border-2 bg-background px-5 py-4 text-left transition-all hover:shadow-md disabled:opacity-60"
-              style={{ borderColor: c.solid }}
+              className="group flex w-full items-center gap-4 rounded-[var(--radius-lg)] border border-l-4 px-5 py-4 text-left shadow-[var(--shadow-sm)] transition-all hover:shadow-[var(--shadow-md)] disabled:opacity-60"
+              style={{ background: "var(--ch-card)", borderColor: "var(--line-strong)", borderLeftColor: c.solid }}
             >
               <span
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-lg font-bold"
-                style={{ background: c.solid, color: c.onSolid }}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[var(--radius-md)] text-lg font-bold"
+                style={{ background: c.tint, color: c.solid }}
               >
                 {o.nome.charAt(0).toUpperCase()}
               </span>
