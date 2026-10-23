@@ -303,14 +303,20 @@ export async function syncSupplierToOmieUnit(
     throw new Error("Cadastro sem CNPJ/CPF — não é possível cadastrar no Omie.");
   }
 
-  const existingCode = await findSupplierCodeInOmieUnit(appKey, appSecret, supplier);
+  const existing = await findSupplierInOmieUnit(appKey, appSecret, supplier);
+  const existingCode = existing?.codigo ?? null;
 
-  // Homologar = fornecedor ATIVO na Omie. Sem isto, um fornecedor inativado
-  // (Fornecedores › Inativar), editado e homologado de novo continuaria inativo
-  // lá e o lançamento do pagamento esbarraria nisso.
-  const fields: Record<string, unknown> = { ...buildClientePayload(supplier, tag), inativo: "N" };
+  const fields = buildClientePayload(supplier, tag);
 
   if (existingCode) {
+    // Homologar = fornecedor ATIVO na Omie. Um fornecedor inativado
+    // (Fornecedores › Inativar), editado e homologado de novo continuaria
+    // inativo lá e o lançamento do pagamento esbarraria nisso. O AlterarCliente
+    // IGNORA o campo `inativo` (medido em 23/10/2026): a situação só muda pelo
+    // AlterarSituacaoCliente — e só se chama quando está de fato inativo.
+    if (existing?.inativo) {
+      await alterarSituacaoNaOmie(appKey, appSecret, existingCode, false);
+    }
     // Identifica só por codigo_cliente_omie. NÃO enviar codigo_cliente_integracao:
     // num cliente legado que ainda não tem esse código, a Omie tenta resolver por
     // ele e falha ("Cliente não cadastrado para o Código de Integração [uuid]").
@@ -330,17 +336,22 @@ export async function syncSupplierToOmieUnit(
 }
 
 /**
- * Código do fornecedor numa unidade Omie, ou null se ele não existe lá. É a
- * MESMA busca de duplicata da homologação (syncSupplierToOmieUnit), para a
- * inativação achar exatamente o cadastro que a homologação alteraria.
+ * O fornecedor numa unidade Omie (código + se está inativo lá), ou null se ele
+ * não existe. É a MESMA busca de duplicata da homologação
+ * (syncSupplierToOmieUnit), para a inativação achar exatamente o cadastro que a
+ * homologação alteraria. A listagem por CNPJ traz também os INATIVOS (conferido
+ * em 23/10/2026) — senão reabilitar um inativado criaria um duplicado.
  */
-export async function findSupplierCodeInOmieUnit(
+export async function findSupplierInOmieUnit(
   appKey: string,
   appSecret: string,
   supplier: Pick<OmieSupplierData, "id" | "name" | "cnpj_cpf" | "estrangeiro" | "omie_id">,
-): Promise<number | null> {
+): Promise<{ codigo: number; inativo: boolean } | null> {
   const doc = normalizeDoc(supplier.cnpj_cpf);
   let existingCode: number | null = null;
+  let inativo = false;
+  const isInativo = (rec: Record<string, unknown> | null | undefined) =>
+    String(rec?.inativo ?? "").toUpperCase() === "S";
   if (doc) {
     // Fluxo brasileiro: dedupe por CNPJ/CPF (cobre legado e re-sync).
     const list = await omieCall(OMIE_CLIENTES_URL, "ListarClientes", appKey, appSecret, {
@@ -352,7 +363,10 @@ export async function findSupplierCodeInOmieUnit(
       const arr =
         (list.data.clientes_cadastro as Array<Record<string, unknown>> | undefined) ?? [];
       const match = arr.find((c) => normalizeDoc(String(c.cnpj_cpf ?? "")) === doc) ?? arr[0];
-      if (match?.codigo_cliente_omie) existingCode = Number(match.codigo_cliente_omie);
+      if (match?.codigo_cliente_omie) {
+        existingCode = Number(match.codigo_cliente_omie);
+        inativo = isInativo(match);
+      }
     }
   } else {
     // Estrangeiro (sem documento): dedupe pelo código de integração, o que
@@ -361,6 +375,7 @@ export async function findSupplierCodeInOmieUnit(
       codigo_cliente_integracao: supplier.id,
     });
     existingCode = porIntegracao ? Number(porIntegracao.codigo_cliente_omie) || null : null;
+    inativo = isInativo(porIntegracao);
 
     // Cadastro legado importado da Omie (`from_omie`) nunca teve código de
     // integração — sem esta segunda tentativa o IncluirCliente abaixo criaria um
@@ -373,17 +388,36 @@ export async function findSupplierCodeInOmieUnit(
       });
       if (legado && sameRazaoSocial(legado.razao_social, supplier.name)) {
         existingCode = Number(legado.codigo_cliente_omie) || null;
+        inativo = isInativo(legado);
       }
     }
   }
-  return existingCode;
+  return existingCode ? { codigo: existingCode, inativo } : null;
 }
 
 /**
- * Inativa (ou reativa) o fornecedor numa unidade Omie — campo `inativo` do
- * cadastro de cliente/fornecedor. Só o campo vai no AlterarCliente: reenviar o
- * cadastro inteiro aqui sobrescreveria o que a unidade mudou lá. Fornecedor que
- * não existe na unidade não é criado: `found = false`, nada a fazer.
+ * Situação do cadastro na Omie. É o método DEDICADO ("Ativa ou inativa o
+ * cadastro de um cliente ou fornecedor"): o AlterarCliente aceita o campo
+ * `inativo` no schema e responde "Cliente alterado com sucesso!", mas NÃO o
+ * aplica — medido em 23/10/2026, com e sem os campos obrigatórios. Não troque
+ * por AlterarCliente achando que é equivalente.
+ */
+async function alterarSituacaoNaOmie(
+  appKey: string,
+  appSecret: string,
+  codigoCliente: number,
+  inativo: boolean,
+): Promise<void> {
+  await omieCall(OMIE_CLIENTES_URL, "AlterarSituacaoCliente", appKey, appSecret, {
+    codigo_cliente_omie: codigoCliente,
+    inativo: inativo ? "S" : "N",
+  });
+}
+
+/**
+ * Inativa (ou reativa) o fornecedor numa unidade Omie, pelo
+ * AlterarSituacaoCliente. Só a situação muda — o cadastro não é reenviado.
+ * Fornecedor que não existe na unidade não é criado: `found = false`.
  */
 export async function setSupplierInativoInOmieUnit(
   appKey: string,
@@ -393,12 +427,9 @@ export async function setSupplierInativoInOmieUnit(
   /** Código já conhecido (vínculo da homologação) — dispensa a busca. */
   knownCode?: number | null,
 ): Promise<{ found: boolean; codigoCliente: number | null }> {
-  const code = knownCode || (await findSupplierCodeInOmieUnit(appKey, appSecret, supplier));
+  const code = knownCode || (await findSupplierInOmieUnit(appKey, appSecret, supplier))?.codigo || null;
   if (!code) return { found: false, codigoCliente: null };
-  await omieCall(OMIE_CLIENTES_URL, "AlterarCliente", appKey, appSecret, {
-    codigo_cliente_omie: code,
-    inativo: inativo ? "S" : "N",
-  });
+  await alterarSituacaoNaOmie(appKey, appSecret, code, inativo);
   return { found: true, codigoCliente: code };
 }
 

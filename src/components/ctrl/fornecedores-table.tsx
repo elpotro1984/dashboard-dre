@@ -470,7 +470,12 @@ export function FornecedoresTable({
         kind: "error" as const,
         msg: `Fornecedor ${verbo} no Control Hub, mas a Omie falhou em: ${erro
           .map((r) => `${r.companyName} (${r.error})`)
-          .join("; ")}. Use "Tentar de novo na Omie" na aba Inativados.`,
+          .join("; ")}. ${
+          // Reativado volta para Aprovados, onde a falha da unidade tem o "Reenviar".
+          verbo === "reativado"
+            ? 'Use "Reenviar" ao lado de "Falha no Omie", na aba Aprovados.'
+            : 'Use "Tentar de novo na Omie" na aba Inativados.'
+        }`,
       };
     }
     return {
