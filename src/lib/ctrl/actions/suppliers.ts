@@ -13,7 +13,8 @@ import { notifyAdmins } from "@/lib/ctrl/notifications";
 import { omieNameError } from "@/lib/ctrl/supplier-name";
 import type { CtrlSupplier, CtrlSupplierStatus } from "@/lib/supabase/types";
 import { decryptSecret } from "@/lib/security/encryption";
-import { syncSupplierToOmieUnit, type OmieSupplierData } from "@/lib/omie/clientes";
+import { setSupplierInativoInOmieUnit, syncSupplierToOmieUnit, type OmieSupplierData } from "@/lib/omie/clientes";
+import { getOrgCompanyIds } from "@/lib/ctrl/orgs";
 
 // `status` aceita um valor ou uma lista. A tela de Nova Requisição usa a lista
 // (aprovado + pendente): o fornecedor ainda não homologado pode ser escolhido e
@@ -316,6 +317,224 @@ export async function rejectSupplier(supplierId: string, reason: string) {
 
   revalidatePath("/ctrl/admin/fornecedores");
   return { ok: true };
+}
+
+// ─── Inativar / reativar (remover a homologação) ─────────────────────────────
+//
+// Inativar = o fornecedor sai de uso no Control Hub (some da criação de
+// requisição; o envio ao pagamento já recusa todo status ≠ 'aprovado') E é
+// inativado na Omie (campo `inativo`) em cada unidade da empresa do Compras
+// onde ele existe. Reativar faz o caminho de volta, para 'aprovado'.
+//
+// O Control Hub é a fonte: o status muda aqui mesmo que alguma unidade da Omie
+// falhe — a falha fica registrada no vínculo da unidade (sync_status 'erro') e
+// a tela oferece "Tentar de novo na Omie". Desfazer a mudança local por causa
+// de uma unidade deixaria o fornecedor em uso aqui sem ninguém perceber.
+
+export type SupplierOmieInativoResult = {
+  companyId: string;
+  companyName: string;
+  /** ok = alterado na Omie; ausente = o fornecedor não existe nessa unidade. */
+  status: "ok" | "ausente" | "erro";
+  error?: string;
+};
+
+async function aplicarInativoNaOmie(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  supplier: { id: string; name: string; cnpj_cpf: string | null; estrangeiro: boolean | null; omie_id: number | null },
+  orgId: string | null,
+  inativo: boolean,
+): Promise<SupplierOmieInativoResult[]> {
+  const companyIds = await getOrgCompanyIds(supabase, orgId);
+  if (companyIds.length === 0) return [];
+
+  const [{ data: companies }, { data: links }] = await Promise.all([
+    supabase
+      .from("companies")
+      .select("id, name, omie_app_key, omie_app_secret")
+      .in("id", companyIds)
+      .not("omie_app_key", "is", null)
+      .not("omie_app_secret", "is", null),
+    supabase
+      .from("ctrl_supplier_omie_links")
+      .select("company_id, omie_codigo_cliente")
+      .eq("supplier_id", supplier.id),
+  ]);
+  const codeByCompany = new Map<string, number>();
+  for (const l of (links ?? []) as { company_id: string; omie_codigo_cliente: number | null }[]) {
+    if (l.omie_codigo_cliente) codeByCompany.set(l.company_id, Number(l.omie_codigo_cliente));
+  }
+
+  const acao = inativo ? "Inativação" : "Reativação";
+  const results: SupplierOmieInativoResult[] = [];
+  for (const company of (companies ?? []) as { id: string; name: string; omie_app_key: string; omie_app_secret: string }[]) {
+    const now = new Date().toISOString();
+    try {
+      const { found, codigoCliente } = await setSupplierInativoInOmieUnit(
+        decryptSecret(company.omie_app_key),
+        decryptSecret(company.omie_app_secret),
+        { ...supplier, estrangeiro: supplier.estrangeiro ?? false },
+        inativo,
+        codeByCompany.get(company.id) ?? null,
+      );
+      if (!found) {
+        results.push({ companyId: company.id, companyName: company.name, status: "ausente" });
+        continue;
+      }
+      // O vínculo passa a registrar a unidade (inclusive em cadastro legado,
+      // que não tinha vínculo) — é por ele que a próxima ação acha o código.
+      await supabase.from("ctrl_supplier_omie_links").upsert(
+        {
+          supplier_id: supplier.id,
+          company_id: company.id,
+          omie_codigo_cliente: codigoCliente,
+          sync_status: "ok",
+          sync_error: null,
+          synced_at: now,
+          updated_at: now,
+        },
+        { onConflict: "supplier_id,company_id" },
+      );
+      results.push({ companyId: company.id, companyName: company.name, status: "ok" });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await supabase.from("ctrl_supplier_omie_links").upsert(
+        {
+          supplier_id: supplier.id,
+          company_id: company.id,
+          sync_status: "erro",
+          sync_error: `${acao} na Omie: ${msg}`,
+          updated_at: now,
+        },
+        { onConflict: "supplier_id,company_id" },
+      );
+      results.push({ companyId: company.id, companyName: company.name, status: "erro", error: msg });
+    }
+  }
+  return results;
+}
+
+function resumoOmie(results: SupplierOmieInativoResult[]): string {
+  if (results.length === 0) return "Omie: nenhuma unidade com credencial";
+  const ok = results.filter((r) => r.status === "ok").map((r) => r.companyName);
+  const erro = results.filter((r) => r.status === "erro").map((r) => r.companyName);
+  const partes = [`Omie: ${ok.length} unidade(s) alterada(s)`];
+  if (erro.length) partes.push(`falhou em ${erro.join(", ")}`);
+  return partes.join(" · ");
+}
+
+async function carregarParaInativo(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+  supplierId: string,
+  orgId: string | null,
+) {
+  const { data } = await supabase
+    .from("ctrl_suppliers")
+    .select("id, name, cnpj_cpf, estrangeiro, omie_id, status, org_id")
+    .eq("id", supplierId)
+    .maybeSingle();
+  // Fornecedor é por empresa do Compras: o de outra empresa "não existe" aqui.
+  if (!data || !orgId || data.org_id !== orgId) return null;
+  return data as {
+    id: string;
+    name: string;
+    cnpj_cpf: string | null;
+    estrangeiro: boolean | null;
+    omie_id: number | null;
+    status: string;
+  };
+}
+
+export async function inactivateSupplier(supplierId: string, reason: string) {
+  const ctx = await requireCtrlRole("gerente", "csc", "admin", "aprovacao_fornecedor");
+  const motivo = reason.trim();
+  if (!motivo) return { error: "Informe o motivo da inativação." };
+
+  const adminClient = createAdminClientIfAvailable();
+  const supabase = adminClient ?? (await createClient());
+
+  const supplier = await carregarParaInativo(supabase, supplierId, ctx.orgId);
+  if (!supplier) return { error: "Fornecedor não encontrado." };
+  if (supplier.status !== "aprovado") {
+    return { error: "Só um fornecedor homologado pode ser inativado." };
+  }
+
+  const { error } = await supabase
+    .from("ctrl_suppliers")
+    .update({ status: "inativo", updated_at: new Date().toISOString() })
+    .eq("id", supplierId);
+  if (error) {
+    return {
+      error: /invalid input value for enum|22P02/i.test(error.message)
+        ? "Inativação ainda não instalada no banco (migration 20261023120000_ctrl_supplier_inativo pendente)."
+        : error.message,
+    };
+  }
+
+  const omieResults = await aplicarInativoNaOmie(supabase, supplier, ctx.orgId, true);
+
+  await logSupplierHistory(supabase, {
+    supplierId,
+    userId: ctx.id,
+    action: "inativado",
+    comment: `${motivo} · ${resumoOmie(omieResults)}`,
+  });
+
+  revalidatePath("/ctrl/admin/fornecedores");
+  return { ok: true as const, omieResults };
+}
+
+export async function reactivateSupplier(supplierId: string) {
+  const ctx = await requireCtrlRole("gerente", "csc", "admin", "aprovacao_fornecedor");
+  const adminClient = createAdminClientIfAvailable();
+  const supabase = adminClient ?? (await createClient());
+
+  const supplier = await carregarParaInativo(supabase, supplierId, ctx.orgId);
+  if (!supplier) return { error: "Fornecedor não encontrado." };
+  if (supplier.status !== "inativo") return { error: "Este fornecedor não está inativado." };
+
+  // Volta a homologado: a homologação original (tipos de despesa, vínculos)
+  // nunca foi apagada, então é o mesmo cadastro voltando a valer.
+  const { error } = await supabase
+    .from("ctrl_suppliers")
+    .update({ status: "aprovado", updated_at: new Date().toISOString() })
+    .eq("id", supplierId);
+  if (error) return { error: error.message };
+
+  const omieResults = await aplicarInativoNaOmie(supabase, supplier, ctx.orgId, false);
+
+  await logSupplierHistory(supabase, {
+    supplierId,
+    userId: ctx.id,
+    action: "reativado",
+    comment: resumoOmie(omieResults),
+  });
+
+  revalidatePath("/ctrl/admin/fornecedores");
+  return { ok: true as const, omieResults };
+}
+
+/** Repete só a parte da Omie (inativa ou reativa, conforme o status de hoje). */
+export async function retrySupplierInativoOmie(supplierId: string) {
+  const ctx = await requireCtrlRole("gerente", "csc", "admin", "aprovacao_fornecedor");
+  const adminClient = createAdminClientIfAvailable();
+  const supabase = adminClient ?? (await createClient());
+
+  const supplier = await carregarParaInativo(supabase, supplierId, ctx.orgId);
+  if (!supplier) return { error: "Fornecedor não encontrado." };
+  if (supplier.status !== "inativo") return { error: "Este fornecedor não está inativado." };
+
+  const omieResults = await aplicarInativoNaOmie(supabase, supplier, ctx.orgId, true);
+  await logSupplierHistory(supabase, {
+    supplierId,
+    userId: ctx.id,
+    action: "inativado",
+    comment: `Nova tentativa na Omie · ${resumoOmie(omieResults)}`,
+  });
+  revalidatePath("/ctrl/admin/fornecedores");
+  return { ok: true as const, omieResults };
 }
 
 export async function updateSupplier(
@@ -890,7 +1109,7 @@ async function logSupplierHistory(
   params: {
     supplierId: string;
     userId: string;
-    action: "criado" | "editado" | "aprovado" | "rejeitado";
+    action: "criado" | "editado" | "aprovado" | "rejeitado" | "inativado" | "reativado";
     changes?: Record<string, [unknown, unknown]> | null;
     comment?: string | null;
   },

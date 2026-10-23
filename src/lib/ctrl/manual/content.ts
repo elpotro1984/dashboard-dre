@@ -786,6 +786,13 @@ export const MANUAL_SECTIONS: ManualSection[] = [
         text:
           "Na nova requisição, PIX só aparece se o fornecedor tiver chave cadastrada, e Transferência só se tiver banco e conta. Se o método que você precisa estiver esmaecido, o cadastro do fornecedor está incompleto.",
       },
+      {
+        kind: "callout",
+        tone: "atencao",
+        title: "Inativar um fornecedor (remover a homologação)",
+        text:
+          "Na aba **Aprovados**, o botão **Inativar** (com motivo obrigatório) tira o fornecedor de uso: ele some da criação de requisição, as requisições em aberto com ele ficam **bloqueadas no envio ao pagamento** e o cadastro é **inativado na Omie** em todas as unidades onde existe. Ele passa para a aba **Inativados**, onde o botão **Reativar** faz o caminho de volta (homologado aqui e ativo na Omie). Se alguma unidade da Omie falhar, a inativação vale mesmo assim no Control Hub e a linha mostra **Tentar de novo na Omie**. Quem inativou, quando e por quê fica no **Histórico** do fornecedor.",
+      },
     ],
   },
 

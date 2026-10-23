@@ -900,7 +900,11 @@ export function ContasAPagarTable({ requests, ctrlRoles, companies, sectors, exp
                     #{b.number} — {b.supplier}
                   </span>
                   <span className="shrink-0 text-xs uppercase tracking-wide text-amber-700 dark:text-amber-300">
-                    {b.status === "rejeitado" ? "Rejeitado" : "Aguardando homologação"}
+                    {b.status === "rejeitado"
+                      ? "Rejeitado"
+                      : b.status === "inativo"
+                        ? "Inativado"
+                        : "Aguardando homologação"}
                   </span>
                 </div>
               ))}

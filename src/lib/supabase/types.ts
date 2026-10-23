@@ -217,7 +217,8 @@ export type CtrlRequestStatus =
   | "aguardando_aprovacao_fornecedor"
   | "info_pagamento_pendente";
 
-export type CtrlSupplierStatus = "pendente" | "aprovado" | "rejeitado";
+// 'inativo' = homologação removida (migration 20261023120000); inativado na Omie.
+export type CtrlSupplierStatus = "pendente" | "aprovado" | "rejeitado" | "inativo";
 
 export type CtrlHistoryAction =
   | "criado"

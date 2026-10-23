@@ -183,7 +183,10 @@ export default async function FornecedoresPage({ searchParams }: FornecedoresPag
 
   const statusParam = firstParam(searchParams?.status);
   const initialTab =
-    statusParam === "pendente" || statusParam === "aprovado" || statusParam === "rejeitado"
+    statusParam === "pendente" ||
+    statusParam === "aprovado" ||
+    statusParam === "rejeitado" ||
+    statusParam === "inativo"
       ? statusParam
       : undefined;
   const novosParam = firstParam(searchParams?.novos);

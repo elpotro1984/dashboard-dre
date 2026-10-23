@@ -63,6 +63,8 @@ const ACTION_META: Record<
   editado: { label: "Editado", icon: PencilLine, className: "text-amber-600" },
   aprovado: { label: "Aprovado", icon: CheckCircle2, className: "text-green-600" },
   rejeitado: { label: "Rejeitado", icon: XCircle, className: "text-red-600" },
+  inativado: { label: "Inativado (homologação removida)", icon: XCircle, className: "text-gray-600" },
+  reativado: { label: "Reativado", icon: CheckCircle2, className: "text-green-600" },
 };
 
 export function SupplierHistoryModal({ supplierId, supplierName, onClose }: Props) {

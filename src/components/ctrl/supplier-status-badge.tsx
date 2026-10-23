@@ -32,11 +32,15 @@ export function SupplierNotApprovedBadge({
 }) {
   if (status == null || isSupplierHomologado(status)) return null;
 
-  const rejeitado = status === "rejeitado";
+  // Rejeitado e inativado travam do mesmo jeito (vermelho); muda só o texto.
+  const inativo = status === "inativo";
+  const rejeitado = status === "rejeitado" || inativo;
   return (
     <span
       title={
-        rejeitado
+        inativo
+          ? "Fornecedor inativado (homologação removida) na tela de Fornecedores. O envio para pagamento está bloqueado."
+          : rejeitado
           ? "Fornecedor rejeitado na tela de Fornecedores. O envio para pagamento está bloqueado."
           : "Fornecedor ainda não homologado. O envio para pagamento fica bloqueado até a homologação em Admin > Fornecedores."
       }
@@ -47,7 +51,7 @@ export function SupplierNotApprovedBadge({
       } ${className}`}
     >
       <AlertTriangle className="h-3 w-3" />
-      {rejeitado ? "Fornecedor rejeitado" : "Não homologado"}
+      {inativo ? "Fornecedor inativado" : rejeitado ? "Fornecedor rejeitado" : "Não homologado"}
     </span>
   );
 }

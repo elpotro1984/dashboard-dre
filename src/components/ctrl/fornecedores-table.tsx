@@ -1,16 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { Banknote, CheckCircle2, Contact, History, Loader2, Paperclip, Pencil, Tags, Truck, X, XCircle } from "lucide-react";
+import { Ban, Banknote, CheckCircle2, Contact, History, Loader2, Paperclip, Pencil, RotateCcw, Tags, Truck, X, XCircle } from "lucide-react";
 
 import { ExpenseTypePicker } from "@/components/ctrl/expense-type-picker";
 import {
   approveSupplier,
   getSupplierAttachments,
+  inactivateSupplier,
+  reactivateSupplier,
   rejectSupplier,
+  retrySupplierInativoOmie,
   updateSupplier,
   resyncSupplierOmie,
   type SupplierAttachment,
+  type SupplierOmieInativoResult,
 } from "@/lib/ctrl/actions/suppliers";
 import {
   BANCOS_BR,
@@ -89,7 +93,7 @@ interface FornecedoresTableProps {
   highlightId?: string | null;
 }
 
-type TabKey = "aprovado" | "pendente" | "rejeitado";
+type TabKey = "aprovado" | "pendente" | "rejeitado" | "inativo";
 
 // Order matters — `Object.keys(TAB_LABELS)` is iterated in insertion order for
 // rendering the tabs. Aprovados is first because it's the most consulted state
@@ -98,7 +102,11 @@ const TAB_LABELS: Record<TabKey, string> = {
   aprovado: "Aprovados",
   pendente: "Pendentes",
   rejeitado: "Rejeitados",
+  // Homologação removida: fora de uso aqui e inativado na Omie.
+  inativo: "Inativados",
 };
+
+const isTabKey = (s: string): s is TabKey => s in TAB_LABELS;
 
 const SUPPLIERS_PER_PAGE = 30;
 
@@ -291,11 +299,9 @@ export function FornecedoresTable({
   );
 
   const counts = useMemo<Record<TabKey, number>>(() => {
-    const acc: Record<TabKey, number> = { pendente: 0, aprovado: 0, rejeitado: 0 };
+    const acc: Record<TabKey, number> = { pendente: 0, aprovado: 0, rejeitado: 0, inativo: 0 };
     for (const s of suppliers) {
-      if (s.status === "pendente" || s.status === "aprovado" || s.status === "rejeitado") {
-        acc[s.status as TabKey] += 1;
-      }
+      if (isTabKey(s.status)) acc[s.status] += 1;
     }
     return acc;
   }, [suppliers]);
@@ -348,13 +354,13 @@ export function FornecedoresTable({
   // Quantos resultados da busca existem nas OUTRAS abas — para um aviso de
   // descoberta ("encontrado em Pendentes"), já que a busca é escopada por aba.
   const otherTabMatches = useMemo(() => {
-    const acc: Record<TabKey, number> = { pendente: 0, aprovado: 0, rejeitado: 0 };
+    const acc: Record<TabKey, number> = { pendente: 0, aprovado: 0, rejeitado: 0, inativo: 0 };
     const term = search.trim().toLowerCase();
     if (!term) return acc;
     const termDigits = term.replace(/\D/g, "");
     for (const s of suppliers) {
       if (s.status === activeTab) continue;
-      if ((s.status === "pendente" || s.status === "aprovado" || s.status === "rejeitado") && matchesSearch(s, term, termDigits)) {
+      if (isTabKey(s.status) && matchesSearch(s, term, termDigits)) {
         acc[s.status] += 1;
       }
     }
@@ -448,6 +454,77 @@ export function FornecedoresTable({
       } else {
         setFeedback({ kind: "success", msg: "Fornecedor rejeitado." });
       }
+    });
+  };
+
+  // ── Inativar / reativar (remover a homologação) ────────────────────────────
+  // Resumo do que aconteceu na Omie, unidade a unidade — falha numa unidade não
+  // desfaz a mudança aqui; a linha oferece "Tentar de novo na Omie".
+  const omieResumo = (results: SupplierOmieInativoResult[] | undefined, verbo: string) => {
+    const list = results ?? [];
+    const ok = list.filter((r) => r.status === "ok").length;
+    const erro = list.filter((r) => r.status === "erro");
+    if (list.length === 0) return { kind: "success" as const, msg: `Fornecedor ${verbo}. Nenhuma unidade com Omie configurada.` };
+    if (erro.length) {
+      return {
+        kind: "error" as const,
+        msg: `Fornecedor ${verbo} no Control Hub, mas a Omie falhou em: ${erro
+          .map((r) => `${r.companyName} (${r.error})`)
+          .join("; ")}. Use "Tentar de novo na Omie" na aba Inativados.`,
+      };
+    }
+    return {
+      kind: "success" as const,
+      msg: `Fornecedor ${verbo} no Control Hub e na Omie (${ok} unidade(s)${
+        list.length > ok ? `; não existia em ${list.length - ok}` : ""
+      }).`,
+    };
+  };
+
+  const [inactivateTarget, setInactivateTarget] = useState<SupplierRow | null>(null);
+  const [inactivateReason, setInactivateReason] = useState("");
+
+  const confirmInactivate = () => {
+    const target = inactivateTarget;
+    if (!target || !inactivateReason.trim()) return;
+    setActingId(target.id);
+    startTransition(async () => {
+      const result = await inactivateSupplier(target.id, inactivateReason.trim());
+      setActingId(null);
+      if ("error" in result && result.error) {
+        setFeedback({ kind: "error", msg: `Falha ao inativar: ${result.error}` });
+        return;
+      }
+      setInactivateTarget(null);
+      setInactivateReason("");
+      setFeedback(omieResumo("omieResults" in result ? result.omieResults : [], "inativado"));
+    });
+  };
+
+  const handleReactivate = (s: SupplierRow) => {
+    if (!confirm(`Reativar "${s.name}"? Ele volta a ser homologado aqui e é reativado na Omie.`)) return;
+    setActingId(s.id);
+    startTransition(async () => {
+      const result = await reactivateSupplier(s.id);
+      setActingId(null);
+      if ("error" in result && result.error) {
+        setFeedback({ kind: "error", msg: `Falha ao reativar: ${result.error}` });
+        return;
+      }
+      setFeedback(omieResumo("omieResults" in result ? result.omieResults : [], "reativado"));
+    });
+  };
+
+  const handleRetryInativo = (s: SupplierRow) => {
+    setActingId(s.id);
+    startTransition(async () => {
+      const result = await retrySupplierInativoOmie(s.id);
+      setActingId(null);
+      if ("error" in result && result.error) {
+        setFeedback({ kind: "error", msg: `Falha: ${result.error}` });
+        return;
+      }
+      setFeedback(omieResumo("omieResults" in result ? result.omieResults : [], "inativado"));
     });
   };
 
@@ -570,7 +647,7 @@ export function FornecedoresTable({
       )}
 
       {/* Dica: a busca achou resultados em outras abas */}
-      {search.trim() && (otherTabMatches.pendente + otherTabMatches.aprovado + otherTabMatches.rejeitado) > 0 && (
+      {search.trim() && Object.values(otherTabMatches).some((n) => n > 0) && (
         <p className="text-xs text-muted-foreground">
           Também encontrado em:{" "}
           {(Object.keys(otherTabMatches) as TabKey[])
@@ -755,6 +832,55 @@ export function FornecedoresTable({
                           >
                             <XCircle className="h-3.5 w-3.5" />
                             Rejeitar
+                          </button>
+                        </>
+                      )}
+                      {canApprove && s.status === "aprovado" && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setInactivateReason("");
+                            setInactivateTarget(s);
+                          }}
+                          disabled={isActing}
+                          title="Remover a homologação: sai de uso aqui e é inativado na Omie"
+                          className="inline-flex items-center gap-1 rounded-md border border-destructive/50 px-2.5 py-1 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+                        >
+                          <Ban className="h-3.5 w-3.5" />
+                          Inativar
+                        </button>
+                      )}
+                      {canApprove && s.status === "inativo" && (
+                        <>
+                          {s.omie_links.some((l) => l.sync_status === "erro") && (
+                            <button
+                              type="button"
+                              onClick={() => handleRetryInativo(s)}
+                              disabled={isActing}
+                              title={s.omie_links
+                                .filter((l) => l.sync_status === "erro")
+                                .map((l) => l.sync_error)
+                                .filter(Boolean)
+                                .join("\n")}
+                              className="inline-flex items-center gap-1 rounded-md bg-red-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                            >
+                              {isActing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+                              Tentar de novo na Omie
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleReactivate(s)}
+                            disabled={isActing}
+                            title="Voltar a homologado e reativar na Omie"
+                            className="inline-flex items-center gap-1 rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-green-700 disabled:opacity-50"
+                          >
+                            {isActing ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <RotateCcw className="h-3.5 w-3.5" />
+                            )}
+                            Reativar
                           </button>
                         </>
                       )}
@@ -1462,6 +1588,62 @@ export function FornecedoresTable({
           onClose={() => setHistorySupplier(null)}
         />
       )}
+
+      {/* Inativar (remover a homologação) — confirmação com motivo obrigatório. */}
+      {inactivateTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-xl border bg-background shadow-lg">
+            <div className="border-b px-6 py-4">
+              <h3 className="font-semibold">Inativar fornecedor</h3>
+              <p className="mt-0.5 text-sm text-muted-foreground">{inactivateTarget.name}</p>
+            </div>
+            <div className="space-y-3 px-6 py-4 text-sm">
+              <ul className="list-disc space-y-1 pl-5 text-muted-foreground">
+                <li>Sai da lista de fornecedores na criação de requisição.</li>
+                <li>
+                  Requisições em aberto com este fornecedor ficam <strong>bloqueadas no envio ao pagamento</strong>.
+                </li>
+                <li>
+                  É <strong>inativado na Omie</strong> em todas as unidades onde está cadastrado.
+                </li>
+                <li>Fica na aba Inativados e pode ser reativado depois.</li>
+              </ul>
+              <div className="space-y-1.5">
+                <label htmlFor="inactivate-reason" className="text-sm font-medium">
+                  Motivo <span className="text-destructive">*</span>
+                </label>
+                <textarea
+                  id="inactivate-reason"
+                  rows={3}
+                  value={inactivateReason}
+                  onChange={(e) => setInactivateReason(e.target.value)}
+                  placeholder="Ex.: contrato encerrado, fornecedor substituído…"
+                  className="w-full resize-none rounded-md border bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-ring"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 border-t px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setInactivateTarget(null)}
+                disabled={isPending}
+                className="rounded-md border px-4 py-2 text-sm font-medium hover:bg-muted disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmInactivate}
+                disabled={isPending || !inactivateReason.trim()}
+                className="inline-flex items-center gap-2 rounded-md bg-destructive px-4 py-2 text-sm font-medium text-destructive-foreground hover:bg-destructive/90 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                {isPending ? "Inativando na Omie…" : "Inativar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1721,6 +1903,7 @@ function StatusBadge({ status }: { status: string }) {
     aprovado: { label: "Aprovado", className: "bg-green-100 text-green-800" },
     rejeitado: { label: "Rejeitado", className: "bg-red-100 text-red-800" },
     pendente: { label: "Pendente", className: "bg-yellow-100 text-yellow-800" },
+    inativo: { label: "Inativado", className: "bg-gray-200 text-gray-700" },
   };
   const config = map[status] ?? { label: status, className: "bg-gray-100 text-gray-800" };
   return (

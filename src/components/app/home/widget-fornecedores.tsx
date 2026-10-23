@@ -75,8 +75,16 @@ export function WidgetFornecedores({ data }: { data: HomeSuppliers }) {
                       #{r.requestNumber} · {r.supplierName} · {fmtBRL.format(r.amount)}
                     </span>
                   </span>
-                  <span className={`ch-tag ${r.supplierStatus === "rejeitado" ? "ch-tag--accent" : ""}`}>
-                    {r.supplierStatus === "rejeitado" ? "Rejeitado" : "Não homologado"}
+                  <span
+                    className={`ch-tag ${
+                      r.supplierStatus === "rejeitado" || r.supplierStatus === "inativo" ? "ch-tag--accent" : ""
+                    }`}
+                  >
+                    {r.supplierStatus === "rejeitado"
+                      ? "Rejeitado"
+                      : r.supplierStatus === "inativo"
+                        ? "Inativado"
+                        : "Não homologado"}
                   </span>
                 </div>
               ))}
