@@ -71,6 +71,8 @@ function contrato(p: Partial<ContractDetail> = {}): ContractDetail {
     approval_requested_at: null,
     approval_requested_by_name: null,
     approved_at: null,
+    resumo_enviado_em: null,
+    resumo_enviado_por_name: null,
     client: {
       id: "cl",
       name: "Medicina UFV <T11>",

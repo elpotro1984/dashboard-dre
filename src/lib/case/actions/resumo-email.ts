@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createClient } from "@/lib/supabase/server";
@@ -162,6 +163,21 @@ export async function enviarResumoPorEmail(
 
   const res = await sendEmailViaResend({ to: CASE_RESUMO_EMAIL_TO, subject, html, replyTo: ctx.email, attachments });
   if (!res.ok) return { error: res.error ?? "Falha ao enviar o e-mail." };
+
+  // O e-mail já saiu: falha ao gravar a marca só vai ao log, nunca vira "não enviado".
+  const agora = new Date().toISOString();
+  const [{ error: erroMarca }, { error: erroHistorico }] = await Promise.all([
+    db.from("case_contracts").update({ resumo_enviado_em: agora, resumo_enviado_por: ctx.id }).eq("id", contractId),
+    db.from("case_history").insert({
+      contract_id: contractId,
+      user_id: ctx.id,
+      action: "resumo_enviado",
+      comment: `Resumo enviado por e-mail para ${CASE_RESUMO_EMAIL_TO} (${dentro.length} contrato(s) anexado(s)).`,
+    }),
+  ]);
+  if (erroMarca) console.error("[case/resumo-email] falha ao marcar o envio:", erroMarca.message);
+  if (erroHistorico) console.error("[case/resumo-email] falha ao registrar no histórico:", erroHistorico.message);
+  revalidatePath(`/case/contratos/${contractId}`);
 
   return {
     ok: true,

@@ -265,6 +265,7 @@ const ACAO_LABEL: Record<string, string> = {
   aprovacao_solicitada: "Enviado para aprovação",
   aprovado: "Contrato aprovado",
   devolvido: "Devolvido para ajuste",
+  resumo_enviado: "Resumo enviado por e-mail",
 };
 
 /** Janela em que a mesma ação com o mesmo texto conta como repetição (webhook reentregue, duplo clique). */

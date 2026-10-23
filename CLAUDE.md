@@ -156,7 +156,8 @@ Botão **"Enviar e-mail"** no cabeçalho do contrato (show, não BV): manda a `C
 - **O contrato do cliente vai ASSINADO quando há**: o PDF do bucket (`sale_contract_path`) é o gerado ANTES da ClickSign; a versão assinada só existe lá (`downloads.signed_file_url`). Sem ClickSign (ou se falhar), cai no PDF do bucket. Depois vêm os contratos de atração e de fornecedor, sem repetir arquivo.
 - **Teto de anexos de 28 MB crus** (o Resend aceita 40 MB já em base64). O que não cabe não é descartado em silêncio: o e-mail e o aviso da tela nomeiam o arquivo.
 - **A linha do tempo junta três fontes**: `case_history`, as assinaturas da ClickSign e os pagamentos (`pago_em`). Ação idêntica repetida em menos de 10 min conta uma vez (o webhook da ClickSign reentrega). `pago_em` é meia-noite UTC: leia só a data, senão o pagamento cai no dia anterior em Brasília.
-- A situação de pagamento é a da última sincronização com a Omie (cron diário das 03h) — o e-mail diz isso. O envio **não** fica registrado em `case_history`: o enum `case_history_action` não tem o valor, e acrescentá-lo exige migration.
+- A situação de pagamento é a da última sincronização com a Omie (cron diário das 03h) — o e-mail diz isso.
+- **O envio fica gravado em dois lugares** (migration `20261023140000`): `case_contracts.resumo_enviado_em`/`_por` guardam o ÚLTIMO envio, que acende o ✓ verde do botão com data e autor; cada envio também entra em `case_history` (`resumo_enviado`), que é a lista completa e aparece na linha do tempo do próximo resumo. A gravação é depois do Resend confirmar e nunca transforma um envio feito em erro — falha ali só vai ao log. **`getContractDetail` lê as duas colunas**: sem a migration aplicada, a tela do contrato inteira cai (42703 → notFound).
 
 ### Case — aprovação antes da ClickSign (`src/lib/case/actions/stages.ts`)
 

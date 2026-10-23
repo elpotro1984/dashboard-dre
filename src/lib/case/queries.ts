@@ -136,6 +136,9 @@ export interface ContractDetail {
   /** Nome de quem enviou para aprovação (para o aprovador saber quem pediu). */
   approval_requested_by_name: string | null;
   approved_at: string | null;
+  /** Último envio do resumo por e-mail (o ✓ do botão); a lista completa está no histórico. */
+  resumo_enviado_em: string | null;
+  resumo_enviado_por_name: string | null;
   client: {
     id: string;
     name: string;
@@ -169,6 +172,7 @@ export async function getContractDetail(id: string): Promise<ContractDetail | nu
        valor_artista, valor_custodia, valor_margem, valor_servicos, valor_rider_camarim, receber_schedule,
        attachment_path, sale_contract_path, sign_url, signed_at, bv_lancado_valor, bv_lancado_at, sent_for_signature_at, clicksign_status, band_id, pdf_cliente,
        approval_requested_at, approved_at, requester:users!case_contracts_approval_requested_by_fkey(name, email),
+       resumo_enviado_em, resumo_por:users!case_contracts_resumo_enviado_por_fkey(name, email),
        case_clients(id, name, cnpj_cpf, pessoa_fisica, email, phone, resp_legal, cpf_resp_legal, endereco, cidade_estado, cep),
        case_bands(name, cnpj_cpf)`,
     )
@@ -264,6 +268,8 @@ export async function getContractDetail(id: string): Promise<ContractDetail | nu
     approval_requested_at: cc.approval_requested_at ?? null,
     approval_requested_by_name: cc.requester?.name || cc.requester?.email || null,
     approved_at: cc.approved_at ?? null,
+    resumo_enviado_em: cc.resumo_enviado_em ?? null,
+    resumo_enviado_por_name: cc.resumo_por?.name || cc.resumo_por?.email || null,
     client: {
       id: cc.case_clients?.id ?? "",
       name: cc.case_clients?.name ?? "—",

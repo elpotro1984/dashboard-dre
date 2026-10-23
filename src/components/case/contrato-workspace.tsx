@@ -142,7 +142,7 @@ export function ContratoWorkspace({ detail, bands, fornecedorBands, isApprover }
             <div className="text-xs text-ink-muted">Venda</div>
             <div className="text-lg font-semibold tabular-nums text-ink-primary">{brl(detail.total_venda)}</div>
           </div>
-          <EnviarEmailButton contractId={detail.id} />
+          <EnviarEmailButton detail={detail} onSent={refresh} />
         </div>
       </div>
 
@@ -165,19 +165,25 @@ export function ContratoWorkspace({ detail, bands, fornecedorBands, isApprover }
 
 // Resumo completo do contrato + PDFs anexados, sempre para o mesmo destinatário
 // (resolvido no servidor). Disponível em qualquer status do contrato.
-function EnviarEmailButton({ contractId }: { contractId: string }) {
+function EnviarEmailButton({ detail, onSent }: { detail: ContractDetail; onSent: () => void }) {
   const [sending, setSending] = useState(false);
   const { showToast } = useToast();
+  const enviadoEm = detail.resumo_enviado_em;
+  const quando = enviadoEm ? `${dateTimeBR(enviadoEm)}${detail.resumo_enviado_por_name ? ` por ${detail.resumo_enviado_por_name}` : ""}` : null;
 
   async function enviar() {
-    if (!confirm(`Enviar o resumo deste contrato, com os contratos em anexo, para ${CASE_RESUMO_EMAIL_TO}?`)) return;
+    const pergunta = quando
+      ? `Este resumo já foi enviado para ${CASE_RESUMO_EMAIL_TO} em ${quando}. Enviar de novo?`
+      : `Enviar o resumo deste contrato, com os contratos em anexo, para ${CASE_RESUMO_EMAIL_TO}?`;
+    if (!confirm(pergunta)) return;
     setSending(true);
-    const res = await enviarResumoPorEmail(contractId);
+    const res = await enviarResumoPorEmail(detail.id);
     setSending(false);
     if ("error" in res) {
       showToast({ title: "E-mail não enviado", description: res.error, variant: "destructive" });
       return;
     }
+    onSent();
     showToast({
       title: `E-mail enviado para ${res.para}`,
       description:
@@ -189,15 +195,23 @@ function EnviarEmailButton({ contractId }: { contractId: string }) {
   }
 
   return (
-    <button
-      type="button"
-      onClick={enviar}
-      disabled={sending}
-      title={`Resumo do contrato para ${CASE_RESUMO_EMAIL_TO}`}
-      className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-ink-secondary hover:bg-surface-2 disabled:opacity-50"
-    >
-      {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} Enviar e-mail
-    </button>
+    <div className="flex flex-col items-end gap-0.5">
+      <button
+        type="button"
+        onClick={enviar}
+        disabled={sending}
+        title={quando ? `Enviado para ${CASE_RESUMO_EMAIL_TO} em ${quando} — clique para reenviar` : `Resumo do contrato para ${CASE_RESUMO_EMAIL_TO}`}
+        className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm disabled:opacity-50 ${
+          quando
+            ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300"
+            : "border-border text-ink-secondary hover:bg-surface-2"
+        }`}
+      >
+        {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : quando ? <CheckCircle2 className="h-4 w-4" /> : <Mail className="h-4 w-4" />}
+        {quando ? "E-mail enviado" : "Enviar e-mail"}
+      </button>
+      {quando && <span className="text-xs text-ink-muted">{quando}</span>}
+    </div>
   );
 }
 
