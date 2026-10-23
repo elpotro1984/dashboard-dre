@@ -602,6 +602,45 @@ export interface AgendaImportado {
   anexos: Array<{ nome: string; url: string }>;
   historico: Array<{ tipo: "comentario" | "atividade"; autor: string | null; data: string; texto: string }>;
   historico_desde: string | null;
+  /** Contratos anexados NO SISTEMA depois da importação (os do Trello ficam em `anexos`). */
+  contratos: ContratoImportado[];
+}
+
+export interface ContratoImportado {
+  id: string;
+  nome: string;
+  tamanho: number | null;
+  enviado_por: string | null;
+  enviado_por_nome: string | null;
+  enviado_em: string;
+}
+
+/** Contratos anexados no sistema, agrupados por evento importado. */
+async function getContratosImportados(db: DB): Promise<Map<string, ContratoImportado[]>> {
+  const porEvento = new Map<string, ContratoImportado[]>();
+  const { data, error } = await db
+    .from("case_agenda_importada_anexos")
+    .select("id, importado_id, nome, tamanho, enviado_por, enviado_em, autor:users(name, email)")
+    .order("enviado_em", { ascending: true });
+  // Tabela ausente (migration ainda não aplicada) não pode derrubar a agenda.
+  if (error) {
+    if (error.code !== "42P01") console.error("[case] contratos de eventos importados:", error.message);
+    return porEvento;
+  }
+  for (const r of (data ?? []) as Array<Record<string, unknown>>) {
+    const autor = r.autor as { name: string | null; email: string | null } | null;
+    const lista = porEvento.get(r.importado_id as string) ?? [];
+    lista.push({
+      id: r.id as string,
+      nome: r.nome as string,
+      tamanho: (r.tamanho as number | null) ?? null,
+      enviado_por: (r.enviado_por as string | null) ?? null,
+      enviado_por_nome: autor?.name ?? autor?.email ?? null,
+      enviado_em: r.enviado_em as string,
+    });
+    porEvento.set(r.importado_id as string, lista);
+  }
+  return porEvento;
 }
 
 export async function getAgendaImportados(): Promise<AgendaImportado[]> {
@@ -617,7 +656,8 @@ export async function getAgendaImportados(): Promise<AgendaImportado[]> {
     if (error.code !== "42P01") console.error("[case] agenda importada:", error.message);
     return [];
   }
-  return (data ?? []) as AgendaImportado[];
+  const contratos = await getContratosImportados(db);
+  return ((data ?? []) as Omit<AgendaImportado, "contratos">[]).map((t) => ({ ...t, contratos: contratos.get(t.id) ?? [] }));
 }
 
 export type CaseClosingStatus =

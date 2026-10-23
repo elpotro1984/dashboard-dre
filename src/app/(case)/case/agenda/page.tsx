@@ -15,5 +15,5 @@ export default async function CaseAgendaPage() {
   // "Hoje" no fuso de São Paulo, calculado no servidor para o client não divergir na hidratação.
   const hoje = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
 
-  return <AgendaView contracts={contracts} importados={importados} hoje={hoje} />;
+  return <AgendaView contracts={contracts} importados={importados} hoje={hoje} usuario={{ id: ctx.id, isAdmin: ctx.isAdmin }} />;
 }

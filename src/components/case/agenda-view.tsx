@@ -1,15 +1,18 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { ExternalLink, FileDown, FileText, Loader2, Paperclip, PenLine, Plus, Receipt, Search } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { ExternalLink, FileDown, FileText, Loader2, Paperclip, PenLine, Plus, Receipt, Search, Trash2, Upload } from "lucide-react";
 
 import { getContractAttachmentUrl, getSaleContractUrl, getContratoComprovantes, getSignatarios } from "@/lib/case/actions/contracts";
+import { abrirContratoImportado, anexarContratoImportado, removerContratoImportado } from "@/lib/case/actions/agenda-anexos";
+import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import type { Signatario, SituacaoAssinatura } from "@/lib/case/signatarios";
 import { useToast } from "@/components/ui/toaster";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { DialogTitle } from "@/components/ui/dialog";
-import type { AgendaContract, AgendaImportado } from "@/lib/case/queries";
+import type { AgendaContract, AgendaImportado, ContratoImportado } from "@/lib/case/queries";
 import type { CaseContractStatus } from "@/lib/case/types";
 
 // ─── Formatação ──────────────────────────────────────────────────────────────
@@ -503,6 +506,12 @@ function ItemCard({ i, onOpen }: { i: Item; onOpen: () => void }) {
             </div>
           )}
           <span className={`text-xs font-semibold ${pag ? pag.ink : "text-ink-muted"}`}>{pag ? pag.label : "Sem valores (Trello)"}</span>
+          {i.tipo === "trello" && i.t.contratos.length > 0 && (
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-ink-secondary">
+              <Paperclip className="h-3 w-3" />
+              {i.t.contratos.length} contrato{i.t.contratos.length === 1 ? "" : "s"} anexado{i.t.contratos.length === 1 ? "" : "s"}
+            </span>
+          )}
         </div>
       </div>
     </button>
@@ -1070,7 +1079,165 @@ function HistoricoTrelloSection({ historico, desde }: { historico: AgendaImporta
   );
 }
 
-function TrelloSheet({ i, hoje, onClose }: { i: Extract<Item, { tipo: "trello" }> | null; hoje: string; onClose: () => void }) {
+const ATTACHMENT_BUCKET = "case-attachments";
+const MAX_ATTACHMENT_SIZE = 10 * 1024 * 1024;
+
+export interface AgendaUsuario {
+  id: string;
+  isAdmin: boolean;
+}
+
+function tamanhoBR(bytes: number | null): string | null {
+  if (!bytes) return null;
+  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
+/**
+ * Contratos anexados no sistema a um evento importado do Trello. O estado é
+ * local (a lista se move no clique) e o refresh da rota atualiza o contador do
+ * card na agenda — o item aberto no painel é um retrato e não se atualiza sozinho.
+ */
+function ContratosImportados({ t, usuario }: { t: AgendaImportado; usuario: AgendaUsuario }) {
+  const router = useRouter();
+  const { showToast } = useToast();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [contratos, setContratos] = useState<ContratoImportado[]>(t.contratos);
+  const [enviando, setEnviando] = useState<string | null>(null);
+  const [ocupado, setOcupado] = useState<string | null>(null);
+
+  async function enviar(files: File[]) {
+    const supabase = createSupabaseClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return showToast({ variant: "destructive", title: "Sessão expirada. Entre de novo." });
+
+    let anexados = 0;
+    for (const file of files) {
+      if (file.size > MAX_ATTACHMENT_SIZE) {
+        showToast({ variant: "destructive", title: `${file.name}: arquivo maior que 10MB.` });
+        continue;
+      }
+      setEnviando(file.name);
+      const safeName = file.name.replace(/[^\w.\-]+/g, "_");
+      const objectPath = `${user.id}/agenda-trello/${t.id}/${Date.now()}-${safeName}`;
+      const { error: upErr } = await supabase.storage.from(ATTACHMENT_BUCKET).upload(objectPath, file, { contentType: file.type, upsert: false });
+      if (upErr) {
+        showToast({ variant: "destructive", title: `${file.name}: falha no upload.`, description: upErr.message });
+        continue;
+      }
+      const res = await anexarContratoImportado(t.id, objectPath, file.name, file.size);
+      if ("error" in res) {
+        showToast({ variant: "destructive", title: `${file.name}: ${res.error}` });
+        continue;
+      }
+      setContratos((atual) => [...atual, res.contrato]);
+      anexados++;
+    }
+    setEnviando(null);
+    if (anexados > 0) {
+      showToast({ title: anexados === 1 ? "Contrato anexado." : `${anexados} contratos anexados.` });
+      router.refresh();
+    }
+  }
+
+  async function abrir(c: ContratoImportado) {
+    setOcupado(c.id);
+    try {
+      const res = await abrirContratoImportado(c.id);
+      if ("error" in res) showToast({ variant: "destructive", title: res.error });
+      else window.open(res.url, "_blank", "noopener,noreferrer");
+    } finally {
+      setOcupado(null);
+    }
+  }
+
+  async function remover(c: ContratoImportado) {
+    if (!window.confirm(`Remover "${c.nome}" deste evento? O arquivo será apagado.`)) return;
+    setOcupado(c.id);
+    try {
+      const res = await removerContratoImportado(c.id);
+      if ("error" in res) return showToast({ variant: "destructive", title: res.error });
+      setContratos((atual) => atual.filter((x) => x.id !== c.id));
+      router.refresh();
+    } finally {
+      setOcupado(null);
+    }
+  }
+
+  return (
+    <Bloco titulo={`Contratos anexados${contratos.length > 0 ? ` (${contratos.length})` : ""}`}>
+      {contratos.length > 0 ? (
+        <ul className="divide-y divide-border">
+          {contratos.map((c) => {
+            const podeRemover = usuario.isAdmin || c.enviado_por === usuario.id;
+            return (
+              <li key={c.id} className="flex items-center gap-2 py-2 first:pt-1">
+                <button
+                  type="button"
+                  onClick={() => abrir(c)}
+                  disabled={ocupado !== null}
+                  title={c.nome}
+                  className="flex min-w-0 flex-1 items-start gap-2 text-left disabled:opacity-60"
+                >
+                  {ocupado === c.id ? (
+                    <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-ink-muted" />
+                  ) : (
+                    <FileText className="mt-0.5 h-4 w-4 shrink-0 text-ink-muted" />
+                  )}
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate text-[13px] font-semibold text-ink-primary hover:underline">{c.nome}</span>
+                    <span className="text-[11px] text-ink-muted">
+                      {[c.enviado_por_nome, dateBR(c.enviado_em), tamanhoBR(c.tamanho)].filter(Boolean).join(" · ")}
+                    </span>
+                  </span>
+                </button>
+                {podeRemover && (
+                  <button
+                    type="button"
+                    onClick={() => remover(c)}
+                    disabled={ocupado !== null}
+                    aria-label={`Remover ${c.nome}`}
+                    className="rounded-viva-sm p-1.5 text-ink-muted hover:bg-surface-2 hover:text-red-600 disabled:opacity-50"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      ) : (
+        <span className="text-[13px] text-ink-muted">Nenhum contrato anexado no sistema ainda.</span>
+      )}
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        accept="application/pdf,image/*"
+        className="hidden"
+        onChange={(e) => {
+          // Copia antes de limpar o campo: a FileList é viva e esvazia junto com o value.
+          const files = Array.from(e.target.files ?? []);
+          e.target.value = "";
+          if (files.length > 0) void enviar(files);
+        }}
+      />
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        disabled={enviando !== null}
+        className="mt-1 inline-flex h-[34px] items-center gap-1.5 self-start rounded-viva-sm border border-border bg-surface-0 px-3 text-[13px] font-bold text-ink-primary hover:bg-surface-2 disabled:opacity-60"
+      >
+        {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+        {enviando ? `Enviando ${enviando}…` : "Anexar contrato"}
+      </button>
+      <p className="text-[11px] text-ink-muted">PDF ou imagem, até 10MB cada. Pode escolher vários de uma vez.</p>
+    </Bloco>
+  );
+}
+
+function TrelloSheet({ i, hoje, usuario, onClose }: { i: Extract<Item, { tipo: "trello" }> | null; hoje: string; usuario: AgendaUsuario; onClose: () => void }) {
   const t = i?.t;
   return (
     <Sheet open={i !== null} onOpenChange={(o) => !o && onClose()}>
@@ -1111,6 +1278,8 @@ function TrelloSheet({ i, hoje, onClose }: { i: Extract<Item, { tipo: "trello" }
                   <p className="whitespace-pre-line text-[13px] text-ink-secondary">{t.observacao}</p>
                 </Bloco>
               )}
+
+              <ContratosImportados key={t.id} t={t} usuario={usuario} />
 
               {t.anexos.length > 0 && (
                 <Bloco titulo={`Anexos no Trello (${t.anexos.length})`}>
@@ -1154,7 +1323,17 @@ function TrelloSheet({ i, hoje, onClose }: { i: Extract<Item, { tipo: "trello" }
 
 // ─── Página ──────────────────────────────────────────────────────────────────
 
-export function AgendaView({ contracts, importados = [], hoje }: { contracts: AgendaContract[]; importados?: AgendaImportado[]; hoje: string }) {
+export function AgendaView({
+  contracts,
+  importados = [],
+  hoje,
+  usuario,
+}: {
+  contracts: AgendaContract[];
+  importados?: AgendaImportado[];
+  hoje: string;
+  usuario: AgendaUsuario;
+}) {
   const todos = useMemo<Item[]>(() => {
     const a: Item[] = contracts.map((c) => ({ tipo: "contrato", key: `c-${c.id}`, data: c.event_date, st: statusDe(c), c }));
     const b: Item[] = importados.map((t) => ({ tipo: "trello", key: `t-${t.id}`, data: t.event_date, st: "trello", t }));
@@ -1225,7 +1404,7 @@ export function AgendaView({ contracts, importados = [], hoje }: { contracts: Ag
       )}
 
       <ContratoSheet i={aberto?.tipo === "contrato" ? aberto : null} hoje={hoje} onClose={() => setAberto(null)} />
-      <TrelloSheet i={aberto?.tipo === "trello" ? aberto : null} hoje={hoje} onClose={() => setAberto(null)} />
+      <TrelloSheet i={aberto?.tipo === "trello" ? aberto : null} hoje={hoje} usuario={usuario} onClose={() => setAberto(null)} />
     </div>
   );
 }
