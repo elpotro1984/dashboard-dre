@@ -25,6 +25,7 @@ import { decryptSecret } from "@/lib/security/encryption";
 import { listarAnexosContaPagar, obterAnexoLinkContaPagar } from "@/lib/omie/anexo";
 import { excluirContaPagar } from "@/lib/omie/contapagar";
 import type { CtrlRequestStatus } from "@/lib/supabase/types";
+import type { CloneSourceRow } from "@/lib/ctrl/clone-request";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -1298,6 +1299,9 @@ export async function getRequestComprovantes(
 }
 
 export async function getRequests(filters?: {
+  // Uma requisição só (Clonar). Passa pelo MESMO recorte de visibilidade da
+  // tela de Requisições: só se clona o que se pode ver na lista.
+  id?: string;
   status?: CtrlRequestStatus;
   sector_id?: string;
   statuses?: CtrlRequestStatus[];
@@ -1354,6 +1358,7 @@ export async function getRequests(filters?: {
   // outra. Sem empresa ativa → nada (falha fechada).
   query = ctx.orgId ? query.eq("org_id", ctx.orgId) : query.in("org_id", []);
 
+  if (filters?.id) query = query.eq("id", filters.id);
   if (filters?.status) query = query.eq("status", filters.status);
   if (filters?.statuses?.length) query = query.in("status", filters.statuses);
   if (filters?.sector_id) query = query.eq("sector_id", filters.sector_id);
@@ -1573,6 +1578,73 @@ export async function getRequests(filters?: {
   }
 
   return { requests: rows, scope };
+}
+
+// ─── Clonar requisição ────────────────────────────────────────────────────────
+
+/**
+ * Lê a requisição a clonar, pelo MESMO recorte da tela de Requisições
+ * (getRequests): quem não vê a requisição na lista não consegue cloná-la pela
+ * URL. Só leitura — a nova é criada por createRequest, no fluxo normal.
+ * O que é herdado é decidido em @/lib/ctrl/clone-request (puro e testado).
+ */
+export async function getRequestForClone(
+  requestId: string,
+): Promise<{ row: CloneSourceRow; installmentGroupTotal: number | null } | null> {
+  const { requests } = await getRequests({ id: requestId });
+  const r = requests?.[0] as Record<string, unknown> | undefined;
+  if (!r) return null;
+
+  // Cartão parcelado: cada parcela é uma requisição com UMA parcela do valor; a
+  // compra clonada é a inteira, então soma o grupo.
+  let installmentGroupTotal: number | null = null;
+  const groupId = r.installment_group_id as string | null;
+  if (groupId) {
+    const adminClient = createAdminClientIfAvailable();
+    const supabase = adminClient ?? (await createClient());
+    const { data } = await supabase
+      .from("ctrl_requests")
+      .select("amount")
+      .eq("installment_group_id", groupId)
+      .is("deleted_at", null);
+    const total = (data ?? []).reduce((s, x) => s + Number(x.amount), 0);
+    installmentGroupTotal = total > 0 ? Math.round(total * 100) / 100 : null;
+  }
+
+  const portions = (r.ctrl_request_sectors as { sector_id: string; amount: number }[] | undefined) ?? null;
+
+  return {
+    row: {
+      id: r.id as string,
+      request_number: Number(r.request_number),
+      title: (r.title as string) ?? "",
+      description: (r.description as string | null) ?? null,
+      sector_id: (r.sector_id as string | null) ?? null,
+      expense_type_id: (r.expense_type_id as string | null) ?? null,
+      supplier_id: (r.supplier_id as string | null) ?? null,
+      event_id: (r.event_id as string | null) ?? null,
+      projeto_nome: (r.projeto_nome as string | null) ?? null,
+      amount: Number(r.amount),
+      usd_amount: r.usd_amount == null ? null : Number(r.usd_amount),
+      payment_method: (r.payment_method as string | null) ?? null,
+      installment_total: r.installment_total == null ? null : Number(r.installment_total),
+      needs_credit_card: (r.needs_credit_card as boolean | null) ?? null,
+      supplier_issues_invoice: (r.supplier_issues_invoice as string | null) ?? null,
+      favorecido: (r.favorecido as string | null) ?? null,
+      bank_cpf_cnpj: (r.bank_cpf_cnpj as string | null) ?? null,
+      bank_name: (r.bank_name as string | null) ?? null,
+      bank_agency: (r.bank_agency as string | null) ?? null,
+      bank_account: (r.bank_account as string | null) ?? null,
+      bank_account_digit: (r.bank_account_digit as string | null) ?? null,
+      pix_key: (r.pix_key as string | null) ?? null,
+      pix_key_type: (r.pix_key_type as string | null) ?? null,
+      justification: (r.justification as string | null) ?? null,
+      observations: (r.observations as string | null) ?? null,
+      is_rateio: (r.is_rateio as boolean | null) ?? null,
+      rateio: portions ? portions.map((p) => ({ sector_id: p.sector_id, amount: Number(p.amount) })) : null,
+    },
+    installmentGroupTotal,
+  };
 }
 
 // ─── Approve ──────────────────────────────────────────────────────────────────

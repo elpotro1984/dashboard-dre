@@ -148,6 +148,7 @@ export default async function RequisicoesPage() {
           isAdmin={isAdmin}
           canEdit={canEdit}
           canReconcile={canReconcile}
+          canClone={canCreateRequest}
           sectors={sectors}
           expenseTypes={expenseTypes}
         />

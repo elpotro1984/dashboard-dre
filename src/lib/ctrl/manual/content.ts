@@ -445,6 +445,13 @@ export const MANUAL_SECTIONS: ManualSection[] = [
       },
       {
         kind: "callout",
+        tone: "sucesso",
+        title: "Pagamento parecido com um anterior? Use Clonar",
+        text:
+          "Na tela **Requisições**, o botão **Clonar** abre uma Nova Requisição já preenchida com os dados de uma requisição da lista: fornecedor, setor, tipo de despesa, descrição, projeto, evento, valor e método de pagamento. Você só precisa informar a **data de vencimento** e o **mês e ano de competência** (obrigatórios), anexar o **boleto novo** quando o pagamento for por boleto e, se quiser, outros anexos (pedido, cupom, nota fiscal). Anexos, código de barras e código PIX copia e cola **não são copiados**, porque são de cada pagamento. Confira tudo, clique em Verificar Orçamento e envie: a requisição nova segue o fluxo normal de aprovação, como qualquer outra.",
+      },
+      {
+        kind: "callout",
         tone: "atencao",
         title: "Fornecedor ainda não homologado",
         text:
@@ -455,7 +462,7 @@ export const MANUAL_SECTIONS: ManualSection[] = [
         tone: "info",
         title: "Preciso corrigir uma requisição já enviada",
         text:
-          "O solicitante não edita a requisição depois do envio. Peça ao aprovador para rejeitar (e crie uma nova corrigida) ou, se ela já estiver em Contas a Pagar, peça ao time para **Devolver**. Setor, tipo de despesa e método de pagamento também podem ser corrigidos pelo próprio Contas a Pagar. Enquanto a requisição está **em aprovação**, o Contas a Pagar e o admin podem **editá-la** pela tela de Requisições (botão Editar) — se mudar setor, tipo ou valor, a alçada é recalculada e a aprovação reinicia. Em requisições **rateadas**, o editar cobre só título e descrição; para mudar a divisão (setores/valores), rejeite e recrie.",
+          "O solicitante não edita a requisição depois do envio. Peça ao aprovador para rejeitar (e crie uma nova corrigida — o botão **Clonar** ajuda) ou, se ela já estiver em Contas a Pagar, peça ao time para **Devolver**. Setor, tipo de despesa e método de pagamento também podem ser corrigidos pelo próprio Contas a Pagar. Enquanto a requisição está **em aprovação**, o Contas a Pagar e o admin podem **editá-la** pela tela de Requisições (botão Editar) — se mudar setor, tipo ou valor, a alçada é recalculada e a aprovação reinicia. Em requisições **rateadas**, o editar cobre só título e descrição; para mudar a divisão (setores/valores), rejeite e recrie.",
       },
     ],
   },

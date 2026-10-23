@@ -1,6 +1,6 @@
 "use client";
 
-import { Eye, FileText, Loader2, MessageCircle, Pencil, Receipt, RefreshCw, Trash2, X } from "lucide-react";
+import { Copy, Eye, FileText, Loader2, MessageCircle, Pencil, Receipt, RefreshCw, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
@@ -41,6 +41,8 @@ interface Props {
   /** Pode editar requisição (admin + Contas a Pagar). Excluir segue só admin. */
   canEdit?: boolean;
   canReconcile?: boolean;
+  /** Pode criar requisição — liga o "Clonar" (atalho para a Nova Requisição). */
+  canClone?: boolean;
   sectors?: CadastroOption[];
   expenseTypes?: CadastroOption[];
 }
@@ -86,6 +88,7 @@ export function RequisicoesTable({
   isAdmin = false,
   canEdit = false,
   canReconcile = false,
+  canClone = false,
   sectors = [],
   expenseTypes = [],
 }: Props) {
@@ -389,6 +392,18 @@ export function RequisicoesTable({
                           <Eye className="h-3.5 w-3.5" />
                           Detalhes
                         </button>
+                        {canClone && (
+                          // Atalho: abre a Nova Requisição já preenchida com os
+                          // dados desta. Nada é criado até o usuário enviar.
+                          <a
+                            href={`/ctrl/requisicoes/nova?clonar=${req.id}`}
+                            title="Criar uma nova requisição a partir desta"
+                            className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-muted"
+                          >
+                            <Copy className="h-3.5 w-3.5" />
+                            Clonar
+                          </a>
+                        )}
                         {needsComplement && (
                           <button
                             type="button"

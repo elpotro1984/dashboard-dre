@@ -5,6 +5,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { AlertTriangle, CheckCircle2, ChevronDown, Loader2, Paperclip, RefreshCcw, Search, X, Zap } from "lucide-react";
 
 import { CtrlOrgChip, useCtrlActiveOrg } from "@/components/ctrl/ctrl-active-org";
+import type { ClonePrefill } from "@/lib/ctrl/clone-request";
 import { createRequest, verifyBudget } from "@/lib/ctrl/actions/requests";
 import { atualizarProjetosAgora } from "@/lib/ctrl/actions/projetos";
 import { extractAttachmentData } from "@/lib/ctrl/actions/attachment-ocr";
@@ -47,6 +48,12 @@ interface Props {
   usdBrlRate?: number;
   /** Alíquota de IOF (%) somada nas compras em dólar. */
   usdIofRate?: number;
+  /**
+   * "Clonar requisição": valores herdados da original (ver
+   * @/lib/ctrl/clone-request). Vencimento e competência NÃO vêm — começam
+   * vazios e são obrigatórios; anexos também não. O envio é o normal.
+   */
+  clone?: ClonePrefill | null;
 }
 
 // Converte USD → BRL somando o IOF (mesma fórmula do servidor). O valor em reais
@@ -64,6 +71,7 @@ export function NovaRequisicaoForm({
   projetos = [],
   usdBrlRate = 5,
   usdIofRate = 3.5,
+  clone = null,
 }: Props) {
   const router = useRouter();
   // Empresa do Compras em que o formulário foi aberto: vai ao servidor no envio
@@ -78,35 +86,39 @@ export function NovaRequisicaoForm({
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   // ── Fields that drive budget verification (controlled) ──────────────────────
-  const [sectorId, setSectorId] = useState("");
+  const [sectorId, setSectorId] = useState(clone?.sectorId ?? "");
   // Rateio entre setores (requisição única dividida). Começa com 2 linhas.
-  const [isRateio, setIsRateio] = useState(false);
-  const [rateioRows, setRateioRows] = useState<{ sectorId: string; valueStr: string }[]>([
-    { sectorId: "", valueStr: "" },
-    { sectorId: "", valueStr: "" },
-  ]);
-  const [expenseTypeId, setExpenseTypeId] = useState("");
-  const [amountStr, setAmountStr] = useState("");
+  const [isRateio, setIsRateio] = useState(clone?.isRateio ?? false);
+  const [rateioRows, setRateioRows] = useState<{ sectorId: string; valueStr: string }[]>(
+    clone?.rateioRows ?? [
+      { sectorId: "", valueStr: "" },
+      { sectorId: "", valueStr: "" },
+    ],
+  );
+  const [expenseTypeId, setExpenseTypeId] = useState(clone?.expenseTypeId ?? "");
+  const [amountStr, setAmountStr] = useState(clone?.amountStr ?? "");
   // Compra em dólar (US$): o usuário digita em dólar e o sistema converte para
   // BRL (câmbio + IOF). O valor efetivo continua em reais. Indisponível no PIX.
-  const [isUsd, setIsUsd] = useState(false);
-  const [usdAmountStr, setUsdAmountStr] = useState("");
-  const [refMonth, setRefMonth] = useState(currentMonth);
-  const [refYear, setRefYear] = useState(currentYear);
+  const [isUsd, setIsUsd] = useState(clone?.isUsd ?? false);
+  const [usdAmountStr, setUsdAmountStr] = useState(clone?.usdAmountStr ?? "");
+  // Clone: competência começa VAZIA (0) e é obrigatória — a da original quase
+  // sempre é de um mês que já passou, e herdá-la calada lançaria no mês errado.
+  const [refMonth, setRefMonth] = useState(clone ? 0 : currentMonth);
+  const [refYear, setRefYear] = useState(clone ? 0 : currentYear);
 
   // ── Supplier selection ───────────────────────────────────────────────────────
-  const [selectedSupplierId, setSelectedSupplierId] = useState("");
+  const [selectedSupplierId, setSelectedSupplierId] = useState(clone?.supplierId ?? "");
 
   // ── Evento (obrigatório) ─────────────────────────────────────────────────────
   // "" = ainda não escolhido (placeholder); "none" = escolha explícita "Nenhum
   // evento"; caso contrário, o id do evento. O solicitante precisa escolher
   // conscientemente — não vem pré-preenchido com "Nenhum evento".
-  const [eventId, setEventId] = useState("");
+  const [eventId, setEventId] = useState(clone?.eventId ?? "");
 
   // ── Projeto (Omie) ───────────────────────────────────────────────────────────
   // "" = Sem Projeto (campo vazio no Omie). Pode ser um projeto já existente
   // (da lista) ou um novo digitado no "+ novo" — criado na Omie só no envio.
-  const [projetoNome, setProjetoNome] = useState("");
+  const [projetoNome, setProjetoNome] = useState(clone?.projetoNome ?? "");
   const [criandoProjeto, setCriandoProjeto] = useState(false);
   const [novoProjeto, setNovoProjeto] = useState("");
   // Lista de projetos (cache atualizado ~1x/dia no servidor); o botão
@@ -127,21 +139,23 @@ export function NovaRequisicaoForm({
   }
 
   // ── Payment fields — auto-filled from supplier, still editable ──────────────
-  const [favorecido, setFavorecido] = useState("");
-  const [bankCpfCnpj, setBankCpfCnpj] = useState("");
-  const [bankName, setBankName] = useState("");
-  const [bankAgency, setBankAgency] = useState("");
-  const [bankAccount, setBankAccount] = useState("");
-  const [bankAccountDigit, setBankAccountDigit] = useState("");
-  const [pixKey, setPixKey] = useState("");
-  const [pixKeyType, setPixKeyType] = useState("");
+  // Clone: herda os dados de pagamento DA REQUISIÇÃO (podem diferir do cadastro
+  // do fornecedor), sem passar por handleSupplierChange.
+  const [favorecido, setFavorecido] = useState(clone?.favorecido ?? "");
+  const [bankCpfCnpj, setBankCpfCnpj] = useState(clone?.bankCpfCnpj ?? "");
+  const [bankName, setBankName] = useState(clone?.bankName ?? "");
+  const [bankAgency, setBankAgency] = useState(clone?.bankAgency ?? "");
+  const [bankAccount, setBankAccount] = useState(clone?.bankAccount ?? "");
+  const [bankAccountDigit, setBankAccountDigit] = useState(clone?.bankAccountDigit ?? "");
+  const [pixKey, setPixKey] = useState(clone?.pixKey ?? "");
+  const [pixKeyType, setPixKeyType] = useState(clone?.pixKeyType ?? "");
 
   // ── Payment method ───────────────────────────────────────────────────────────
-  const [paymentMethod, setPaymentMethod] = useState("boleto");
-  const [installments, setInstallments] = useState(1);
+  const [paymentMethod, setPaymentMethod] = useState(clone?.paymentMethod ?? "boleto");
+  const [installments, setInstallments] = useState(clone?.installments ?? 1);
   // Operational signal: does the requester need the *physical* credit card?
   // Persisted only when paymentMethod === 'cartao_credito'. Null means not asked.
-  const [needsCreditCard, setNeedsCreditCard] = useState<"" | "sim" | "nao">("");
+  const [needsCreditCard, setNeedsCreditCard] = useState<"" | "sim" | "nao">(clone?.needsCreditCard ?? "");
 
   // ── Due date (controlled for recurrence constraints) ─────────────────────────
   const [dueDate, setDueDate] = useState("");
@@ -153,7 +167,7 @@ export function NovaRequisicaoForm({
   // ── Nota fiscal ────────────────────────────────────────────────────────────
   // "sim" exige o anexo da NF; "sim_apos_pagamento" não, pois a nota só será
   // emitida depois do pagamento e ainda não existe no momento da requisição.
-  const [supplierIssuesInvoice, setSupplierIssuesInvoice] = useState("");
+  const [supplierIssuesInvoice, setSupplierIssuesInvoice] = useState(clone?.supplierIssuesInvoice ?? "");
 
   // ── Boleto / Nota fiscal — campos preenchidos pela leitura do anexo ─────────
   const [barcode, setBarcode] = useState("");
@@ -485,8 +499,12 @@ export function NovaRequisicaoForm({
   // inclusive no rateio, onde ela roda uma vez POR SETOR. O servidor recalcula
   // tudo na criação, mas o solicitante precisa ver o saldo antes de enviar.
   const needsVerification = !!expenseTypeId;
+  // Competência vazia (só no clone) bloqueia a verificação: o orçamento é do mês.
+  const competenciaOk = refMonth > 0 && refYear > 0;
   const canVerify =
-    !!expenseTypeId && (isRateio ? rateioPartsReady : !!sectorId && parsedAmount > 0);
+    !!expenseTypeId &&
+    competenciaOk &&
+    (isRateio ? rateioPartsReady : !!sectorId && parsedAmount > 0);
   const verificationDone = isRateio ? !!rateioVerifications : !!verification;
   const canSubmit = !needsVerification || verificationDone;
 
@@ -641,6 +659,12 @@ export function NovaRequisicaoForm({
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (!canSubmit) return;
+
+    // Competência é obrigatória e, no clone, começa vazia de propósito.
+    if (!competenciaOk) {
+      setError("Selecione o mês e o ano de competência.");
+      return;
+    }
 
     // Combobox writes to React state, not to a form field, so HTML `required`
     // doesn't catch the empty case. Do it here.
@@ -947,6 +971,19 @@ export function NovaRequisicaoForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      {/* Clone: o que precisa de atenção antes de enviar. */}
+      {clone && (
+        <div className="space-y-1.5 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+          <p className="font-semibold">Cópia da requisição #{clone.sourceNumber} — confira antes de enviar</p>
+          <ul className="list-disc space-y-0.5 pl-5">
+            <li>Informe a <strong>data de vencimento</strong> e o <strong>mês e ano de competência</strong> do novo pagamento.</li>
+            {clone.avisos.map((a) => (
+              <li key={a}>{a}</li>
+            ))}
+            <li>Anexos não são copiados: adicione pedido, cupom ou nota fiscal se precisar.</li>
+          </ul>
+        </div>
+      )}
       {error && (
         <div className="rounded-md bg-destructive/10 px-4 py-3 text-sm text-destructive">{error}</div>
       )}
@@ -966,6 +1003,7 @@ export function NovaRequisicaoForm({
           name="description"
           rows={2}
           required
+          defaultValue={clone?.description ?? undefined}
           placeholder="Ex: Pagamento de serviço de limpeza — referente ao mês de maio"
           className={`${INPUT_CLS} resize-none`}
         />
@@ -1604,12 +1642,14 @@ export function NovaRequisicaoForm({
         <div className="space-y-1.5">
           <label className={LABEL_CLS}>Mês Competência <span className="text-destructive">*</span></label>
           <select value={refMonth} onChange={(e) => setRefMonth(Number(e.target.value))} className={INPUT_CLS}>
+            {refMonth === 0 && <option value={0} disabled>Selecione o mês</option>}
             {MONTHS.map((m, i) => <option key={i + 1} value={i + 1}>{m}</option>)}
           </select>
         </div>
         <div className="space-y-1.5">
           <label className={LABEL_CLS}>Ano Competência <span className="text-destructive">*</span></label>
           <select value={refYear} onChange={(e) => setRefYear(Number(e.target.value))} className={INPUT_CLS}>
+            {refYear === 0 && <option value={0} disabled>Selecione o ano</option>}
             {[currentYear - 1, currentYear, currentYear + 1].map((y) => (
               <option key={y} value={y}>{y}</option>
             ))}
@@ -1722,6 +1762,12 @@ export function NovaRequisicaoForm({
             </button>
           </div>
 
+          {!competenciaOk && (
+            <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
+              Selecione o mês e o ano de competência para verificar o orçamento.
+            </p>
+          )}
+
           {verifyError && (
             <p className="text-sm text-destructive">{verifyError}</p>
           )}
@@ -1820,7 +1866,7 @@ export function NovaRequisicaoForm({
       {/* Observações */}
       <div className="space-y-1.5">
         <label htmlFor="observations" className={LABEL_CLS}>Observações</label>
-        <textarea id="observations" name="observations" rows={2} placeholder="Informações adicionais para o aprovador..." className={`${INPUT_CLS} resize-none`} />
+        <textarea id="observations" name="observations" rows={2} defaultValue={clone?.observations || undefined} placeholder="Informações adicionais para o aprovador..." className={`${INPUT_CLS} resize-none`} />
       </div>
 
       {/* Justificativa — exibida proativamente quando nivel_3 */}
@@ -1839,6 +1885,7 @@ export function NovaRequisicaoForm({
             name="justification"
             rows={3}
             required
+            defaultValue={clone?.justification || undefined}
             placeholder="Explique a necessidade desta despesa fora do orçamento..."
             className={`${INPUT_CLS} resize-none`}
           />

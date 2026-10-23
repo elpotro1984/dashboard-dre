@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 import { NovaRequisicaoForm } from "@/components/ctrl/nova-requisicao-form";
 import { getCtrlUser, hasCtrlRole } from "@/lib/ctrl/auth";
 import { getExpenseTypes } from "@/lib/ctrl/actions/expense-types";
+import { getRequestForClone } from "@/lib/ctrl/actions/requests";
+import { buildClonePrefill, type ClonePrefill } from "@/lib/ctrl/clone-request";
 import { getSectors } from "@/lib/ctrl/actions/sectors";
 import { getSuppliers } from "@/lib/ctrl/actions/suppliers";
 import { listProjetosDaOrg } from "@/lib/ctrl/omie-projetos";
@@ -21,7 +23,14 @@ async function getActiveEvents(orgId: string | null) {
   return data ?? [];
 }
 
-export default async function NovaRequisicaoPage() {
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export default async function NovaRequisicaoPage({
+  searchParams,
+}: {
+  // ?clonar=<id>: atalho "Clonar requisição" da tela de Requisições.
+  searchParams?: { clonar?: string };
+}) {
   const ctx = await getCtrlUser();
   if (!ctx) redirect("/login");
 
@@ -72,14 +81,50 @@ export default async function NovaRequisicaoPage() {
   const usd =
     usdSettled.status === "fulfilled" ? usdSettled.value : { rate: 5, iofRate: 3.5 };
 
+  // Clonar: a original passa pelo recorte da tela de Requisições (só se clona o
+  // que se vê na lista). O que é herdado é decidido em buildClonePrefill, contra
+  // os cadastros que ESTE usuário tem disponíveis agora.
+  const cloneId = searchParams?.clonar;
+  let clone: ClonePrefill | null = null;
+  let cloneNotFound = false;
+  if (cloneId) {
+    const source = UUID_RE.test(cloneId) ? await getRequestForClone(cloneId).catch(() => null) : null;
+    if (!source) {
+      cloneNotFound = true;
+    } else {
+      clone = buildClonePrefill(
+        source.row,
+        {
+          supplierIds: new Set(suppliers.map((s) => s.id)),
+          sectorIds: new Set(sectors.map((s) => s.id)),
+          expenseTypeIds: new Set(expenseTypes.map((t) => t.id)),
+          eventIds: new Set(events.map((e) => e.id as string)),
+          hasEvents: events.length > 0,
+        },
+        source.installmentGroupTotal,
+      );
+    }
+  }
+
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Nova Requisição</h1>
+        <h1 className="text-2xl font-bold tracking-tight">
+          {clone ? `Clonar requisição #${clone.sourceNumber}` : "Nova Requisição"}
+        </h1>
         <p className="text-muted-foreground">
-          Preencha os dados para solicitar um pagamento
+          {clone
+            ? "Os dados vieram da requisição original. Informe o vencimento e a competência, anexe os documentos do novo pagamento e confira antes de enviar."
+            : "Preencha os dados para solicitar um pagamento"}
         </p>
       </div>
+
+      {cloneNotFound && (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300">
+          Não foi possível carregar a requisição para clonar (ela não existe ou você não tem acesso a ela).
+          Preencha uma requisição nova abaixo.
+        </p>
+      )}
 
       <div className="rounded-lg border bg-card p-6">
         <NovaRequisicaoForm
@@ -90,6 +135,7 @@ export default async function NovaRequisicaoPage() {
           projetos={projetos}
           usdBrlRate={usd.rate}
           usdIofRate={usd.iofRate}
+          clone={clone}
         />
       </div>
     </div>
