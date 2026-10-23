@@ -3,8 +3,13 @@ import { NextResponse } from "next/server";
 import { createRequest } from "@/lib/ctrl/actions/requests";
 import { extError, withExtCtrl } from "@/lib/ext-api/handler";
 import { withIdempotency } from "@/lib/ext-api/idempotency";
-import { parseCreateRequest, type Etapa } from "@/lib/ext-api/requisicoes";
-import { catalogOutsideOrg, getOwnRequest, listOwnRequests } from "@/lib/ext-api/requisicoes-db";
+import { parseCreateRequest, parseFornecedorHub, type Etapa } from "@/lib/ext-api/requisicoes";
+import {
+  catalogOutsideOrg,
+  getOwnRequest,
+  listOwnRequests,
+  resolveFornecedorHub,
+} from "@/lib/ext-api/requisicoes-db";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
@@ -21,7 +26,19 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   return withExtCtrl(request, async ({ client, ctx }) => {
     const body = await request.json().catch(() => null);
-    const parsed = parseCreateRequest(body, ctx);
+
+    // O hubfeat manda o fornecedor do cadastro dele (`fornecedor_hub`) em vez
+    // de um id do Compras; aqui ele vira o `supplier_id` correspondente.
+    let input = body;
+    if (body && typeof body === "object" && !Array.isArray(body) && body.fornecedor_hub && !body.supplier_id) {
+      const hub = parseFornecedorHub(body.fornecedor_hub);
+      if (!hub.ok) return extError(400, hub.error);
+      const resolved = await resolveFornecedorHub(ctx, hub.fornecedor);
+      if (!resolved.ok) return extError(400, resolved.error);
+      input = { ...body, supplier_id: resolved.supplierId };
+    }
+
+    const parsed = parseCreateRequest(input, ctx);
     if (!parsed.ok) return extError(400, parsed.error);
     const outside = await catalogOutsideOrg(ctx, {
       supplierId: parsed.input.supplier_id!,

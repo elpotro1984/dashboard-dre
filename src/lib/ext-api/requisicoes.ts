@@ -103,6 +103,108 @@ export function parseCreateRequest(body: unknown, ctx: CtrlUserContext): ParsedC
 }
 
 /**
+ * Fornecedor vindo do cadastro do hubfeat (`fornecedor_hub`). O hubfeat não
+ * conhece os ids do Compras: manda o fornecedor que ele já homologou, com o
+ * código Omie (mesma conta Omie da Feat), e a API acha ou cadastra o
+ * fornecedor correspondente na empresa da chave.
+ */
+export interface FornecedorHub {
+  omieCode: number;
+  documento: string;
+  nome: string;
+  nomeFantasia: string | null;
+  email: string | null;
+  telefone: string | null;
+  pix: { chave: string; tipo: string | null } | null;
+  banco: {
+    banco: string;
+    agencia: string | null;
+    conta: string | null;
+    titular: string | null;
+    docTitular: string | null;
+  } | null;
+}
+
+const str = (v: unknown): string | null => (typeof v === "string" && v.trim() ? v.trim() : null);
+
+export function parseFornecedorHub(raw: unknown): { ok: true; fornecedor: FornecedorHub } | { ok: false; error: string } {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ok: false, error: "fornecedor_hub inválido." };
+  const r = raw as Record<string, unknown>;
+  const omieCode = Number(r.omieCode);
+  if (!Number.isSafeInteger(omieCode) || omieCode <= 0) return { ok: false, error: "fornecedor_hub sem código Omie." };
+  const documento = normalizeDocumento(r.documento);
+  if (documento.length !== 11 && documento.length !== 14) {
+    return { ok: false, error: "fornecedor_hub sem CNPJ/CPF válido." };
+  }
+  const nome = str(r.nome);
+  if (!nome) return { ok: false, error: "fornecedor_hub sem nome." };
+
+  const pixRaw = r.pix as Record<string, unknown> | null | undefined;
+  const bancoRaw = r.banco as Record<string, unknown> | null | undefined;
+  const chave = pixRaw && typeof pixRaw === "object" ? str(pixRaw.chave) : null;
+  const banco = bancoRaw && typeof bancoRaw === "object" ? str(bancoRaw.banco) : null;
+  return {
+    ok: true,
+    fornecedor: {
+      omieCode,
+      documento,
+      nome,
+      nomeFantasia: str(r.nomeFantasia),
+      email: str(r.email),
+      telefone: str(r.telefone),
+      pix: chave ? { chave, tipo: str(pixRaw!.tipo) } : null,
+      banco: banco
+        ? {
+            banco,
+            agencia: str(bancoRaw!.agencia),
+            conta: str(bancoRaw!.conta),
+            titular: str(bancoRaw!.titular),
+            docTitular: str(bancoRaw!.docTitular),
+          }
+        : null,
+    },
+  };
+}
+
+/** Mesma normalização do índice único de documento (alfanumérico, caixa alta). */
+function normalizeDocumento(v: unknown): string {
+  return typeof v === "string" ? v.toUpperCase().replace(/[^0-9A-Z]/g, "") : "";
+}
+
+/**
+ * Linha de `ctrl_suppliers` para um fornecedor do hubfeat que ainda não existe
+ * no Compras. Entra `aprovado`: o hubfeat só oferece fornecedor que ele já
+ * homologou e que já tem cadastro na Omie (mesma conta), então não há o que
+ * homologar de novo — mesmo formato da importação da Omie (`from_omie`,
+ * `omie_id`, sem reenvio).
+ */
+export function supplierRowFromHub(f: FornecedorHub, opts: { orgId: string; createdBy: string; omieId: number | null }) {
+  const now = new Date().toISOString();
+  return {
+    org_id: opts.orgId,
+    from_omie: true,
+    omie_sync_required: false,
+    omie_id: opts.omieId,
+    name: f.nome,
+    nome_fantasia: f.nomeFantasia,
+    cnpj_cpf: f.documento,
+    email: f.email,
+    phone: f.telefone,
+    chave_pix: f.pix?.chave ?? null,
+    pix_padrao: Boolean(f.pix),
+    banco: f.banco?.banco ?? null,
+    agencia: f.banco?.agencia ?? null,
+    conta_corrente: f.banco?.conta ?? null,
+    titular_banco: f.banco?.titular ?? null,
+    doc_titular: f.banco?.docTitular ?? null,
+    transf_padrao: Boolean(f.banco),
+    status: "aprovado" as const,
+    approved_at: now,
+    created_by: opts.createdBy,
+  };
+}
+
+/**
  * Caminho exatamente no formato que POST /anexos gera: `<userId>/<timestamp>-<nome>`.
  * Validação estrutural, não por prefixo: "u1/../u2/x" começa com "u1/" e apontaria
  * para o arquivo de outra pessoa.

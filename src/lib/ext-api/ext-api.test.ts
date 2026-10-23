@@ -81,7 +81,14 @@ test("buildExtCtrlUser: sem o módulo Compras não age", () => {
 
 // ─── Requisições ────────────────────────────────────────────────────────────
 
-import { etapaDaRequisicao, parseCreateRequest, respostaPendente, safeFileName } from "./requisicoes";
+import {
+  etapaDaRequisicao,
+  parseCreateRequest,
+  parseFornecedorHub,
+  respostaPendente,
+  safeFileName,
+  supplierRowFromHub,
+} from "./requisicoes";
 
 const U1 = "c0daadd2-f3b4-4be0-8df6-7c7398ec79a9";
 const U2 = "11111111-2222-3333-4444-555555555555";
@@ -170,4 +177,43 @@ test("parseCreateRequest: obrigatórios do formulário do Compras", () => {
   assert.ok(parseCreateRequest({ ...BASE, supplier_issues_invoice: "sim_apos_pagamento" }, ctxDe()).ok);
   assert.equal(parseCreateRequest({ ...BASE, payment_method: "pix_copia_cola" }, ctxDe()).ok, false);
   assert.ok(parseCreateRequest({ ...BASE, payment_method: "cartao_prepago" }, ctxDe()).ok);
+});
+
+const HUB = {
+  omieCode: 123456,
+  documento: "04.071.884/0001-26",
+  nome: "AIR ADVENTURES BALONISMO, IMPORTACAO E EXPORTACAO LTDA",
+  nomeFantasia: null,
+  email: null,
+  telefone: null,
+  pix: { chave: "04071884000126", tipo: "cnpj" },
+  banco: null,
+};
+
+test("parseFornecedorHub: normaliza documento e mantém o PIX", () => {
+  const r = parseFornecedorHub(HUB);
+  assert.ok(r.ok);
+  assert.equal(r.fornecedor.documento, "04071884000126");
+  assert.deepEqual(r.fornecedor.pix, { chave: "04071884000126", tipo: "cnpj" });
+  assert.equal(r.fornecedor.banco, null);
+});
+
+test("parseFornecedorHub: recusa sem código Omie, documento ou nome", () => {
+  assert.equal(parseFornecedorHub({ ...HUB, omieCode: null }).ok, false);
+  assert.equal(parseFornecedorHub({ ...HUB, documento: "123" }).ok, false);
+  assert.equal(parseFornecedorHub({ ...HUB, nome: " " }).ok, false);
+  assert.equal(parseFornecedorHub(null).ok, false);
+});
+
+test("supplierRowFromHub: entra aprovado, na empresa, como vindo da Omie", () => {
+  const r = parseFornecedorHub(HUB);
+  assert.ok(r.ok);
+  const row = supplierRowFromHub(r.fornecedor, { orgId: "org-feat", createdBy: "u1", omieId: 123456 });
+  assert.equal(row.org_id, "org-feat");
+  assert.equal(row.status, "aprovado");
+  assert.equal(row.omie_id, 123456);
+  assert.equal(row.omie_sync_required, false);
+  assert.equal(row.chave_pix, "04071884000126");
+  assert.equal(row.pix_padrao, true);
+  assert.equal(row.transf_padrao, false);
 });
