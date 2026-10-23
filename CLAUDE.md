@@ -147,6 +147,16 @@ O controle antigo da agenda era o quadro do Trello "CASE SHOWS - EVENTOS". Os ev
 - **O export do Trello traz só as ~1000 ações mais recentes do quadro** (na importação de 14/10/2026: de 07/04/2026 em diante). Cartão criado antes disso (o id do Trello embute o instante de criação) ganha `historico_desde` e a tela avisa que o começo está só no Trello — 3 dos 44. A coluna `comentarios` (primeira versão) ficou sem leitor e pode ser removida.
 - `npx tsx --env-file=.env.local scripts/case-trello-import.ts <json> [desde]` mostra a prévia; `DRY=0` grava. Reimportar atualiza pelo id do cartão (`UNIQUE (origem, origem_id)`), não duplica.
 
+### Case — resumo do contrato por e-mail (23/10/2026)
+
+Botão **"Enviar e-mail"** no cabeçalho do contrato (show, não BV): manda a `CASE_RESUMO_EMAIL_TO` (hoje `pedro@caseshows.com.br`, regra nominal registrada em `user-exceptions.ts`) o contrato inteiro — cliente, evento, valores, atrações e fornecedores, assinaturas, relatório de pagamentos (vencimento, situação, pago em), o que já aconteceu e o que vem pela frente — com os contratos anexados. O destinatário é resolvido no servidor; responder cai em quem clicou (`replyTo`).
+
+- **O assunto é `tituloDoContrato()`**, a mesma função que desenha o título da tela (`resumo-email.ts`, puro e testado). Não volte a escrever o título inline no JSX: os dois divergiriam.
+- **O contrato do cliente vai ASSINADO quando há**: o PDF do bucket (`sale_contract_path`) é o gerado ANTES da ClickSign; a versão assinada só existe lá (`downloads.signed_file_url`). Sem ClickSign (ou se falhar), cai no PDF do bucket. Depois vêm os contratos de atração e de fornecedor, sem repetir arquivo.
+- **Teto de anexos de 28 MB crus** (o Resend aceita 40 MB já em base64). O que não cabe não é descartado em silêncio: o e-mail e o aviso da tela nomeiam o arquivo.
+- **A linha do tempo junta três fontes**: `case_history`, as assinaturas da ClickSign e os pagamentos (`pago_em`). Ação idêntica repetida em menos de 10 min conta uma vez (o webhook da ClickSign reentrega). `pago_em` é meia-noite UTC: leia só a data, senão o pagamento cai no dia anterior em Brasília.
+- A situação de pagamento é a da última sincronização com a Omie (cron diário das 03h) — o e-mail diz isso. O envio **não** fica registrado em `case_history`: o enum `case_history_action` não tem o valor, e acrescentá-lo exige migration.
+
 ### Case — aprovação antes da ClickSign (`src/lib/case/actions/stages.ts`)
 
 Nenhum contrato vai à ClickSign sem o aval de **um dos aprovadores** (`CASE_CONTRACT_APPROVER_EMAILS` em `contract-config.ts`, hoje Pedro e Marcelo — regra nominal registrada em `user-exceptions.ts`; todos recebem o e-mail e veem o contador no menu). **Aprovar não é assinar**: quem assina pela CS Agência continua sendo só o `CONTRATADO_SIGNER`, por último. Fluxo: `rascunho` → `enviarParaAprovacao` → `aguardando_aprovacao` (e-mail ao aprovador via Resend + contador no item Contratos do menu + faixa na lista) → `aprovarContrato` → `aguardando_assinatura` → `assinado` (webhook). `devolverContrato` volta para `rascunho` e manda o motivo por e-mail a quem pediu (`approval_requested_by`). Se o próprio aprovador clica em enviar, aprova e envia direto.

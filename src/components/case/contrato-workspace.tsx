@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Upload, Loader2, ScanLine, FileSignature, PenLine, CheckCircle2, Circle, RefreshCw, Undo2 } from "lucide-react";
+import { Plus, Trash2, Upload, Loader2, ScanLine, FileSignature, PenLine, CheckCircle2, Circle, RefreshCw, Undo2, Mail } from "lucide-react";
 
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import { useToast } from "@/components/ui/toaster";
@@ -23,6 +23,9 @@ import {
 import { extractArtistContract, extractFornecedorContract } from "@/lib/case/actions/ocr";
 import { getSaleContractUrl, resendSignature } from "@/lib/case/actions/contracts";
 import { resyncContract, lancarBvContract } from "@/lib/case/actions/contract-launch";
+import { enviarResumoPorEmail } from "@/lib/case/actions/resumo-email";
+import { CASE_RESUMO_EMAIL_TO } from "@/lib/case/contract-config";
+import { tituloDoContrato } from "@/lib/case/resumo-email";
 import { SearchSelect } from "@/components/case/novo-contrato-form";
 import { BandCadastroFields, artistOcrToBandPatch, emptyBandCadastro, bandCadastroToInput, bandRowToCadastro, missingFromCadastro, type BandCadastro } from "@/components/case/band-cadastro-fields";
 import { validatePix } from "@/lib/case/pix";
@@ -121,9 +124,7 @@ export function ContratoWorkspace({ detail, bands, fornecedorBands, isApprover }
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <button onClick={() => router.push("/case/contratos")} className="text-sm text-ink-muted hover:text-ink-primary">← Contratos</button>
-          <h1 className="mt-1 text-xl font-semibold text-ink-primary">
-            Contrato #{detail.contract_number} — {detail.atracoes.length > 0 ? detail.atracoes.map((a) => a.nome_atracao || a.band_name).join(", ") : detail.event_name ?? detail.band.name}
-          </h1>
+          <h1 className="mt-1 text-xl font-semibold text-ink-primary">{tituloDoContrato(detail)}</h1>
           <p className="text-sm text-ink-muted">Cliente: {detail.client.name} · {detail.event_name ?? "evento"} · {dateBR(detail.event_date)}</p>
           <p className="text-sm text-ink-muted">
             Assina pelo contratante: <span className="text-ink-primary">{detail.contratante.respLegal || "—"}</span>
@@ -136,9 +137,12 @@ export function ContratoWorkspace({ detail, bands, fornecedorBands, isApprover }
             )}
           </p>
         </div>
-        <div className="text-right">
-          <div className="text-xs text-ink-muted">Venda</div>
-          <div className="text-lg font-semibold tabular-nums text-ink-primary">{brl(detail.total_venda)}</div>
+        <div className="flex flex-col items-end gap-2">
+          <div className="text-right">
+            <div className="text-xs text-ink-muted">Venda</div>
+            <div className="text-lg font-semibold tabular-nums text-ink-primary">{brl(detail.total_venda)}</div>
+          </div>
+          <EnviarEmailButton contractId={detail.id} />
         </div>
       </div>
 
@@ -156,6 +160,44 @@ export function ContratoWorkspace({ detail, bands, fornecedorBands, isApprover }
       {/* Financeiro (sempre visível) */}
       <FinanceiroPanel detail={detail} signed={signed} onChange={refresh} />
     </div>
+  );
+}
+
+// Resumo completo do contrato + PDFs anexados, sempre para o mesmo destinatário
+// (resolvido no servidor). Disponível em qualquer status do contrato.
+function EnviarEmailButton({ contractId }: { contractId: string }) {
+  const [sending, setSending] = useState(false);
+  const { showToast } = useToast();
+
+  async function enviar() {
+    if (!confirm(`Enviar o resumo deste contrato, com os contratos em anexo, para ${CASE_RESUMO_EMAIL_TO}?`)) return;
+    setSending(true);
+    const res = await enviarResumoPorEmail(contractId);
+    setSending(false);
+    if ("error" in res) {
+      showToast({ title: "E-mail não enviado", description: res.error, variant: "destructive" });
+      return;
+    }
+    showToast({
+      title: `E-mail enviado para ${res.para}`,
+      description:
+        res.foraDoAnexo.length > 0
+          ? `${res.anexados} contrato(s) anexado(s). Ficaram de fora: ${res.foraDoAnexo.join(", ")}.`
+          : `${res.anexados} contrato(s) anexado(s).`,
+      variant: "success",
+    });
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={enviar}
+      disabled={sending}
+      title={`Resumo do contrato para ${CASE_RESUMO_EMAIL_TO}`}
+      className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm text-ink-secondary hover:bg-surface-2 disabled:opacity-50"
+    >
+      {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />} Enviar e-mail
+    </button>
   );
 }
 

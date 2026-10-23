@@ -44,6 +44,13 @@ export const CASE_CONTRACT_APPROVER_EMAILS = [
   "marcelo@quokka.net.br",
 ] as const;
 
+/**
+ * Quem recebe o resumo do contrato (botão "Enviar e-mail" da tela do contrato) —
+ * regra nominal, registrada em user-exceptions.ts. O destinatário é resolvido no
+ * servidor; a tela só mostra para quem vai. Constante fixa porque o client lê.
+ */
+export const CASE_RESUMO_EMAIL_TO = "pedro@caseshows.com.br";
+
 export function isCaseContractApprover(email: string | null | undefined): boolean {
   const e = (email ?? "").trim().toLowerCase();
   return CASE_CONTRACT_APPROVER_EMAILS.some((a) => a === e);

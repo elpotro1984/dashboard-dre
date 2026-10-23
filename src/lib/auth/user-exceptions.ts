@@ -16,7 +16,7 @@
 // ============================================================================
 
 import { BI_VALIDATION_EXTRA_EMAILS } from "@/lib/auth/bi-validation";
-import { CASE_CONTRACT_APPROVER_EMAILS } from "@/lib/case/contract-config";
+import { CASE_CONTRACT_APPROVER_EMAILS, CASE_RESUMO_EMAIL_TO } from "@/lib/case/contract-config";
 import { CTRL_FULL_VIEW_EMAILS } from "@/lib/ctrl/full-view";
 import {
   APPROVAL_COVERAGE,
@@ -67,6 +67,21 @@ export function describeUserExceptions(user: UserRef): UserException[] {
         "Aprova (ou devolve) contrato antes da ClickSign — recebe o aviso por e-mail e o contador no " +
         "menu Contratos. Aprovar não é assinar: quem assina pela CS Agência, por último, continua sendo " +
         "só o signatário do contrato.",
+      source: "src/lib/case/contract-config.ts",
+    });
+  }
+
+  // ── Case: destinatário do resumo do contrato (contract-config.ts) ─────────
+  // Fora das regras órfãs de propósito: o e-mail sai mesmo que o endereço não
+  // seja usuário do sistema.
+  if (normalizeEmail(CASE_RESUMO_EMAIL_TO) === email) {
+    out.push({
+      key: "case-resumo-email",
+      scope: "Case",
+      title: "Recebe o resumo dos contratos Case",
+      detail:
+        'O botão "Enviar e-mail" da tela do contrato manda para este endereço o resumo completo ' +
+        "(cliente, valores, atrações, pagamentos, histórico) com os contratos em anexo.",
       source: "src/lib/case/contract-config.ts",
     });
   }
