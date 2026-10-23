@@ -103,7 +103,8 @@ async function getContasAPagar(orgId: string | null) {
       ctrl_sectors(name),
       ctrl_events(name),
       creator:users!ctrl_requests_created_by_fkey(name, email),
-      approver:users!ctrl_requests_approved_by_fkey(name, email)
+      approver:users!ctrl_requests_approved_by_fkey(name, email),
+      sender:users!ctrl_requests_sent_to_payment_by_fkey(name, email)
     `)
     .in("status", ["aprovado", "agendado", "info_pagamento_pendente"])
     .is("deleted_at", null) // exclui requisições excluídas logicamente

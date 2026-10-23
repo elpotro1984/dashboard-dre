@@ -2564,7 +2564,9 @@ export async function getComplementThread(
 // `users` não expõe o registro de outro usuário ao aprovador (mesma técnica de
 // getComplementThread); a autorização é por papel + dono.
 
-export type ApprovalHistoryAction = "aprovado" | "rejeitado" | "editado";
+// 'enviado_pagamento' = envio à Omie (Contas a Pagar), um evento por envio,
+// incluindo a nova tentativa depois de erro (metadata.retry).
+export type ApprovalHistoryAction = "aprovado" | "rejeitado" | "editado" | "enviado_pagamento";
 
 /** De/para de um campo alterado (evento 'editado'). */
 export interface ApprovalHistoryChange {
@@ -2588,6 +2590,8 @@ export interface ApprovalHistoryEntry {
   changes?: ApprovalHistoryChange[];
   /** Origem da edição, quando 'editado' (ex.: "contas_a_pagar"). */
   editSource?: string | null;
+  /** 'enviado_pagamento': nova tentativa de envio depois de erro na Omie. */
+  retry?: boolean;
   createdAt: string;
 }
 
@@ -2626,7 +2630,7 @@ export async function getApprovalHistory(
        user:users!ctrl_history_user_id_fkey(name, email)`,
     )
     .eq("request_id", requestId)
-    .in("action", ["aprovado", "rejeitado", "editado"])
+    .in("action", ["aprovado", "rejeitado", "editado", "enviado_pagamento"])
     .order("created_at", { ascending: true });
 
   if (error) return { error: error.message };
@@ -2681,6 +2685,7 @@ export async function getApprovalHistory(
       comment: row.comment,
       changes,
       editSource,
+      retry: row.action === "enviado_pagamento" && row.metadata?.retry === true,
       createdAt: row.created_at,
     };
   });
@@ -3299,14 +3304,14 @@ export async function enqueueSendToPayment(
  */
 export async function requeueRequestToOmie(requestId: string) {
   // Mesma alçada da tela Contas a Pagar (ver previewPrevisaoMatches).
-  await requireCtrlRoleOrFullView("contas_a_pagar", "csc", "admin");
+  const ctx = await requireCtrlRoleOrFullView("contas_a_pagar", "csc", "admin");
 
   const adminClient = createAdminClientIfAvailable();
   const supabase = adminClient ?? (await createClient());
 
   const { data: req } = await supabase
     .from("ctrl_requests")
-    .select("id, status, paying_company_id")
+    .select("id, status, paying_company_id, paying_company")
     .eq("id", requestId)
     .maybeSingle();
 
@@ -3326,6 +3331,16 @@ export async function requeueRequestToOmie(requestId: string) {
     .eq("id", requestId);
 
   if (error) return { error: error.message };
+
+  // Rastro de quem pediu a nova tentativa. `sent_to_payment_by` continua sendo
+  // quem enviou primeiro; cada tentativa fica no histórico.
+  await supabase.from("ctrl_history").insert({
+    request_id: requestId,
+    user_id: ctx.id,
+    action: "enviado_pagamento" as const,
+    comment: req.paying_company ? `Empresa pagadora: ${req.paying_company}` : null,
+    metadata: { retry: true },
+  });
 
   revalidatePath("/ctrl/contas-a-pagar");
   return { ok: true as const };

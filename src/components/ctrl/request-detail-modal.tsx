@@ -122,6 +122,8 @@ export type RequestDetail = {
   ctrl_events?: NamedRef;
   creator?: UserRef;
   approver?: UserRef;
+  /** Quem enviou à Omie (ctrl_requests.sent_to_payment_by). */
+  sender?: UserRef;
 };
 
 // ── Resolvers de joins do Supabase (objeto ou array) ──────────────────────────
@@ -232,6 +234,7 @@ export function RequestDetailModal({
   const event = resolveNamed(req.ctrl_events ?? null);
   const creator = resolveUser(req.creator ?? null);
   const approver = resolveUser(req.approver ?? null);
+  const sender = resolveUser(req.sender ?? null);
 
   return (
     <div
@@ -459,6 +462,7 @@ export function RequestDetailModal({
               <DetailField
                 label="Enviado para pagamento"
                 value={
+                  (sender ? `${sender.name ?? sender.email} · ` : "") +
                   formatDateTimeBR(req.sent_to_payment_at) +
                   (req.paying_company ? ` · ${req.paying_company}` : "")
                 }

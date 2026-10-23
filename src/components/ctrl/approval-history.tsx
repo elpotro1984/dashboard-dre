@@ -38,7 +38,8 @@ const CHANGE_FIELD_LABEL: Record<string, string> = {
 // via getApprovalHistory) e os exibe em ordem cronológica. Como a fonte é o
 // banco, o histórico permanece após a aprovação, reload, troca de status ou
 // quando a requisição já passou para contas a pagar. Reutilizado na tela de
-// Aprovações e no modal de detalhes de Contas a Pagar.
+// Aprovações e no modal de detalhes de Contas a Pagar. Inclui os envios à
+// Omie (quem enviou, quando, e cada nova tentativa depois de erro).
 export function ApprovalHistory({
   requestId,
   pending = null,
@@ -108,7 +109,11 @@ function ApprovalHistoryItem({ entry }: { entry: ApprovalHistoryEntry }) {
 
   // Cabeçalho: alteração de campos; senão etapa (Gerente/Diretor); senão o tipo.
   const heading =
-    entry.action === "editado"
+    entry.action === "enviado_pagamento"
+      ? entry.retry
+        ? "Nova tentativa de envio à Omie"
+        : "Envio à Omie"
+      : entry.action === "editado"
       ? entry.editSource === "contas_a_pagar"
         ? "Alteração (Contas a Pagar)"
         : "Alteração"
@@ -125,13 +130,20 @@ function ApprovalHistoryItem({ entry }: { entry: ApprovalHistoryEntry }) {
       ? "border-red-200 bg-red-50 dark:border-red-900/40 dark:bg-red-950/20"
       : entry.action === "editado"
       ? "border-sky-200 bg-sky-50 dark:border-sky-900/40 dark:bg-sky-950/20"
+      : entry.action === "enviado_pagamento"
+      ? "border-violet-200 bg-violet-50 dark:border-violet-900/40 dark:bg-violet-950/20"
       : "border-amber-200 bg-amber-50 dark:border-amber-900/40 dark:bg-amber-950/20";
 
   return (
     <div className={`rounded-md border px-3 py-2 ${accent}`}>
       <p className="text-sm font-semibold">{heading}</p>
 
-      {entry.action === "editado" ? (
+      {entry.action === "enviado_pagamento" ? (
+        <>
+          <p className="text-sm">Enviado por: {actor}</p>
+          {entry.comment && <p className="text-xs text-muted-foreground">{entry.comment}</p>}
+        </>
+      ) : entry.action === "editado" ? (
         <>
           <p className="text-sm">Alterado por: {actor}</p>
           {entry.changes && entry.changes.length > 0 && (
