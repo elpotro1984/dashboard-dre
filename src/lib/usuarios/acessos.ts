@@ -366,10 +366,13 @@ export function perfilDeCompatibilidade(form: AcessosForm): UserProfileType {
   return "solicitante";
 }
 
-export function papelLegado(profile: UserProfileType): "admin" | "gestor_hero" | "gestor_unidade" {
-  if (profile === "admin") return "admin";
-  if (profile === "diretor" || profile === "contas_a_pagar") return "gestor_hero";
-  return "gestor_unidade";
+/**
+ * users.role é o que is_admin() lê no banco. Nunca mais 'gestor_hero': ele
+ * liberava TODAS as empresas no RLS por fora da tela (desligado em 26/10/2026,
+ * migration 20261026140000_fim_gestor_hero_rls).
+ */
+export function papelLegado(profile: UserProfileType): "admin" | "gestor_unidade" {
+  return profile === "admin" ? "admin" : "gestor_unidade";
 }
 
 export function planoDeGravacao(

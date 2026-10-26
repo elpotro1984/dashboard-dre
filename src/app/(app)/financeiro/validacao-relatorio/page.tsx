@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 
 import { ValidacaoRelatorioClient } from "@/components/financeiro/relatorios/ValidacaoRelatorioClient";
 import type { ValidacaoRelatorioItem } from "@/components/financeiro/relatorios/ValidacaoRelatorioClient";
-import { canAccessBiValidation } from "@/lib/auth/bi-validation";
+import { biValidationCompanyScope, canAccessBiValidation } from "@/lib/auth/bi-validation";
 import { getCurrentSessionContext } from "@/lib/auth/session";
 import { resendConfigStatus } from "@/lib/email/resend";
 import { getPreviousMonthRange } from "@/lib/financeiro/relatorios/monthly-bi-sender";
@@ -69,11 +69,16 @@ export default async function ValidacaoRelatorioPage() {
 
   // Períodos disponíveis (mais recentes primeiro) + o período ativo (default:
   // mês anterior, que é o gerado pela rotina mensal).
-  const { data: rowsData, error } = await admin
+  // Só as empresas do Financeiro da pessoa (admin: todas) — ver
+  // biValidationCompanyScope. O service role não filtra nada sozinho.
+  const escopo = profile ? biValidationCompanyScope(profile) : [];
+  let query = admin
     .from("bi_report_validations")
     .select(
       "id, company_id, period_from, period_to, period_label, status, version, generated_at, generation_error, extra_context, accepted_at, accepted_by, review_at, review_by, review_note, sent_at, sent_by, sent_mode, sent_recipients, send_error",
-    )
+    );
+  if (escopo !== null) query = query.in("company_id", escopo);
+  const { data: rowsData, error } = await query
     .order("period_from", { ascending: false })
     .limit(500);
 

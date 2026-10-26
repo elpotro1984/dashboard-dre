@@ -1,30 +1,7 @@
 import { NextResponse } from "next/server";
 
-import { setCaixaGrant } from "@/lib/auth/caixa";
-import {
-  setOrcamentoGrant,
-  setOrcamentoSetores,
-  type OrcamentoSetoresPorEmpresa,
-} from "@/lib/auth/orcamento";
-import { setContratosGrant } from "@/lib/auth/contratos";
 import { getCurrentSessionContext } from "@/lib/auth/session";
-import { isCtrlOrgRole } from "@/lib/ctrl/roles";
 import { createAdminClient } from "@/lib/supabase/admin";
-import type { UserProfileType } from "@/lib/supabase/types";
-
-const ASSIGNABLE_PROFILES: ReadonlyArray<UserProfileType> = [
-  "admin",
-  "contas_a_pagar",
-  "gerente",
-  "gerente_setor",
-  "diretor",
-  "validador_contrato",
-  "solicitante",
-  "franqueado",
-  // CSC: cópia funcional do "franqueado" (Visão Financeira) + tela Validação
-  // Relatório.
-  "csc",
-];
 
 interface Params {
   params: {
@@ -32,6 +9,14 @@ interface Params {
   };
 }
 
+/**
+ * Ativa/desativa o usuário — o único uso desta rota pela tela de Usuários.
+ * Perfil, módulos, empresas e setores são gravados SÓ por
+ * PUT /api/users/[userId]/acessos, que valida perfil por módulo. O PATCH do
+ * modelo velho (perfil único) saiu na varredura de 26/10/2026: ele gerava o
+ * Financeiro "legado", mais amplo que Visão Financeira, e o users.role
+ * 'gestor_hero', que abria todas as empresas no banco.
+ */
 export async function PATCH(request: Request, { params }: Params) {
   const { user, profile } = await getCurrentSessionContext();
   if (!user || !profile) {
@@ -41,218 +26,26 @@ export async function PATCH(request: Request, { params }: Params) {
     return NextResponse.json({ error: "Acesso restrito ao admin." }, { status: 403 });
   }
 
-  const body = (await request.json()) as {
-    name?: string;
-    phone?: string | null;
-    position?: string | null;
-    profile?: UserProfileType;
-    can_financeiro?: boolean;
-    can_compras?: boolean;
-    can_case?: boolean;
-    can_viagens?: boolean;
-    can_viagens_aprovar?: boolean;
-    /** Módulo Validação de Contratos (user_module_roles, não coluna de users). */
-    can_contratos?: boolean;
-    /** Módulo Caixa (user_module_roles, não coluna de users). */
-    can_caixa?: boolean;
-    /** Módulo Orçamento (user_module_roles, não coluna de users). */
-    can_orcamento?: boolean;
-    /** Setores do Orçamento por empresa — o recorte é por empresa desde 29/09. */
-    orcamento_setores?: OrcamentoSetoresPorEmpresa;
-    active?: boolean;
-    /** Lista de IDs de setores. [] = limpa vínculos. undefined = não altera. */
-    sector_ids?: string[];
-    /** Lista de IDs de empresas (unidades). [] = limpa. undefined = não altera. */
-    company_ids?: string[];
-    /**
-     * Empresas do COMPRAS (ctrl_user_orgs). Multiempresa: define quais empresas
-     * do módulo Compras o usuário acessa. [] = limpa. undefined = não altera.
-     */
-    ctrl_org_ids?: string[];
-    /**
-     * Papel do Compras POR EMPRESA (ctrl_user_orgs.role). empresa → papel;
-     * ausência = usa o perfil global (NULL). Valores fora do vocabulário são
-     * ignorados (gravam NULL). Ver src/lib/ctrl/roles.ts.
-     */
-    ctrl_org_roles?: Record<string, string>;
-  };
-
-  if (body.profile !== undefined && !ASSIGNABLE_PROFILES.includes(body.profile)) {
+  const body = (await request.json()) as Record<string, unknown>;
+  if (Object.keys(body).some((k) => k !== "active") || typeof body.active !== "boolean") {
     return NextResponse.json(
-      { error: `profile inválido. Use: ${ASSIGNABLE_PROFILES.join(", ")}.` },
-      { status: 400 },
+      { error: "Acessos são alterados pela tela de Usuários (módulo → perfil)." },
+      { status: 410 },
     );
   }
-
-  const adminClient = createAdminClient();
-
-  // ── Patch users row ──
-  const patch: Record<string, unknown> = {};
-  if (typeof body.name === "string") patch.name = body.name.trim();
-  if (body.phone !== undefined) patch.phone = body.phone?.trim() || null;
-  if (body.position !== undefined) patch.position = body.position?.trim() || null;
-  if (body.profile !== undefined) {
-    patch.profile = body.profile;
-    // Mantém o flag legado contracts_only em sincronia
-    patch.contracts_only = body.profile === "validador_contrato";
-  }
-  if (body.can_financeiro !== undefined) patch.can_financeiro = body.can_financeiro;
-  if (body.can_compras !== undefined) patch.can_compras = body.can_compras;
-  if (body.can_case !== undefined) patch.can_case = body.can_case;
-  if (body.can_viagens !== undefined) patch.can_viagens = body.can_viagens;
-  if (body.can_viagens_aprovar !== undefined) patch.can_viagens_aprovar = body.can_viagens_aprovar;
-  if (body.active !== undefined) patch.active = body.active;
-
-  // Validador de contrato nunca tem módulos marcados (não enxerga nada além)
-  if (body.profile === "validador_contrato") {
-    patch.can_financeiro = false;
-    patch.can_compras = false;
-    patch.can_case = false;
-    patch.can_viagens = false;
-    patch.can_viagens_aprovar = false;
-  }
-  // Franqueado e CSC (cópia funcional): forçados a só Financeiro
-  if (body.profile === "franqueado" || body.profile === "csc") {
-    patch.can_financeiro = true;
-    patch.can_compras = false;
-    patch.can_case = false;
-    patch.can_viagens = false;
-    patch.can_viagens_aprovar = false;
+  if (body.active === false && params.userId === user.id) {
+    return NextResponse.json({ error: "Você não pode desativar o próprio usuário." }, { status: 400 });
   }
 
-  if (Object.keys(patch).length > 0) {
-    const { data, error } = await adminClient
-      .from("users")
-      .update(patch)
-      .eq("id", params.userId)
-      .select("id");
-
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    if (!data || data.length === 0) {
-      return NextResponse.json({ error: "Usuário não encontrado." }, { status: 404 });
-    }
+  const { data, error } = await createAdminClient()
+    .from("users")
+    .update({ active: body.active })
+    .eq("id", params.userId)
+    .select("id");
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  if (!data || data.length === 0) {
+    return NextResponse.json({ error: "Usuário não encontrado." }, { status: 404 });
   }
-
-  // ── Sync módulo Validação de Contratos ──
-  // Vive em user_module_roles (ver @/lib/auth/contratos). O perfil validador de
-  // contrato sempre tem o módulo (é a própria tela dele); os demais seguem a
-  // marcação da tela, inclusive franqueado/CSC — o módulo é independente do
-  // recorte só-Financeiro desses perfis. `undefined` (ex.: o PATCH que só
-  // ativa/desativa o usuário) não mexe em nada.
-  const contratosTarget =
-    body.profile === "validador_contrato" ? true : body.can_contratos;
-
-  if (contratosTarget !== undefined) {
-    const { error } = await setContratosGrant(adminClient, params.userId, contratosTarget);
-    if (error) return NextResponse.json({ error }, { status: 400 });
-  }
-
-  // ── Sync módulo Caixa ──
-  // Também vive em user_module_roles (ver @/lib/auth/caixa). Admin já enxerga
-  // sem a linha, então gravar a concessão pra ele é inofensivo e mantém o
-  // acesso caso o perfil mude depois. `undefined` não mexe em nada.
-  if (body.can_caixa !== undefined) {
-    const { error } = await setCaixaGrant(adminClient, params.userId, body.can_caixa);
-    if (error) return NextResponse.json({ error }, { status: 400 });
-  }
-
-  // ── Sync módulo Orçamento ──
-  // Mesma mecânica do Caixa (ver @/lib/auth/orcamento). A linha só CONCEDE o
-  // módulo: o papel (construtor × validador) vem do perfil do usuário.
-  if (body.can_orcamento !== undefined) {
-    const { error } = await setOrcamentoGrant(adminClient, params.userId, body.can_orcamento);
-    if (error) return NextResponse.json({ error }, { status: 400 });
-  }
-
-  // Os setores do Orçamento são POR EMPRESA e vivem em tabela própria — não
-  // confundir com `user_sectors` (Compras), sincronizado logo abaixo. Tirar o
-  // módulo limpa a atribuição junto: escopo de um módulo que a pessoa não tem
-  // é cadastro invisível, e voltaria a valer sozinho numa reconcessão.
-  if (body.can_orcamento === false) {
-    const { error } = await setOrcamentoSetores(adminClient, params.userId, {}, profile.id);
-    if (error) return NextResponse.json({ error }, { status: 400 });
-  } else if (body.orcamento_setores !== undefined) {
-    const { error } = await setOrcamentoSetores(
-      adminClient,
-      params.userId,
-      body.orcamento_setores,
-      profile.id,
-    );
-    if (error) return NextResponse.json({ error }, { status: 400 });
-  }
-
-  // ── Sync sectors ──
-  if (body.sector_ids !== undefined) {
-    const { error: delErr } = await adminClient
-      .from("user_sectors")
-      .delete()
-      .eq("user_id", params.userId);
-    if (delErr) return NextResponse.json({ error: delErr.message }, { status: 400 });
-
-    const sectorIds = Array.from(new Set(body.sector_ids));
-    if (sectorIds.length > 0) {
-      const { error: insErr } = await adminClient.from("user_sectors").insert(
-        sectorIds.map((sectorId) => ({ user_id: params.userId, sector_id: sectorId })),
-      );
-      if (insErr) return NextResponse.json({ error: insErr.message }, { status: 400 });
-    }
-  }
-
-  // ── Sync empresas do Compras (ctrl_user_orgs) ──
-  // Multiempresa: define a quais empresas do Compras o usuário tem acesso. Tirar
-  // o módulo Compras limpa as concessões junto (escopo de módulo que a pessoa não
-  // tem é cadastro invisível, que voltaria a valer sozinho numa reconcessão).
-  const clearCtrlOrgs = body.can_compras === false;
-  if (clearCtrlOrgs || body.ctrl_org_ids !== undefined) {
-    const { error: delErr } = await adminClient
-      .from("ctrl_user_orgs")
-      .delete()
-      .eq("user_id", params.userId);
-    if (delErr) return NextResponse.json({ error: delErr.message }, { status: 400 });
-
-    const orgIds = clearCtrlOrgs ? [] : Array.from(new Set(body.ctrl_org_ids ?? []));
-    if (orgIds.length > 0) {
-      // Papel por empresa (override). NULL = usa o perfil global. Admin é
-      // global: nunca grava override (a resolução o ignoraria de qualquer forma).
-      const orgRoles = body.ctrl_org_roles ?? {};
-      const forceNullRole = body.profile === "admin";
-      const { error: insErr } = await adminClient.from("ctrl_user_orgs").insert(
-        orgIds.map((orgId) => {
-          const raw = forceNullRole ? null : orgRoles[orgId] ?? null;
-          return {
-            user_id: params.userId,
-            org_id: orgId,
-            role: isCtrlOrgRole(raw) ? raw : null,
-          };
-        }),
-      );
-      if (insErr) return NextResponse.json({ error: insErr.message }, { status: 400 });
-    }
-  }
-
-  // ── Sync companies (unidades) ──
-  if (body.company_ids !== undefined) {
-    const { error: delErr } = await adminClient
-      .from("user_company_access")
-      .delete()
-      .eq("user_id", params.userId);
-    if (delErr) return NextResponse.json({ error: delErr.message }, { status: 400 });
-
-    const companyIds = Array.from(new Set(body.company_ids));
-    if (companyIds.length > 0) {
-      const { error: insErr } = await adminClient.from("user_company_access").insert(
-        companyIds.map((companyId) => ({ user_id: params.userId, company_id: companyId })),
-      );
-      if (insErr) return NextResponse.json({ error: insErr.message }, { status: 400 });
-    }
-  }
-
-  // ── Sync the legacy `role` column so old code keeps working ──
-  if (body.profile !== undefined) {
-    const legacyRole = deriveLegacyDreRole(body.profile);
-    await adminClient.from("users").update({ role: legacyRole }).eq("id", params.userId);
-  }
-
   return NextResponse.json({ ok: true });
 }
 
@@ -279,11 +72,4 @@ export async function DELETE(_: Request, { params }: Params) {
   }
 
   return NextResponse.json({ ok: true });
-}
-
-function deriveLegacyDreRole(p: UserProfileType): "admin" | "gestor_hero" | "gestor_unidade" {
-  if (p === "admin") return "admin";
-  if (p === "diretor" || p === "contas_a_pagar") return "gestor_hero";
-  // franqueado, csc, gerente, gerente_setor, solicitante, validador_contrato → gestor_unidade
-  return "gestor_unidade";
 }

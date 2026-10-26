@@ -16,8 +16,6 @@
 //   ou, na ausencia, o "Caixa Final" do mes anterior (recursivo).
 // - Linha com source='cash_balance_final' soma Saldo Inicial + Caixa Gerado.
 
-import type { SupabaseClient } from "@supabase/supabase-js";
-
 export type PeriodMode = "especifico" | "mes_atual" | "ano_atual";
 type CashFlowType = "receita" | "despesa" | "calculado" | "misto";
 
@@ -346,30 +344,7 @@ export function previousMonth(year: number, month: number): { year: number; mont
 }
 
 /**
- * Resolve quais empresas o usuario pode ver — copia direta de dre.ts para
- * evitar acoplamento entre os modulos.
+ * Quais empresas o usuário vê. Era uma cópia da de dre.ts e divergiu — regra de
+ * acesso mora num lugar só (varredura de 26/10/2026).
  */
-export async function resolveAllowedCompanyIds(
-  supabase: SupabaseClient,
-  profile: { id: string; role: string; company_id: string | null } | null,
-  allCompanyIds: string[],
-): Promise<string[]> {
-  if (!profile) return allCompanyIds;
-  if (profile.role === "admin") return allCompanyIds;
-
-  const { data } = await supabase
-    .from("user_company_access")
-    .select("company_id")
-    .eq("user_id", profile.id);
-
-  const accessIds = (data ?? []).map((row) => row.company_id as string);
-  if (accessIds.length > 0) {
-    return allCompanyIds.filter((id) => accessIds.includes(id));
-  }
-
-  if (profile.role === "gestor_unidade" && profile.company_id) {
-    return allCompanyIds.filter((id) => id === profile.company_id);
-  }
-
-  return [];
-}
+export { resolveAllowedCompanyIds } from "@/lib/dashboard/dre";

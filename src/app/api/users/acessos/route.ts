@@ -6,8 +6,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import type { AcessosForm } from "@/lib/usuarios/acessos";
 import { gravarAcessos, planoValidado } from "@/lib/usuarios/gravar-acessos";
 
-// Convite pela tela de Usuários MÓDULO → PERFIL. A tela antiga segue usando
-// POST /api/users/invite, intocada.
+// Convite pela tela de Usuários MÓDULO → PERFIL — o único caminho de convite
+// desde 26/10/2026 (POST /api/users/invite responde 410).
 
 export async function POST(request: Request) {
   const { user, profile } = await getCurrentSessionContext();

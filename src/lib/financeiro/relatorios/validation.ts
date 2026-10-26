@@ -433,6 +433,12 @@ async function loadAlreadyDoneCompanyIds(
   return alreadyDone;
 }
 
+function noEscopo<T extends { companyId: string }>(companies: T[], escopo: string[] | null): T[] {
+  if (escopo === null) return companies;
+  const ok = new Set(escopo);
+  return companies.filter((c) => ok.has(c.companyId));
+}
+
 /**
  * Quantas empresas elegiveis ainda NAO tem relatorio pronto no periodo — o que
  * a proxima leva (cron ou botao "Gerar") vai tentar. Existe porque a leva
@@ -442,8 +448,10 @@ async function loadAlreadyDoneCompanyIds(
 export async function countPendingMonthlyGeneration(
   admin: SupabaseClient,
   range: MonthRange,
+  /** Empresas que quem pergunta enxerga; null = todas (admin, cron). */
+  escopo: string[] | null = null,
 ): Promise<{ eligible: number; pending: number; pendingNames: string[] }> {
-  const companies = await listCompaniesForMonthlyCycle(admin);
+  const companies = noEscopo(await listCompaniesForMonthlyCycle(admin), escopo);
   const alreadyDone = await loadAlreadyDoneCompanyIds(admin, range);
   const pendingNames = companies
     .filter((c) => !alreadyDone.has(c.companyId))
@@ -474,10 +482,12 @@ export async function runMonthlyGeneration(
     actor: ValidationActor;
     /** true = regera tudo, inclusive o que ja estava pronto (nunca o enviado). */
     force?: boolean;
+    /** Empresas que quem dispara enxerga; null/ausente = todas (admin, cron). */
+    escopo?: string[] | null;
   },
 ): Promise<MonthlyRunResult[]> {
   const { range, actor, force } = params;
-  const companies = await listCompaniesForMonthlyCycle(admin);
+  const companies = noEscopo(await listCompaniesForMonthlyCycle(admin), params.escopo ?? null);
   const alreadyDone = await loadAlreadyDoneCompanyIds(admin, range, force);
 
   const results: MonthlyRunResult[] = [];

@@ -1,6 +1,8 @@
 # Tela de Usuários: MÓDULO → PERFIL (perfil por módulo)
 
-**Status (26/10/2026, working tree, sem commit/deploy):**
+**VIRADA FEITA em 26/10/2026:** commits `9d5cb87e` + `9879bf20` em produção; migrations 20261026120000 e 20261026130000 aplicadas; `scripts/usuarios-migrar-perfis.ts` gravado (65 usuários; 4 inativos sem acesso pulados). Retrato pós-virada × base (`_retratos/comparacao-pos-virada.txt`, fora do repo): 17 usuários com diferença, **zero ganho** — as 26 retiradas dos 14 da planilha, Pedro Leo → Visão Financeira, Carol com a regra `dp-bloqueado` no catálogo, overrides de Compras iguais ao perfil gravados como NULL (papéis idênticos) e resto de escopo do Compras limpo em quem não tem o módulo (Pedro Leo, Lucas Teste). Incidente: a rede caiu no meio da gravação de `ctrl_user_orgs` da Cristiane Braga e ela ficou sem empresa no Compras; restaurada pelo retrato de base em minutos e o executor passou a devolver o escopo anterior quando a reinserção falha (`9879bf20`). **Falta:** a reabilitação pela planilha (aba "A reabilitar").
+
+**Status anterior (histórico dos passos):**
 - **Passo 1 FEITO**: `computeModuleAccess` extraído de `session.ts` para `src/lib/auth/module-access.ts`, usado pela sessão e pelo retrato. Retrato × base = diferença zero.
 - **Passo 2 FEITO**: perfis por módulo (`financeiroPerfil`, `comprasPerfil`; Orçamento aceita `construtor_amplo` gravado) = linha gravada em `user_module_roles` ?? o que o `profile` dava. Ligados em: `canAccessPathByProfile` (parâmetro opcional `perfis`; a whitelist do franqueado/CSC passou a ser só do Financeiro), middleware, menu (`nav-links` — item só do Compras sai da whitelist), layout `(app)`, `canAccessBiValidation`, `getCtrlUser().profile`, layout do Compras (tour) e a identidade da API externa. Teste `access-perfis.test.ts` cruza 3.780 combinações perfil × módulos × e-mail × rota exigindo igualdade sem linha gravada. Retrato × base = **diferença zero**; 1037 testes + lint + build verdes. Em produção não existe nenhuma linha `financeiro`/`compras` e todas as do Orçamento são `auto`, então o código novo não tem efeito até a migração do passo 4.
 - **Passo 3 — FEITO. Migration `20261026120000_usuarios_modulo_perfil_orcamento_dp.sql` APLICADA em 26/10/2026** (retrato depois × base = diferença zero; espelho OK lendo a tabela nova; 270 = 270 linhas em `user_company_access` × `orcamento_user_empresas`):
@@ -183,3 +185,34 @@ Reversão: tudo é acréscimo. Desligar a flag volta à tela antiga; apagar as l
 ## 9. Pendências do dono do projeto
 
 Todas resolvidas em 26/10/2026: sem lista mestre (empresa por módulo); empresa e setor para todos os perfis; tela de Acessos do DP removida; quem não tem Compras mantém todos os módulos.
+
+## Varredura de acessos pós-virada (26/10/2026, tarde)
+
+Pedido da dona: todo acesso vem da tela de Usuários; no Financeiro, só as empresas definidas nela.
+Retrato atual × base da manhã: as diferenças são as reabilitações feitas pela tela. A auditoria
+estática cobriu rotas de API, telas, relatórios e as funções SECURITY DEFINER do banco.
+
+Brechas fechadas:
+
+1. **gestor_hero no RLS** (a mais grave). `is_hero_manager()` (users.role='gestor_hero', derivado
+   de diretor/contas_a_pagar) lia TODAS as empresas e gravava em financial_entries/sync_log/
+   omie_categories de qualquer uma, pela API do Supabase com a própria sessão. 8 pessoas ativas.
+   Migration `20261026140000_fim_gestor_hero_rls.sql`: a função passa a `false`, o papel some dos
+   cadastros, `users.company_id` (ramo legado das policies) é zerado e `count_unmapped_categories()`
+   deixa de responder a não-admin. `papelLegado` nunca mais grava gestor_hero.
+2. **Sync / Conexões**: as APIs aceitavam gestor_hero; agora só admin (igual à tela /conexoes).
+3. **resolveAllowedCompanyIds** (porta de todas as telas/rotas do Financeiro): sem perfil devolvia
+   TODAS; não conferia o módulo; tinha fallback por users.company_id. Agora: admin todas; demais só
+   com can_financeiro e só user_company_access. A cópia em cash-flow.ts virou re-export.
+4. **Validação de Relatório BI**: CSC e exceções nominais viam, aceitavam, regeravam e enviavam
+   relatório de qualquer empresa. Agora tela, rotas e geração da leva respeitam as empresas do
+   Financeiro da pessoa (`biValidationCompanyScope`). Hoje não muda ninguém (sem CSC; Marcela tem
+   todas).
+5. **Histórico de relatórios BI**: o autor continuava abrindo relatório de empresa que perdeu.
+6. **Tela antiga de Usuários** removida (`?tela=antiga`): gravava Financeiro "legado" (amplo) e
+   gestor_hero. `POST /api/users/invite` responde 410; `PATCH /api/users/[id]` só ativa/desativa.
+
+Mantidos por decisão/desenho: Caixa global (decisão de 17/09/2026); Hero Holding mostra indicadores
+das unidades Viva a quem tem a holding; lançamentos roteados por departamento aparecem para quem tem
+a empresa de DESTINO; `entry_excluded_by_company_project()` revela só se um projeto é excluído
+(configuração, sem valores). Testes: `src/lib/auth/fronteira-financeiro.test.ts`.

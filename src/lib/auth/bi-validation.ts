@@ -51,6 +51,25 @@ export function canAccessBiValidationByProfile(
   return BI_VALIDATION_EXTRA_EMAILS.has(normalizeEmail(email));
 }
 
+/**
+ * Empresas cujos relatórios a pessoa vê e valida: admin, todas (null); os
+ * demais (CSC e exceções nominais), SÓ as do Financeiro na tela de Usuários.
+ * Até a varredura de 26/10/2026 a tela e as rotas liam TODAS as empresas pelo
+ * service role — o acesso à tela não pode virar acesso a empresa.
+ */
+export function biValidationCompanyScope(
+  profile: Pick<UnifiedProfile, "profile" | "role" | "company_ids"> &
+    Partial<Pick<UnifiedProfile, "can_financeiro">>,
+): string[] | null {
+  if (profile.role === "admin" || profile.profile === "admin") return null;
+  return profile.can_financeiro === false ? [] : profile.company_ids;
+}
+
+/** A linha (empresa) está no escopo da pessoa? */
+export function biValidationInScope(escopo: string[] | null, companyId: string): boolean {
+  return escopo === null || escopo.includes(companyId);
+}
+
 /** Versão usada nas páginas/rotas, a partir do perfil da sessão. */
 export function canAccessBiValidation(
   profile: Pick<UnifiedProfile, "profile" | "role" | "email"> &

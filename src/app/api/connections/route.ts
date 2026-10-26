@@ -7,7 +7,8 @@ export async function GET(request: Request) {
   if (!user || !profile) {
     return NextResponse.json({ error: "Nao autenticado." }, { status: 401 });
   }
-  if (profile.role !== "admin" && profile.role !== "gestor_hero") {
+  // Conexões e sincronização são só de admin (a tela /conexoes também).
+  if (profile.role !== "admin") {
     return NextResponse.json({ error: "Acesso negado." }, { status: 403 });
   }
   const url = new URL(request.url);
