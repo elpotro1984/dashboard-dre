@@ -64,7 +64,7 @@ export default async function RootRouter() {
     hasCaixaGrant(profileRow.user_module_roles) || userProfile === "admin";
   // Módulo Orçamento: concessão + perfil elegível, ou admin.
   const canOrcamento = canAccessOrcamento(userProfile, profileRow.user_module_roles);
-  const canDp = hasDpGrant(profileRow.user_module_roles, user.email);
+  const canDp = hasDpGrant(profileRow.user_module_roles, user.email, userProfile === "admin");
 
   redirect(
     defaultLandingFor(

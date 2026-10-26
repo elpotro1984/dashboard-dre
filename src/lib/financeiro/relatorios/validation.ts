@@ -433,6 +433,12 @@ async function loadAlreadyDoneCompanyIds(
   return alreadyDone;
 }
 
+function noEscopo<T extends { companyId: string }>(companies: T[], escopo: string[] | null): T[] {
+  if (escopo === null) return companies;
+  const ok = new Set(escopo);
+  return companies.filter((c) => ok.has(c.companyId));
+}
+
 /**
  * Quantas empresas elegiveis ainda NAO tem relatorio pronto no periodo — o que
  * a proxima leva (cron ou botao "Gerar") vai tentar. Existe porque a leva
@@ -442,8 +448,10 @@ async function loadAlreadyDoneCompanyIds(
 export async function countPendingMonthlyGeneration(
   admin: SupabaseClient,
   range: MonthRange,
+  /** Empresas que quem pergunta enxerga; null = todas (admin, cron). */
+  escopo: string[] | null = null,
 ): Promise<{ eligible: number; pending: number; pendingNames: string[] }> {
-  const companies = await listCompaniesForMonthlyCycle(admin);
+  const companies = noEscopo(await listCompaniesForMonthlyCycle(admin), escopo);
   const alreadyDone = await loadAlreadyDoneCompanyIds(admin, range);
   const pendingNames = companies
     .filter((c) => !alreadyDone.has(c.companyId))
@@ -474,10 +482,12 @@ export async function runMonthlyGeneration(
     actor: ValidationActor;
     /** true = regera tudo, inclusive o que ja estava pronto (nunca o enviado). */
     force?: boolean;
+    /** Empresas que quem dispara enxerga; null/ausente = todas (admin, cron). */
+    escopo?: string[] | null;
   },
 ): Promise<MonthlyRunResult[]> {
   const { range, actor, force } = params;
-  const companies = await listCompaniesForMonthlyCycle(admin);
+  const companies = noEscopo(await listCompaniesForMonthlyCycle(admin), params.escopo ?? null);
   const alreadyDone = await loadAlreadyDoneCompanyIds(admin, range, force);
 
   const results: MonthlyRunResult[] = [];
@@ -1075,7 +1085,7 @@ export async function notifyCscPendingValidation(
 
   const { data, error } = await admin
     .from("users")
-    .select("id, profile, role, email")
+    .select("id, profile, role, email, user_module_roles!user_module_roles_user_id_fkey(module, role)")
     .eq("active", true);
 
   if (error) {
@@ -1083,12 +1093,15 @@ export async function notifyCscPendingValidation(
     return 0;
   }
 
-  // Mesmo conjunto da tela: perfil CSC, admins e os e-mails nominais.
+  // Mesmo conjunto da tela: CSC (pelo perfil ou pela linha do módulo
+  // Financeiro — tela de Usuários módulo → perfil), admins e os e-mails nominais.
   const targets = (data ?? []).filter((u) => {
     const profile = (u.profile as string | null) ?? null;
     const email = String(u.email ?? "").trim().toLowerCase();
+    const linhas = (u.user_module_roles as Array<{ module: string; role: string }> | null) ?? [];
     return (
       profile === "csc" ||
+      linhas.some((l) => l.module === "financeiro" && l.role === "csc") ||
       profile === "admin" ||
       u.role === "admin" ||
       BI_VALIDATION_EXTRA_EMAILS.has(email)

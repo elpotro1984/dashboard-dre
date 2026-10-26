@@ -50,8 +50,8 @@ export default async function HomePage() {
   // Falha na leitura nunca derruba a tela inicial.
   let dpExperiencia: DpAlertaExperienciaComEmpresa[] | null = null;
   if (modules?.dp && profile) {
-    // Recortado pelo escopo do DP: a analista só vê o alerta das empresas dela.
-    dpExperiencia = await escopoDp(profile.id, modules.dp.role)
+    // Recortado pelo escopo do DP: só as empresas da pessoa (admin vê todas).
+    dpExperiencia = await escopoDp(profile.id, modules.dp.role, profile.profile === "admin" || profile.role === "admin")
       .then((escopo) => listarAlertasExperiencia(createAdminClient(), escopo))
       .catch(() => null);
   }

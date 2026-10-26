@@ -34,8 +34,9 @@ import { nomesUnicos } from "@/lib/orcamento/setor-atribuicao";
  * /ctrl/orcamento do módulo Compras — reaproveitada de propósito, para não
  * criar um terceiro vocabulário de papéis no sistema.
  *
- * Escape hatch: a coluna `role` da linha de concessão aceita 'construtor' ou
- * 'validador' e, quando preenchida com um desses, SOBREPÕE o perfil. É a saída
+ * Escape hatch: a coluna `role` da linha de concessão aceita 'construtor',
+ * 'construtor_amplo' ou 'validador' e, quando preenchida com um desses,
+ * SOBREPÕE o perfil. É a saída
  * para quem precise de papel no Orçamento diferente do que tem no Compras. A
  * tela de Usuários grava sempre ORCAMENTO_MODULE_ROLE_DEFAULT ('auto'); o
  * override é manual no banco, por enquanto.
@@ -106,6 +107,8 @@ function papelOverride(
     if (row?.module !== ORCAMENTO_MODULE) continue;
     if (row.role === "validador") return "validador";
     if (row.role === "construtor") return "construtor";
+    // "Preenchedor amplo" da tela de Usuários (módulo → perfil, 26/10/2026).
+    if (row.role === "construtor_amplo") return "construtor_amplo";
   }
   return null;
 }

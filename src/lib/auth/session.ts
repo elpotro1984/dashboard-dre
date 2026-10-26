@@ -2,14 +2,8 @@ import { cache } from "react";
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClientIfAvailable } from "@/lib/supabase/admin";
-import { hasContratosGrant } from "@/lib/auth/contratos";
-import { hasCaixaGrant } from "@/lib/auth/caixa";
-import { resolveOrcamentoPapel } from "@/lib/auth/orcamento";
-import { resolveDpRole } from "@/lib/auth/dp";
-import { deriveCtrlRoles, deriveDreRole } from "@/lib/auth/derive-roles";
-import { resolveVbRole } from "@/lib/auth/vb";
+import { computeModuleAccess } from "@/lib/auth/module-access";
 import { hasSeenTour } from "@/lib/tour/seen";
-import { VIAGENS_ENABLED } from "@/lib/viagens/flags";
 import type {
   DreRole,
   CtrlRole,
@@ -154,54 +148,41 @@ async function loadSessionContext(): Promise<SessionContext> {
 
   // ── New unified model ────────────────────────────────────────────────────
   const userProfile = (profileRow.profile ?? null) as UserProfileEnum | null;
-  const canFinanceiro = Boolean(profileRow.can_financeiro);
-  const canCompras = Boolean(profileRow.can_compras);
-  // Admin sempre enxerga o Case (espelha has_case_access() no banco).
-  const canCase =
-    Boolean(profileRow.can_case) ||
-    userProfile === "admin" ||
-    profileRow.role === "admin";
-  // Admin sempre enxerga Viagens e pode aprovar (espelha has_viagens_access()).
-  // VIAGENS_ENABLED=false desliga o módulo pra todos (kill-switch).
-  const isAdminUser = userProfile === "admin" || profileRow.role === "admin";
-  const canViagens = VIAGENS_ENABLED && (Boolean(profileRow.can_viagens) || isAdminUser);
-  const canViagensAprovar = VIAGENS_ENABLED && (Boolean(profileRow.can_viagens_aprovar) || isAdminUser);
 
   const moduleRoleRows = (profileRow.user_module_roles as Array<{
     role: string;
     module: string;
   }> | null) ?? null;
 
-  // Módulo Validação de Contratos. A concessão explícita vem de
-  // user_module_roles (ver @/lib/auth/contratos); admin sempre enxerga, e o
-  // perfil 'validador_contrato' (assim como o flag legado contracts_only)
-  // continua implicando o módulo — usuários que já validavam contratos não
-  // dependem de nenhum cadastro novo pra manter o acesso.
-  const canContratos =
-    hasContratosGrant(moduleRoleRows) ||
-    userProfile === "validador_contrato" ||
-    Boolean(profileRow.contracts_only) ||
-    isAdminUser;
-
-  // Módulo VB (Viva Bank): só a concessão em user_module_roles. Sem override
-  // de admin, de propósito — ver @/lib/auth/vb.
-  const vbRole = resolveVbRole(moduleRoleRows);
-
-  // Módulo Departamento Pessoal (sigiloso): só a concessão, como o VB. Sem
-  // override de admin, de propósito — ver @/lib/auth/dp.
-  const dpRole = resolveDpRole(moduleRoleRows, profileRow.email);
-
-  // Módulo Caixa: concessão em user_module_roles OU admin (modelo do Case e do
-  // Contratos, não o do VB) — ver @/lib/auth/caixa.
-  const canCaixa = hasCaixaGrant(moduleRoleRows) || isAdminUser;
-
-  // Módulo Orçamento: concessão em user_module_roles OU admin, com o PAPEL
-  // derivado do perfil (gerente constrói, diretor valida) — ver
-  // @/lib/auth/orcamento. Perfil não elegível com a marca concedida não entra.
-  const orcamentoPapel = resolveOrcamentoPapel(
-    userProfile ?? (isAdminUser ? "admin" : null),
-    moduleRoleRows,
-  );
+  // Acesso por módulo: uma conta só, compartilhada com o retrato de permissões
+  // — ver @/lib/auth/module-access.
+  const {
+    canFinanceiro,
+    canCompras,
+    canCase,
+    canViagens,
+    canViagensAprovar,
+    canContratos,
+    vbRole,
+    dpRole,
+    canCaixa,
+    orcamentoPapel,
+    dreRole,
+    ctrlRoles,
+    financeiroPerfil,
+    comprasPerfil,
+  } = computeModuleAccess({
+    email: profileRow.email,
+    profile: userProfile,
+    legacyRole: profileRow.role,
+    contractsOnly: Boolean(profileRow.contracts_only),
+    canFinanceiro: Boolean(profileRow.can_financeiro),
+    canCompras: Boolean(profileRow.can_compras),
+    canCase: Boolean(profileRow.can_case),
+    canViagens: Boolean(profileRow.can_viagens),
+    canViagensAprovar: Boolean(profileRow.can_viagens_aprovar),
+    moduleRoles: moduleRoleRows,
+  });
 
   const sectorIds = (
     (profileRow.user_sectors as Array<{ sector_id: string }> | null) ?? []
@@ -211,13 +192,10 @@ async function loadSessionContext(): Promise<SessionContext> {
     (profileRow.user_company_access as Array<{ company_id: string }> | null) ?? []
   ).map((c) => c.company_id);
 
-  // ── Compat layer: derive legacy fields from the new model ────────────────
+  // ── Compat layer ─────────────────────────────────────────────────────────
   // Legacy code reads profile.role / profile.ctrl_roles / profile.contracts_only
-  // — we keep those filled while the codebase migrates. New code should
-  // consume `profile.profile` directly.
-  const dreRole: DreRole = deriveDreRole(userProfile, profileRow.role as DreRole | null);
-  const ctrlRoles: CtrlRole[] = deriveCtrlRoles(userProfile, canCompras, moduleRoleRows);
-
+  // (dreRole e ctrlRoles, acima) — we keep those filled while the codebase
+  // migrates. New code should consume `profile.profile` directly.
   const profile: UnifiedProfile = {
     id: profileRow.id,
     email: profileRow.email,
@@ -234,6 +212,8 @@ async function loadSessionContext(): Promise<SessionContext> {
     orcamento_papel: orcamentoPapel,
     can_dp: dpRole !== null,
     dp_role: dpRole,
+    financeiro_perfil: financeiroPerfil,
+    compras_perfil: comprasPerfil,
     // Tour guiado de boas-vindas: linha em user_module_roles (module='tour'),
     // pelo mesmo motivo do módulo Contratos — sem coluna nova, sem migration.
     tour_seen: hasSeenTour(moduleRoleRows),

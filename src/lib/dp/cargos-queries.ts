@@ -108,7 +108,7 @@ export async function getDpTabela(
     return { linhas, error: null };
   };
   let { linhas: data, error } = await ler("id, setor, cargo, senioridade, step, salario, ordem, centro_custo_id");
-  // Sem a migration 20261026120000 (senioridade e step) a tabela segue legível,
+  // Sem a migration 20261026160000 (senioridade e step) a tabela segue legível,
   // com o nome inteiro no cargo — o que era antes. Só gravar exige as colunas.
   if (error?.code === "42703") ({ linhas: data, error } = await ler("id, setor, cargo, salario, ordem, centro_custo_id"));
   if (ausente(error)) throw new DpNaoInstaladoError();

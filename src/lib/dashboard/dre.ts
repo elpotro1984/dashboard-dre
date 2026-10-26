@@ -789,37 +789,27 @@ export function findResultadoExercicio(
 }
 
 /**
- * Resolve which companies the user is allowed to see.
- * - admin: all companies
- * - gestor_hero / gestor_unidade: only companies in user_company_access
- *   (falls back to profile.company_id for gestor_unidade if no access rows exist)
+ * Empresas que o usuário vê no Financeiro.
+ * - admin: todas
+ * - demais: só com o módulo Financeiro, e só as de user_company_access — a
+ *   lista que a tela de Usuários grava. Sem perfil, nenhuma.
+ * O antigo fallback por users.company_id saiu na varredura de 26/10/2026: era
+ * empresa concedida por fora da tela.
  */
 export async function resolveAllowedCompanyIds(
   supabase: SupabaseClient,
-  profile: UserProfile | null,
+  profile: Pick<UserProfile, "id" | "role"> & { can_financeiro?: boolean } | null,
   allCompanyIds: string[],
 ): Promise<string[]> {
-  if (!profile) return allCompanyIds;
+  if (!profile) return [];
   if (profile.role === "admin") return allCompanyIds;
+  if (profile.can_financeiro === false) return [];
 
-  // Query the user_company_access table for explicit permissions
   const { data } = await supabase
     .from("user_company_access")
     .select("company_id")
     .eq("user_id", profile.id);
 
-  const accessIds = (data ?? []).map((row) => row.company_id as string);
-
-  if (accessIds.length > 0) {
-    // Only keep companies that exist in the loaded list
-    return allCompanyIds.filter((id) => accessIds.includes(id));
-  }
-
-  // Fallback for gestor_unidade with legacy company_id field
-  if (profile.role === "gestor_unidade" && profile.company_id) {
-    return allCompanyIds.filter((id) => id === profile.company_id);
-  }
-
-  // No explicit access configured — show nothing for non-admins
-  return [];
+  const accessIds = new Set((data ?? []).map((row) => row.company_id as string));
+  return allCompanyIds.filter((id) => accessIds.has(id));
 }

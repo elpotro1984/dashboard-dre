@@ -37,8 +37,10 @@ export default async function ProtectedLayout({
   const orcamentoPapel = modules?.orcamento?.papel ?? null;
   const dpRole = modules?.dp?.role ?? null;
   const contractsOnly = profile?.contracts_only === true;
-  const isFranqueado = profile?.profile === "franqueado";
-  const isCsc = profile?.profile === "csc";
+  // Whitelist do Financeiro pelo perfil DO MÓDULO (antes: profile === franqueado/csc;
+  // sem perfil gravado, é exatamente o mesmo — ver @/lib/auth/module-access).
+  const isFranqueado = profile?.financeiro_perfil === "visao_financeira";
+  const isCsc = profile?.financeiro_perfil === "csc";
   const canBiValidation = canAccessBiValidation(profile);
 
   // Fetch segments the user has access to. Fonte única compartilhada com as

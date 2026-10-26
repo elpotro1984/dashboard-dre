@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { canAccessBiValidation } from "@/lib/auth/bi-validation";
+import {
+  biValidationCompanyScope,
+  biValidationInScope,
+  canAccessBiValidation,
+} from "@/lib/auth/bi-validation";
 import { getCurrentSessionContext } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -55,7 +59,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
   if (validationError) {
     return NextResponse.json({ error: validationError.message }, { status: 400 });
   }
-  if (!validation) {
+  if (!validation || !biValidationInScope(biValidationCompanyScope(profile), validation.company_id)) {
     return NextResponse.json({ error: "Relatório não encontrado." }, { status: 404 });
   }
 

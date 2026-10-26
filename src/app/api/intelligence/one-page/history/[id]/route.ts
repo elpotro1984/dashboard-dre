@@ -64,9 +64,13 @@ export async function GET(_request: Request, { params }: Params) {
   }
   // Empresa restrita (ex.: Dataforte): ser o autor nao basta — precisa do
   // vinculo no cadastro, admin incluido. Ver @/lib/auth/restricted-companies.
+  // E, fora o admin, a empresa precisa CONTINUAR no Financeiro da pessoa: quem
+  // perdeu a empresa na tela de Usuarios perde tambem os relatorios dela.
   if (
-    !(data.company_ids ?? []).every((id) =>
-      canSeeRestrictedCompany(id, profile.company_ids),
+    !(data.company_ids ?? []).every(
+      (id) =>
+        canSeeRestrictedCompany(id, profile.company_ids) &&
+        (profile.role === "admin" || profile.company_ids.includes(id)),
     )
   ) {
     return NextResponse.json({ error: "Sem acesso a esta empresa." }, { status: 403 });

@@ -785,20 +785,14 @@ export async function syncCompanyDepartments(companyId: string) {
 // ===========================================================================
 export async function canSyncCompany(
   profile: UserProfile | null,
-  companyId: string,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _companyId: string,
 ) {
-  if (!profile) return false;
-  if (profile.role === "admin") return true;
-  // `gestor_hero` legado também cobre perfis só-Compras (diretor, contas a pagar):
-  // sincronizar exige o módulo Financeiro E acesso explícito à empresa.
-  if (profile.role !== "gestor_hero" || profile.can_financeiro === false) return false;
-  const { data } = await createAdminClient()
-    .from("user_company_access")
-    .select("company_id")
-    .eq("user_id", profile.id)
-    .eq("company_id", companyId)
-    .maybeSingle();
-  return Boolean(data);
+  // Sincronizar é da tela Conexões, só de admin. O antigo ramo `gestor_hero`
+  // (diretor, contas a pagar) gravava pela sessão do usuário com a policy de
+  // escrita do is_hero_manager(), desligada em 26/10/2026
+  // (migration 20261026140000_fim_gestor_hero_rls).
+  return profile?.role === "admin";
 }
 
 // ===========================================================================

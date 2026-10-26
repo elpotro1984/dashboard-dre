@@ -2,30 +2,30 @@
  * Módulo Departamento Pessoal (DP) — folha, admissão, férias, ponto, eSocial…
  * Construído aos poucos; esta é a fonte de verdade do ACESSO.
  *
- * ── Módulo SIGILOSO ─────────────────────────────────────────────────────────
- * Vai guardar salário, CPF, dados bancários e saúde ocupacional de todo mundo.
- * Por isso segue o modelo do VB, não o do Caixa/Case:
+ * ── Acesso (desde 26/10/2026) ───────────────────────────────────────────────
+ * Até 26/10/2026 o DP era sigiloso (admin não herdava, concessão só pela tela
+ * Configurações › Acessos do próprio módulo, fora da tela de Usuários). Por
+ * decisão do dono do projeto, esse regime saiu: o DP é concedido pela tela de
+ * Usuários (módulo → perfil), como todo módulo, e o ADMIN o herda — ver
+ * docs/superpowers/specs/2026-10-26-usuarios-modulo-perfil.md. Ficaram:
  *
- *  - **Admin NÃO passa por cima.** A única porta é a concessão explícita numa
- *    linha de `user_module_roles` (module='dp').
- *  - **Nenhum admin consegue se conceder.** A policy de `user_module_roles`
- *    deixa qualquer admin escrever ali pelo PostgREST; para o DP um trigger no
- *    banco recusa INSERT/UPDATE/DELETE de linha `module='dp'` que não venha do
- *    service role (ou de migration).
- *  - **Não há botão em Usuários > "Módulos visíveis"**, e o módulo não entra no
- *    catálogo de regras especiais (@/lib/auth/user-exceptions): as duas telas
- *    são vistas por todos os admins. Quem concede é o GESTOR do DP, pela tela
- *    Configurações › Acessos do próprio módulo (desde 19/10/2026).
+ *  - o trigger do banco que só aceita escrita da linha `module='dp'` pelo
+ *    service role (a tela de Usuários grava por ele; o console, não);
+ *  - o registro de cada concessão em `dp_concessoes`;
+ *  - o bloqueio nominal abaixo.
  *
- * ── Dois papéis (19/10/2026) ───────────────────────────────────────────────
- *  - `gestor`: todas as empresas, Configurações e Acessos.
- *  - `analista`: só as empresas liberadas para ela (`dp_user_empresas`);
- *    trabalha na folha e nos cadastros, sem parâmetros nem acessos.
+ * ── Dois papéis ────────────────────────────────────────────────────────────
+ *  - `gestor` ("Visão Estratégica"): as empresas marcadas + as configurações
+ *    do grupo (parâmetros da folha, de-para de empresas).
+ *  - `analista` ("Visão Operacional"): as empresas marcadas; folha e cadastros,
+ *    sem as configurações do grupo.
+ *  Os dois são recortados por `dp_user_empresas`; só o admin vê todas.
  *
- * ── Bloqueio nominal ───────────────────────────────────────────────────────
+ * ── Bloqueio nominal (regra especial) ──────────────────────────────────────
  * `DP_EMAILS_BLOQUEADOS`: pedido do dono do projeto — a admin Carol não vê o
- * DP. Vale mesmo que alguém crie a concessão por engano (pela tela de Acessos
- * ou pelo banco): a sessão, o middleware e a root page ignoram a linha.
+ * DP, apesar de admin. Vale mesmo que alguém crie a concessão por engano: a
+ * sessão, o middleware, a root page e dp_has_access() ignoram a linha. Está no
+ * catálogo de regras especiais (@/lib/auth/user-exceptions).
  *
  * Client-safe: só constantes e funções puras.
  */
@@ -69,7 +69,6 @@ export const DP_CONFIG_PATH = "/dp/configuracoes";
 export const DP_CENTROS_PATH = "/dp/configuracoes/centros-custo";
 export const DP_ENCARGOS_PATH = "/dp/configuracoes/encargos";
 /** Configurações do GRUPO — só do gestor (ver isDpGestorPath). */
-export const DP_ACESSOS_PATH = "/dp/configuracoes/acessos";
 export const DP_PARAMETROS_FOLHA_PATH = "/dp/configuracoes/parametros";
 export const DP_NAV_KEY_FOLHA = "dp-folha";
 export const DP_FOLHA_PATH = "/dp/folha";
@@ -84,13 +83,19 @@ export const DP_FOLHA_GRUPO_PATH = "/dp/folha-grupo";
  * Papel efetivo no DP a partir das linhas de `user_module_roles`, ou null.
  * Com as duas linhas, `gestor` prevalece. Papel desconhecido não concede nada —
  * falha fechada, para uma linha digitada errado não abrir um módulo sigiloso.
- * E-mail bloqueado não entra, com concessão ou sem.
+ * E-mail bloqueado não entra, com concessão ou sem — nem sendo admin.
+ *
+ * Admin herda o DP como `gestor` desde 26/10/2026 (tela de Usuários módulo →
+ * perfil: "Admin tem acesso a todos os módulos"). Espelha dp_has_access() no
+ * banco (migration 20261026120000).
  */
 export function resolveDpRole(
   rows: Array<{ module?: string | null; role?: string | null }> | null | undefined,
   email?: string | null,
+  isAdmin: boolean = false,
 ): DpRole | null {
   if (dpBloqueado(email)) return null;
+  if (isAdmin) return DP_ROLE_GESTOR;
   let role: DpRole | null = null;
   for (const row of rows ?? []) {
     if (row?.module !== DP_MODULE) continue;
@@ -104,8 +109,9 @@ export function resolveDpRole(
 export function hasDpGrant(
   rows: Array<{ module?: string | null; role?: string | null }> | null | undefined,
   email?: string | null,
+  isAdmin: boolean = false,
 ): boolean {
-  return resolveDpRole(rows, email) !== null;
+  return resolveDpRole(rows, email, isAdmin) !== null;
 }
 
 export function isDpPath(pathname: string): boolean {
@@ -113,13 +119,14 @@ export function isDpPath(pathname: string): boolean {
 }
 
 /**
- * Telas só do GESTOR: as configurações do GRUPO — Acessos, Parâmetros da folha
- * e o de-para de empresas (que decide a que empresa cada pessoa pertence, ou
+ * Telas só do GESTOR: as configurações do GRUPO — Parâmetros da folha e o
+ * de-para de empresas (a tela de Acessos saiu em 26/10/2026: o DP é concedido
+ * pela tela de Usuários) (que decide a que empresa cada pessoa pertence, ou
  * seja, o que cada analista enxerga). O hub de Configurações e as telas da
  * empresa ativa (centros de custo, encargos) são de todos do DP desde
  * 22/10/2026. A página repete a trava: esconder do menu nunca é a única defesa.
  */
 export function isDpGestorPath(pathname: string): boolean {
   const em = (base: string) => pathname === base || pathname.startsWith(`${base}/`);
-  return em(DP_ACESSOS_PATH) || em(DP_PARAMETROS_FOLHA_PATH) || em(DP_EMPRESAS_PATH);
+  return em(DP_PARAMETROS_FOLHA_PATH) || em(DP_EMPRESAS_PATH);
 }

@@ -75,7 +75,7 @@ export interface ModuleAccess {
   orcamento: { papel: OrcamentoPapel } | null;
   /**
    * Módulo Departamento Pessoal (sigiloso). Concessão em user_module_roles
-   * (module='dp') — ver `@/lib/auth/dp`. Admin NÃO recebe automaticamente.
+   * (module='dp') — ver `@/lib/auth/dp`. Admin herda (desde 26/10/2026), salvo e-mail bloqueado.
    */
   dp: { role: DpRole } | null;
 }
@@ -151,11 +151,23 @@ export interface UnifiedProfile {
   /**
    * Visibilidade do módulo Departamento Pessoal (sigiloso). Vem de
    * `user_module_roles` (module='dp'), não de coluna de `users` — ver
-   * `@/lib/auth/dp`. Admin NÃO enxerga sem a linha.
+   * `@/lib/auth/dp`. Admin herda, salvo e-mail bloqueado.
    */
   can_dp: boolean;
   /** Papel no DP (gestor | analista), ou null — ver `@/lib/auth/dp`. */
   dp_role: DpRole | null;
+  /**
+   * Perfil no Financeiro (modelo módulo → perfil). Linha gravada em
+   * user_module_roles ?? o que o `profile` dava — ver `@/lib/auth/module-access`.
+   * 'legado' = perfil do Compras com Financeiro, ainda não migrado. null para
+   * admin e para quem não tem perfil financeiro.
+   */
+  financeiro_perfil: "visao_financeira" | "csc" | "legado" | null;
+  /**
+   * Perfil no Compras (os 5 da tela). Mesma regra de `financeiro_perfil`.
+   * null para admin.
+   */
+  compras_perfil: "solicitante" | "gerente" | "gerente_setor" | "diretor" | "contas_a_pagar" | null;
   /**
    * Já viu o tour guiado de boas-vindas. Como `can_contratos`, NÃO é coluna de
    * `users`: é derivada da linha em `user_module_roles` (module='tour') — ver

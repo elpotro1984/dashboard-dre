@@ -413,7 +413,7 @@ export async function registrarPromocao(input: {
     const lerLinha = (colunas: string) =>
       admin.from("dp_tabela_salarial").select(colunas).eq("id", input.linhaId).eq("company_id", input.companyId).maybeSingle();
     let { data: linhaBruta, error: eLinha } = await lerLinha("id, setor, cargo, senioridade, step");
-    // Sem a migration 20261026120000 o nome inteiro ainda está em `cargo`.
+    // Sem a migration 20261026160000 o nome inteiro ainda está em `cargo`.
     if (eLinha?.code === "42703") ({ data: linhaBruta, error: eLinha } = await lerLinha("id, setor, cargo"));
     if (eLinha) throw eLinha;
     const linha = linhaBruta as unknown as { id: string; setor: string | null; cargo: string; senioridade?: string; step?: string } | null;

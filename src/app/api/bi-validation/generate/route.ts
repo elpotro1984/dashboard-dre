@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { canAccessBiValidation } from "@/lib/auth/bi-validation";
+import { biValidationCompanyScope, canAccessBiValidation } from "@/lib/auth/bi-validation";
 import { getCurrentSessionContext } from "@/lib/auth/session";
 import { getPreviousMonthRange } from "@/lib/financeiro/relatorios/monthly-bi-sender";
 import {
@@ -53,7 +53,11 @@ export async function GET() {
 
   const range = getPreviousMonthRange(new Date());
   try {
-    const status = await countPendingMonthlyGeneration(createAdminClient(), range);
+    const status = await countPendingMonthlyGeneration(
+      createAdminClient(),
+      range,
+      biValidationCompanyScope(profile),
+    );
     return NextResponse.json({ period: range.periodLabel, ...status });
   } catch (error) {
     return NextResponse.json(
@@ -86,6 +90,8 @@ export async function POST(request: Request) {
       range,
       actor,
       force: body.force === true,
+      // Quem não é admin gera só para as empresas do próprio Financeiro.
+      escopo: biValidationCompanyScope(profile),
     });
   } catch (error) {
     return NextResponse.json(

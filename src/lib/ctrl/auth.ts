@@ -66,7 +66,9 @@ export async function getCtrlUser(): Promise<CtrlUserContext | null> {
     name: ctx.profile.name,
     email: ctx.profile.email,
     dreRole: ctx.profile.role,
-    profile: ctx.profile.profile,
+    // Perfil DO MÓDULO Compras (distingue gerente × gerente_setor). Sem perfil
+    // gravado é o próprio users.profile; admin não tem perfil de módulo.
+    profile: ctx.profile.compras_perfil ?? ctx.profile.profile,
     ctrlRoles,
     sectorIds: ctx.profile.sector_ids ?? [],
     orgs: orgCtx.orgs,

@@ -1,5 +1,5 @@
 // Separa o cargo das linhas JÁ EXISTENTES da tabela salarial do DP em
-// Cargo | Senioridade | Step (migration 20261026120000), pela MESMA regra do
+// Cargo | Senioridade | Step (migration 20261026160000), pela MESMA regra do
 // app (`normalizarCargo` em src/lib/dp/cargos.ts) — "Analista de
 // Relacionamento JÚNIOR I" → "Analista de Relacionamento" · Júnior · I.
 //
@@ -40,7 +40,7 @@ async function main() {
   const instalada = !sonda.error;
   if (!instalada) {
     if (sonda.error?.code !== "42703") throw new Error(sonda.error?.message);
-    console.log("⚠ migration 20261026120000 ainda não aplicada — mostrando só a prévia.");
+    console.log("⚠ migration 20261026160000 ainda não aplicada — mostrando só a prévia.");
     if (GRAVAR) process.exit(1);
   }
 

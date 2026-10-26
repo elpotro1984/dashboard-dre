@@ -67,10 +67,14 @@ export async function GET() {
   // Empresa restrita (ex.: Dataforte) sai do historico de quem perdeu (ou
   // nunca teve) o vinculo no cadastro — inclusive do admin que gerou o
   // relatorio antes da regra existir. Ver @/lib/auth/restricted-companies.
+  // Fora o admin, só relatórios de empresas que CONTINUAM no Financeiro da
+  // pessoa (tela de Usuários).
   const reports = ((data ?? []) as AiReportRow[])
     .filter((r) =>
-      (r.company_ids ?? []).every((id) =>
-        canSeeRestrictedCompany(id, profile.company_ids),
+      (r.company_ids ?? []).every(
+        (id) =>
+          canSeeRestrictedCompany(id, profile.company_ids) &&
+          (profile.role === "admin" || profile.company_ids.includes(id)),
       ),
     )
     .map((r) => ({

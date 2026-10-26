@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { canAccessBiValidation } from "@/lib/auth/bi-validation";
+import {
+  biValidationCompanyScope,
+  biValidationInScope,
+  canAccessBiValidation,
+} from "@/lib/auth/bi-validation";
 import { getCurrentSessionContext } from "@/lib/auth/session";
 import {
   acceptValidation,
@@ -85,7 +89,10 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     }>();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  if (!data) return NextResponse.json({ error: "Relatório não encontrado." }, { status: 404 });
+  // Empresa fora do Financeiro da pessoa responde igual a inexistente.
+  if (!data || !biValidationInScope(biValidationCompanyScope(profile), data.company_id)) {
+    return NextResponse.json({ error: "Relatório não encontrado." }, { status: 404 });
+  }
 
   // Histórico de contextos da PRÓPRIA linha (e da própria empresa).
   const { data: contexts } = await admin
@@ -122,6 +129,19 @@ export async function POST(request: Request, { params }: { params: { id: string 
   }
 
   const admin = createAdminClient();
+
+  // Toda ação mexe na linha params.id: ela precisa ser de uma empresa do
+  // Financeiro da pessoa (aceitar, regerar e enviar relatório de outra empresa
+  // eram possíveis só por ter acesso à tela).
+  const { data: alvo } = await admin
+    .from("bi_report_validations")
+    .select("company_id")
+    .eq("id", params.id)
+    .maybeSingle<{ company_id: string }>();
+  if (!alvo || !biValidationInScope(biValidationCompanyScope(profile), alvo.company_id)) {
+    return NextResponse.json({ error: "Relatório não encontrado." }, { status: 404 });
+  }
+
   const actor: ValidationActor = {
     id: profile.id,
     label: profile.name?.trim() || profile.email,

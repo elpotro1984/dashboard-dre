@@ -1,7 +1,8 @@
 import type { CtrlUserContext } from "@/lib/ctrl/auth";
 import type { CtrlOrg } from "@/lib/ctrl/orgs";
 import { isCtrlOrgRole, resolveCtrlRolesForOrg } from "@/lib/ctrl/roles";
-import { deriveCtrlRoles, deriveDreRole, type UserProfileEnum } from "@/lib/auth/derive-roles";
+import { deriveDreRole, type UserProfileEnum } from "@/lib/auth/derive-roles";
+import { computeModuleAccess } from "@/lib/auth/module-access";
 import type { DreRole } from "@/lib/supabase/types";
 
 // Monta o CtrlUserContext de quem age numa chamada da API externa — o mesmo
@@ -45,7 +46,20 @@ export function buildExtCtrlUser(
   }
 
   const profile = (user.profile ?? null) as UserProfileEnum | null;
-  const globalRoles = deriveCtrlRoles(profile, Boolean(user.can_compras), user.user_module_roles);
+  // Mesma conta da sessão: perfil do Compras gravado ?? o do users.profile.
+  const access = computeModuleAccess({
+    email: user.email,
+    profile,
+    legacyRole: user.role,
+    contractsOnly: false,
+    canFinanceiro: false,
+    canCompras: Boolean(user.can_compras),
+    canCase: false,
+    canViagens: false,
+    canViagensAprovar: false,
+    moduleRoles: user.user_module_roles,
+  });
+  const globalRoles = access.ctrlRoles;
   const ctrlRoles = resolveCtrlRolesForOrg(
     profile,
     globalRoles,
@@ -62,7 +76,7 @@ export function buildExtCtrlUser(
       name: user.name,
       email: user.email,
       dreRole: deriveDreRole(profile, user.role as DreRole | null),
-      profile: profile ?? "solicitante",
+      profile: access.comprasPerfil ?? profile ?? "solicitante",
       ctrlRoles,
       sectorIds: (user.user_sectors ?? []).map((s) => s.sector_id),
       orgs: [org],

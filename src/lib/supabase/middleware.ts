@@ -6,6 +6,7 @@ import { hasCaixaGrant } from "@/lib/auth/caixa";
 import { hasContratosGrant } from "@/lib/auth/contratos";
 import { canAccessOrcamento } from "@/lib/auth/orcamento";
 import { isDpGestorPath, resolveDpRole } from "@/lib/auth/dp";
+import { computeModuleAccess } from "@/lib/auth/module-access";
 import { hasVbGrant } from "@/lib/auth/vb";
 import { getSupabaseEnv } from "@/lib/supabase/env";
 import type { UserProfileType } from "@/lib/supabase/types";
@@ -131,8 +132,8 @@ export async function updateSession(request: NextRequest) {
       userProfile === "admin";
     // Módulo VB (Viva Bank): só a concessão. Sem override de admin.
     const canVb = hasVbGrant(profileData?.user_module_roles);
-    // Módulo Departamento Pessoal (sigiloso): só a concessão, como o VB.
-    const dpRole = resolveDpRole(profileData?.user_module_roles, user.email);
+    // Módulo Departamento Pessoal: concessão OU admin; e-mail bloqueado nunca.
+    const dpRole = resolveDpRole(profileData?.user_module_roles, user.email, userProfile === "admin");
     const canDp = dpRole !== null;
     // Modulo Caixa: concessao OU admin (modelo do Case/Contratos).
     const canCaixa =
@@ -143,6 +144,21 @@ export async function updateSession(request: NextRequest) {
       userProfile,
       profileData?.user_module_roles,
     );
+    // Perfis POR MÓDULO (linha gravada ?? o que o profile dava) — a mesma conta
+    // da sessão. Só os perfis vêm daqui: o resto acima fica como estava, em
+    // especial o `can_viagens` cru que o defaultLandingFor recebe.
+    const { financeiroPerfil, comprasPerfil } = computeModuleAccess({
+      email: user.email ?? null,
+      profile: profileData?.profile ?? null,
+      legacyRole: null,
+      contractsOnly: Boolean(profileData?.contracts_only),
+      canFinanceiro,
+      canCompras,
+      canCase,
+      canViagens,
+      canViagensAprovar: false,
+      moduleRoles: profileData?.user_module_roles ?? null,
+    });
     const isActive = profileData?.active ?? true;
 
     if (!isActive) {
@@ -165,6 +181,7 @@ export async function updateSession(request: NextRequest) {
         canCaixa,
         canOrcamento,
         canDp,
+        { financeiro: financeiroPerfil, compras: comprasPerfil },
       )
     ) {
       const url = request.nextUrl.clone();

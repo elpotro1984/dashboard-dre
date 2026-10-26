@@ -29,7 +29,7 @@ function falha(error: unknown): { ok: false; error: string } {
     return { ok: false, error: "Tabela salarial ainda não instalada no banco (migration 20261002130000)." };
   }
   if (e?.code === "42703" || e?.code === "PGRST204") {
-    return { ok: false, error: "Senioridade e step ainda não instalados no banco (migration 20261026120000)." };
+    return { ok: false, error: "Senioridade e step ainda não instalados no banco (migration 20261026160000)." };
   }
   return { ok: false, error: e?.message || "Erro inesperado." };
 }
