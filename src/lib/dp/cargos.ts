@@ -18,33 +18,172 @@ export function chaveNome(nome: string): string {
     .trim();
 }
 
+// ── Cargo | Senioridade | Step ──────────────────────────────────────────────
+//
+// Pedido do dono do projeto (26/10/2026): o cargo da tabela salarial abre em
+// TRÊS colunas — "Analista de Relacionamento JÚNIOR I" vira Cargo "Analista de
+// Relacionamento", Senioridade "Júnior", Step "I". Step é sempre algarismo
+// romano; senioridade é Júnior, Pleno ou Sênior, ou vazia (cargo sem
+// senioridade, como "Assistente de Relacionamento I"). Desfaz a decisão de
+// 02/10/2026, quando o step tinha ido para dentro do nome.
+//
+// O nome COMPLETO (`nomeCargo`) continua existindo: é como a linha aparece nos
+// seletores e na promoção, e é por ele que o cargo da Sólides — que segue com
+// tudo no nome — casa com a linha. O casamento usa `chaveCargo`, que separa os
+// dois lados pela MESMA regra: assim "Consultor Sênior (Sócio) I" da Sólides
+// casa com a linha "Consultor (Sócio)" · Sênior · I, mesmo com a senioridade em
+// outro lugar do nome.
+//
+// Os dois vocabulários abaixo são repetidos nos CHECK da tabela no banco —
+// cargos.test.ts lê a migration e exige a mesma lista.
+
+export const SENIORIDADES = ["Júnior", "Pleno", "Sênior"] as const;
+export type DpSenioridade = (typeof SENIORIDADES)[number];
+
+/** Steps aceitos: I a XX. Na prática a tabela vai até V; o teto é só para recusar o que não é step. */
+export const STEPS = [
+  "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X",
+  "XI", "XII", "XIII", "XIV", "XV", "XVI", "XVII", "XVIII", "XIX", "XX",
+] as const;
+
+/** Cargo da tabela já separado. `senioridade` e `step` vazios = o cargo não tem. */
+export interface DpCargoPartes {
+  cargo: string;
+  senioridade: DpSenioridade | "";
+  step: string;
+}
+
+/** As palavras de senioridade escritas por extenso, em qualquer caixa e com ou sem acento. */
+const SENIORIDADE_POR_EXTENSO: Record<string, DpSenioridade> = { junior: "Júnior", pleno: "Pleno", senior: "Sênior" };
+/** As abreviações só valem na COLUNA (quem preenche escolheu a senioridade); no meio do nome, "Sr" pode ser outra coisa. */
+const SENIORIDADE_ABREVIADA: Record<string, DpSenioridade> = { jr: "Júnior", pl: "Pleno", sr: "Sênior" };
+
+/** Senioridade de uma célula: '' (sem), uma das três, ou null quando não é senioridade nenhuma. */
+export function lerSenioridade(v: string): DpSenioridade | "" | null {
+  const k = chaveNome(v ?? "");
+  if (!k) return "";
+  return SENIORIDADE_POR_EXTENSO[k] ?? SENIORIDADE_ABREVIADA[k] ?? null;
+}
+
+/** Step de uma célula: '' (sem), romano I–XX (em qualquer caixa) ou número 1–20 convertido. Outra coisa → null. */
+export function lerStep(v: string | number): string | null {
+  const s = String(v ?? "").trim().toUpperCase();
+  if (!s) return "";
+  if ((STEPS as readonly string[]).includes(s)) return s;
+  if (/^\d+$/.test(s)) return STEPS[Number(s) - 1] ?? null;
+  return null;
+}
+
+const SEPARADOR = /^[-–—/|,;:·]+$/;
+
+/**
+ * Separa um nome de cargo escrito por inteiro. O step é o ÚLTIMO termo, se for
+ * romano; a senioridade é a única palavra Júnior/Pleno/Sênior do nome, em
+ * qualquer posição ("Analista Growth JÚNIOR PJ I" → "Analista Growth PJ" ·
+ * Júnior · I). Duas palavras de senioridade não decidem nada e ficam no nome;
+ * e nada é tirado se o cargo ficaria vazio.
+ */
+export function separarCargo(nome: string, tirar: { senioridade?: boolean; step?: boolean } = {}): DpCargoPartes {
+  const termos = (nome ?? "").replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
+  let step = "";
+  if (tirar.step !== false && termos.length > 1) {
+    const ultimo = termos[termos.length - 1].toUpperCase();
+    if ((STEPS as readonly string[]).includes(ultimo)) {
+      step = ultimo;
+      termos.pop();
+    }
+  }
+  let senioridade: DpSenioridade | "" = "";
+  const achadas = termos
+    .map((t, i) => ({ i, s: SENIORIDADE_POR_EXTENSO[chaveNome(t)] }))
+    .filter((x): x is { i: number; s: DpSenioridade } => Boolean(x.s));
+  if (tirar.senioridade !== false && achadas.length === 1 && termos.length > 1) {
+    senioridade = achadas[0].s;
+    termos.splice(achadas[0].i, 1);
+  }
+  // Separador que ficou sobrando ("Analista - Júnior" → "Analista").
+  while (termos.length > 1 && SEPARADOR.test(termos[termos.length - 1])) termos.pop();
+  while (termos.length > 1 && SEPARADOR.test(termos[0])) termos.shift();
+  const limpos = termos.filter((t, i) => !(SEPARADOR.test(t) && SEPARADOR.test(termos[i + 1] ?? "")));
+  return { cargo: limpos.join(" "), senioridade, step };
+}
+
+/** O nome completo, como a linha aparece nos seletores: "Analista de Relacionamento Júnior I". */
+export function nomeCargo(p: { cargo: string; senioridade?: string | null; step?: string | null }): string {
+  return [p.cargo.trim(), (p.senioridade ?? "").trim(), (p.step ?? "").trim()].filter(Boolean).join(" ");
+}
+
+/**
+ * Cargo, senioridade e step de uma linha que está sendo gravada.
+ *
+ * `doNome` diz o que pode vir DENTRO do nome — é o caso da planilha sem a
+ * coluna correspondente (o formato antigo, só com Cargo) e do preenchimento das
+ * linhas antigas. Aí o que vier no nome é separado, e o nome e a coluna dizendo
+ * coisas DIFERENTES é recusado (escolher um seria gravar uma linha que ninguém
+ * pediu). Onde há coluna — a tela, a planilha nova — o nome é gravado COMO
+ * ESTÁ: quem preenche já separou, e um cargo que termina em letra romana de
+ * verdade ("Técnico em Raio X") não pode perder o fim do nome.
+ */
+export function normalizarCargo(
+  input: { cargo: string; senioridade?: string | null; step?: string | number | null },
+  doNome: { senioridade: boolean; step: boolean },
+): { ok: DpCargoPartes } | { erro: string } {
+  const sen = lerSenioridade(input.senioridade ?? "");
+  if (sen === null) return { erro: `Senioridade "${input.senioridade}" não existe — use Júnior, Pleno ou Sênior (ou deixe vazia).` };
+  const step = lerStep(input.step ?? "");
+  if (step === null) return { erro: `Step "${input.step}" não é um algarismo romano de I a XX.` };
+  const partes = separarCargo(input.cargo, doNome);
+  if (!partes.cargo) return { erro: "Informe o cargo." };
+  if (sen && partes.senioridade && sen !== partes.senioridade) {
+    return { erro: `O nome do cargo já diz ${partes.senioridade}, e a senioridade informada é ${sen}.` };
+  }
+  if (step && partes.step && step !== partes.step) {
+    return { erro: `O nome do cargo já termina no step ${partes.step}, e o step informado é ${step}.` };
+  }
+  return { ok: { cargo: partes.cargo, senioridade: sen || partes.senioridade, step: step || partes.step } };
+}
+
+/**
+ * Chave de casamento de um cargo: separa o nome completo pela mesma regra dos
+ * dois lados, então tanto uma linha já em três colunas quanto um nome inteiro
+ * (o da Sólides, ou uma linha antiga ainda não separada) chegam à mesma chave.
+ */
+export function chaveCargo(p: { cargo: string; senioridade?: string | null; step?: string | null }): string {
+  const s = separarCargo(nomeCargo(p));
+  return `${chaveNome(s.cargo)}|${s.senioridade}|${s.step}`;
+}
+
 /**
  * Uma linha da tabela salarial, no formato que a sugestão e o enquadramento
- * usam. Não há step: desde 02/10/2026 ele compõe o NOME do cargo
- * ("Auxiliar Administrativo 1").
+ * usam. `cargo` é o cargo SEM senioridade e step (desde 26/10/2026); o nome
+ * completo sai de `nomeCargo`.
  */
 export interface DpLinhaSalarial {
   id: string;
   setor: string;
   cargo: string;
+  senioridade: string;
+  step: string;
   salario: number;
 }
 
-/** Como a linha aparece nos seletores: "Setor · Cargo" (ou só o cargo, sem setor). */
-export function rotuloLinha(l: Pick<DpLinhaSalarial, "setor" | "cargo">): string {
-  return l.setor.trim() ? `${l.setor} · ${l.cargo}` : l.cargo;
+/** Como a linha aparece nos seletores: "Setor · Cargo Senioridade Step" (ou sem o setor). */
+export function rotuloLinha(l: Pick<DpLinhaSalarial, "setor" | "cargo" | "senioridade" | "step">): string {
+  const nome = nomeCargo(l);
+  return l.setor.trim() ? `${l.setor} · ${nome}` : nome;
 }
 
 /**
  * Linha sugerida para um cargo da Sólides, ou null: o nome da Sólides é o
- * nome do cargo na tabela (com o step dentro, se houver). Só sugere quando há
- * UM candidato — o mesmo cargo em dois setores não sugere nada, porque chutar
- * entre eles enquadraria a pessoa no salário errado sem ninguém perceber.
+ * nome completo do cargo na tabela (senioridade e step dentro). Só sugere
+ * quando há UM candidato — o mesmo cargo em dois setores não sugere nada,
+ * porque chutar entre eles enquadraria a pessoa no salário errado sem ninguém
+ * perceber.
  */
 export function sugerirLinha(nomeSolides: string, linhas: DpLinhaSalarial[]): string | null {
-  const alvo = chaveNome(nomeSolides);
-  if (!alvo) return null;
-  const candidatos = linhas.filter((l) => chaveNome(l.cargo) === alvo);
+  if (!chaveNome(nomeSolides)) return null;
+  const alvo = chaveCargo({ cargo: nomeSolides });
+  const candidatos = linhas.filter((l) => chaveCargo(l) === alvo);
   return candidatos.length === 1 ? candidatos[0].id : null;
 }
 

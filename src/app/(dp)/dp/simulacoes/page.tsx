@@ -52,7 +52,7 @@ export default async function DpSimulacoesPage() {
               salario: r.salario,
               salarioTabela: r.salarioTabela,
             }))}
-            tabela={pagina.tabela.map((l) => ({ id: l.id, setor: l.setor, cargo: l.cargo, salario: l.salario }))}
+            tabela={pagina.tabela.map((l) => ({ id: l.id, setor: l.setor, cargo: l.cargo, senioridade: l.senioridade, step: l.step, salario: l.salario }))}
             encargos={encargos}
           />
         ) : (

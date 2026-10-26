@@ -88,27 +88,37 @@ export async function getDpTabela(
   companyId: string,
 ): Promise<Array<DpLinhaSalarial & { ordem: number; centroCustoId: string | null }>> {
   // Em páginas: o PostgREST corta em 1.000 linhas, e a tabela de uma empresa
-  // chega perto disso (VE Franqueadora: 132 cargos × 5 steps). Sem paginar, a
-  // tela, a importação e a cópia leriam só parte da tabela, sem aviso.
-  const data: Array<Record<string, unknown>> = [];
-  for (let de = 0; ; de += 1000) {
-    const { data: pagina, error } = await db
-      .from("dp_tabela_salarial")
-      .select("id, setor, cargo, salario, ordem, centro_custo_id")
-      .eq("company_id", companyId)
-      .order("ordem")
-      .order("created_at")
-      .order("id")
-      .range(de, de + 999);
-    if (ausente(error)) throw new DpNaoInstaladoError();
-    if (error) throw new Error(`dp_tabela_salarial: ${error.message}`);
-    data.push(...(pagina ?? []));
-    if ((pagina ?? []).length < 1000) break;
-  }
+  // chega perto disso (VE Franqueadora: 673 linhas). Sem paginar, a tela, a
+  // importação e a cópia leriam só parte da tabela, sem aviso.
+  const ler = async (colunas: string) => {
+    const linhas: Array<Record<string, unknown>> = [];
+    for (let de = 0; ; de += 1000) {
+      const { data: pagina, error } = await db
+        .from("dp_tabela_salarial")
+        .select(colunas)
+        .eq("company_id", companyId)
+        .order("ordem")
+        .order("created_at")
+        .order("id")
+        .range(de, de + 999);
+      if (error) return { linhas, error };
+      linhas.push(...((pagina ?? []) as unknown as Array<Record<string, unknown>>));
+      if ((pagina ?? []).length < 1000) break;
+    }
+    return { linhas, error: null };
+  };
+  let { linhas: data, error } = await ler("id, setor, cargo, senioridade, step, salario, ordem, centro_custo_id");
+  // Sem a migration 20261026120000 (senioridade e step) a tabela segue legível,
+  // com o nome inteiro no cargo — o que era antes. Só gravar exige as colunas.
+  if (error?.code === "42703") ({ linhas: data, error } = await ler("id, setor, cargo, salario, ordem, centro_custo_id"));
+  if (ausente(error)) throw new DpNaoInstaladoError();
+  if (error) throw new Error(`dp_tabela_salarial: ${error.message}`);
   return data.map((r) => ({
     id: r.id as string,
     setor: (r.setor as string) ?? "",
     cargo: r.cargo as string,
+    senioridade: (r.senioridade as string | undefined) ?? "",
+    step: (r.step as string | undefined) ?? "",
     salario: Number(r.salario),
     ordem: Number(r.ordem),
     centroCustoId: (r.centro_custo_id as string | null) ?? null,

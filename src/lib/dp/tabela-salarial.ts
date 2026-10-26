@@ -2,25 +2,28 @@
 // Tabela salarial do DP — leitura da planilha, plano de importação, reajuste e
 // ordem das linhas. Puro e testado (sem I/O).
 //
-// Formato: `Setor | Cargo | Salário`, uma planilha por empresa. O cabeçalho é
-// procurado nas primeiras linhas e a ordem das colunas é livre (mesma convenção
-// das planilhas do Orçamento). Cargo e Salário são obrigatórios; Setor pode
-// ficar vazio.
+// Formato: `Setor | Cargo | Senioridade | Step | Salário`, uma planilha por
+// empresa. O cabeçalho é procurado nas primeiras linhas e a ordem das colunas é
+// livre (mesma convenção das planilhas do Orçamento). Cargo e Salário são
+// obrigatórios; Setor, Senioridade e Step podem ficar vazios.
 //
-// STEP: saiu da tabela em 02/10/2026 e passou a compor o nome do cargo
-// ("Auxiliar Administrativo 1"). Planilha antiga que ainda traga a coluna Step
-// continua servindo — o step é JUNTADO ao cargo na leitura, pela mesma regra
-// da migration 20261002140000, em vez de ser ignorado (o que faria os 5 steps
-// de um cargo colidirem como linha repetida).
+// Planilha no formato ANTIGO (sem as colunas Senioridade e Step, o nome inteiro
+// em Cargo — "Analista de Relacionamento JÚNIOR I") continua servindo: aí o
+// nome é separado pela regra de `separarCargo`. Com as colunas no cabeçalho, o
+// cargo é lido como está (ver `normalizarCargo`). Step em número (o formato de
+// 02/10/2026, "1", "2"…) vira romano.
 // ============================================================================
 
-import { chaveNome } from "@/lib/dp/cargos";
+import { chaveCargo, chaveNome, nomeCargo, normalizarCargo } from "@/lib/dp/cargos";
 
 export interface DpTabelaPlanilhaLinha {
   /** Linha na planilha (1-based), para apontar o problema ao usuário. */
   linha: number;
   setor: string;
+  /** Cargo SEM senioridade e step. */
   cargo: string;
+  senioridade: string;
+  step: string;
   salario: number;
 }
 
@@ -30,20 +33,19 @@ export interface DpTabelaPlanilha {
   problemas: string[];
 }
 
-/** Chave de casamento de uma linha: setor + cargo normalizados. */
-export function chaveLinha(l: { setor: string; cargo: string }): string {
-  return `${chaveNome(l.setor)}|${chaveNome(l.cargo)}`;
-}
-
-/** Cargo com o step no fim do nome ("Auxiliar Administrativo" + "1"). Step vazio não muda nada. */
-export function cargoComStep(cargo: string, step: string): string {
-  const s = step.trim();
-  return s ? `${cargo.trim()} ${s}` : cargo.trim();
+/**
+ * Chave de casamento de uma linha: setor + cargo, senioridade e step pela
+ * regra de `chaveCargo` — uma linha antiga, ainda com tudo no nome, casa com a
+ * mesma linha já separada em três colunas (e é atualizada, não duplicada).
+ */
+export function chaveLinha(l: { setor: string; cargo: string; senioridade?: string | null; step?: string | null }): string {
+  return `${chaveNome(l.setor)}|${chaveCargo(l)}`;
 }
 
 const ALIAS = {
   setor: ["setor", "setores", "area", "departamento"],
   cargo: ["cargo", "cargos", "funcao"],
+  senioridade: ["senioridade", "senioridades"],
   step: ["step", "steps", "nivel", "niveis", "faixa", "classe", "grau", "referencia"],
   salario: ["salario", "salarios", "valor", "remuneracao", "salario base"],
 } as const;
@@ -67,9 +69,9 @@ export function lerSalario(v: unknown): number | null {
 
 export function parseTabelaPlanilha(data: unknown[][]): { ok: DpTabelaPlanilha } | { erro: string } {
   let headerIdx = -1;
-  const cols: Record<Campo, number> = { setor: -1, cargo: -1, step: -1, salario: -1 };
+  const cols: Record<Campo, number> = { setor: -1, cargo: -1, senioridade: -1, step: -1, salario: -1 };
   for (let i = 0; i < Math.min(data.length, 20) && headerIdx < 0; i += 1) {
-    const achadas: Record<Campo, number> = { setor: -1, cargo: -1, step: -1, salario: -1 };
+    const achadas: Record<Campo, number> = { setor: -1, cargo: -1, senioridade: -1, step: -1, salario: -1 };
     (data[i] ?? []).forEach((celula, idx) => {
       const chave = chaveNome(String(celula ?? ""));
       (Object.keys(ALIAS) as Campo[]).forEach((campo) => {
@@ -82,49 +84,57 @@ export function parseTabelaPlanilha(data: unknown[][]): { ok: DpTabelaPlanilha }
     }
   }
   if (headerIdx < 0) {
-    return { erro: "Não encontrei o cabeçalho. A planilha precisa das colunas Cargo e Salário (Setor e Step são opcionais)." };
+    return { erro: "Não encontrei o cabeçalho. A planilha precisa das colunas Cargo e Salário (Setor, Senioridade e Step são opcionais)." };
   }
 
   const linhas: DpTabelaPlanilhaLinha[] = [];
   const problemas: string[] = [];
   const vistas = new Map<string, number>();
   const texto = (row: unknown[], c: number) => (c >= 0 ? String(row[c] ?? "").replace(/\s+/g, " ").trim() : "");
+  // Só se tira do NOME o que a planilha não tem em coluna própria.
+  const doNome = { senioridade: cols.senioridade < 0, step: cols.step < 0 };
 
   for (let i = headerIdx + 1; i < data.length; i += 1) {
     const row = data[i] ?? [];
     const numero = i + 1;
     const setor = texto(row, cols.setor);
+    const senioridade = texto(row, cols.senioridade);
     const step = texto(row, cols.step);
     const cargoBruto = texto(row, cols.cargo);
     const bruto = cols.salario >= 0 ? row[cols.salario] : "";
     // Linha inteira vazia é separador, não erro.
-    if (!setor && !cargoBruto && !step && String(bruto ?? "").trim() === "") continue;
+    if (!setor && !cargoBruto && !senioridade && !step && String(bruto ?? "").trim() === "") continue;
 
-    // Step sem cargo não vira um "cargo" chamado "1": continua sendo linha sem cargo.
+    // Step sem cargo não vira um "cargo" chamado "I": continua sendo linha sem cargo.
     if (!cargoBruto) {
       problemas.push(`Linha ${numero}: sem cargo.`);
       continue;
     }
-    const cargo = cargoComStep(cargoBruto, step);
+    const partes = normalizarCargo({ cargo: cargoBruto, senioridade, step }, doNome);
+    if ("erro" in partes) {
+      problemas.push(`Linha ${numero} (${cargoBruto}): ${partes.erro}`);
+      continue;
+    }
+    const nome = nomeCargo(partes.ok);
     const salario = lerSalario(bruto);
     if (salario === null) {
-      problemas.push(`Linha ${numero} (${cargo}): salário vazio ou ilegível.`);
+      problemas.push(`Linha ${numero} (${nome}): salário vazio ou ilegível.`);
       continue;
     }
     if (salario < 0) {
-      problemas.push(`Linha ${numero} (${cargo}): salário negativo.`);
+      problemas.push(`Linha ${numero} (${nome}): salário negativo.`);
       continue;
     }
-    const chave = chaveLinha({ setor, cargo });
+    const chave = chaveLinha({ setor, ...partes.ok });
     const anterior = vistas.get(chave);
     if (anterior !== undefined) {
       // A mesma linha duas vezes com salários diferentes não tem como ser
       // decidida aqui: fica a primeira, e o usuário é avisado.
-      problemas.push(`Linha ${numero}: repete a linha ${anterior} (mesmo setor e cargo) e foi ignorada.`);
+      problemas.push(`Linha ${numero}: repete a linha ${anterior} (mesmo setor, cargo, senioridade e step) e foi ignorada.`);
       continue;
     }
     vistas.set(chave, numero);
-    linhas.push({ linha: numero, setor, cargo, salario: Math.round(salario * 100) / 100 });
+    linhas.push({ linha: numero, setor, ...partes.ok, salario: Math.round(salario * 100) / 100 });
   }
   return { ok: { linhas, problemas } };
 }
@@ -133,6 +143,8 @@ export interface DpTabelaExistente {
   id: string;
   setor: string;
   cargo: string;
+  senioridade: string;
+  step: string;
   salario: number;
 }
 
@@ -176,7 +188,7 @@ export function planejarImportacao(planilha: DpTabelaPlanilhaLinha[], existentes
 
 export interface DpPlanoCopia {
   /** Linhas novas, na ordem da origem, com o centro de custo já traduzido para o destino. */
-  inserir: Array<{ setor: string; cargo: string; salario: number; centroCustoId: string | null }>;
+  inserir: Array<{ setor: string; cargo: string; senioridade: string; step: string; salario: number; centroCustoId: string | null }>;
   /** Só preenchido com `atualizarSalarios`: linhas que já existem aqui e passam a ter o salário da origem. */
   atualizar: Array<{ id: string; salario: number; de: number }>;
   /** Já existem aqui com o mesmo salário. */
@@ -204,13 +216,13 @@ export interface DpPlanoCopia {
  * quando não há par — dito na prévia, nunca criado por conta própria.
  */
 export function planejarCopia(
-  origem: Array<{ setor: string; cargo: string; salario: number; centroNome: string | null }>,
+  origem: Array<{ setor: string; cargo: string; senioridade: string; step: string; salario: number; centroNome: string | null }>,
   existentes: DpTabelaExistente[],
   centrosDestino: Array<{ id: string; nome: string }>,
   atualizarSalarios: boolean,
 ): DpPlanoCopia {
   const plano = planejarImportacao(
-    origem.map((l, i) => ({ linha: i + 1, setor: l.setor, cargo: l.cargo, salario: l.salario })),
+    origem.map((l, i) => ({ linha: i + 1, setor: l.setor, cargo: l.cargo, senioridade: l.senioridade, step: l.step, salario: l.salario })),
     existentes,
   );
   const centroPorNome = new Map(centrosDestino.map((c) => [chaveNome(c.nome), c.id]));
@@ -222,7 +234,7 @@ export function planejarCopia(
     const centroCustoId = nome ? centroPorNome.get(chaveNome(nome)) ?? null : null;
     if (centroCustoId) comCentro += 1;
     else if (nome) semPar.add(nome);
-    return { setor: l.setor, cargo: l.cargo, salario: l.salario, centroCustoId };
+    return { setor: l.setor, cargo: l.cargo, senioridade: l.senioridade, step: l.step, salario: l.salario, centroCustoId };
   });
   return {
     inserir,

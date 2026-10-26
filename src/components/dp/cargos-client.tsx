@@ -26,7 +26,7 @@ import {
   type DpOrigemCopia,
   type DpPreviaCopia,
 } from "@/lib/dp/actions-cargos";
-import { chaveNome, rotuloLinha, ROTULO_ENQUADRAMENTO, type DpEnquadramentoStatus } from "@/lib/dp/cargos";
+import { chaveNome, nomeCargo, rotuloLinha, ROTULO_ENQUADRAMENTO, SENIORIDADES, STEPS, type DpEnquadramentoStatus } from "@/lib/dp/cargos";
 import { definirCentroDaLinha } from "@/lib/dp/actions-cadastro";
 import type { DpCargoSolidesUso, DpCargosPagina, DpCentroCusto, DpEnquadramentoRow, DpReajusteRow, DpTabelaLinha } from "@/lib/dp/cargos-queries";
 import { formatDateTimeBR } from "@/lib/ctrl/datetime";
@@ -93,7 +93,7 @@ function TabelaSalarial({
   const visiveis = useMemo(() => {
     const q = chaveNome(busca);
     if (!q) return tabela;
-    return tabela.filter((l) => chaveNome(`${l.setor} ${l.cargo}`).includes(q));
+    return tabela.filter((l) => chaveNome(`${l.setor} ${nomeCargo(l)}`).includes(q));
   }, [tabela, busca]);
 
   const aplicar = () => {
@@ -143,7 +143,8 @@ function TabelaSalarial({
       <CardHeader className="pb-2">
         <CardTitle className="text-base">Tabela salarial — {companyName}</CardTitle>
         <p className="text-sm text-ink-muted">
-          Setor, cargo e salário (o step, quando há, faz parte do nome do cargo — ex.: “Auxiliar Administrativo 1”). Todas as células são editáveis e salvam ao sair do campo.
+          Setor, cargo, senioridade, step e salário — ex.: “Analista de Relacionamento” · Júnior · I. Senioridade e step ficam vazios
+          quando o cargo não tem. Todas as células são editáveis e salvam ao sair do campo.
         </p>
       </CardHeader>
       <CardContent className="space-y-3">
@@ -197,7 +198,7 @@ function TabelaSalarial({
             <input
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar setor ou cargo"
+              placeholder="Buscar setor, cargo ou senioridade"
               className="w-60 rounded-md border border-input bg-background py-1.5 pl-7 pr-2 text-sm"
             />
           </div>
@@ -235,12 +236,14 @@ function TabelaSalarial({
         )}
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-sm">
+          <table className="w-full min-w-[960px] text-sm">
             <thead className="text-left text-ink-muted">
               <tr className="border-b border-border">
                 <th className="w-16 py-2 pr-2 font-medium" />
                 <th className="py-2 pr-2 font-medium">Setor</th>
                 <th className="py-2 pr-2 font-medium">Cargo</th>
+                <th className="w-32 py-2 pr-2 font-medium">Senioridade</th>
+                <th className="w-24 py-2 pr-2 font-medium">Step</th>
                 <th className="w-36 py-2 pr-2 text-right font-medium">Salário</th>
                 <th className="w-48 py-2 pr-2 font-medium" title="Centro de custo padrão de quem está nesta linha">
                   Centro de custo
@@ -254,7 +257,7 @@ function TabelaSalarial({
             <tbody>
               {visiveis.map((l, i) => (
                 <FragmentoLinha
-                  key={`${l.id}:${l.setor}:${l.cargo}:${l.salario}:${l.centroCustoId ?? ""}`}
+                  key={`${l.id}:${l.setor}:${l.cargo}:${l.senioridade}:${l.step}:${l.salario}:${l.centroCustoId ?? ""}`}
                   companyId={companyId}
                   centros={centros}
                   linha={l}
@@ -271,7 +274,7 @@ function TabelaSalarial({
               )}
               {visiveis.length === 0 && rascunhoDepoisDe === undefined && (
                 <tr>
-                  <td colSpan={7} className="py-6 text-center text-ink-muted">
+                  <td colSpan={9} className="py-6 text-center text-ink-muted">
                     {tabela.length === 0 ? "Tabela vazia. Importe a planilha ou adicione a primeira linha." : "Nenhuma linha corresponde à busca."}
                   </td>
                 </tr>
@@ -591,10 +594,15 @@ function LinhaEditavel({
 }) {
   const [setor, setSetor] = useState(linha.setor);
   const [cargo, setCargo] = useState(linha.cargo);
+  const [senioridade, setSenioridade] = useState(linha.senioridade);
+  const [step, setStep] = useState(linha.step);
   const [salario, setSalario] = useState(fmtSalario(linha.salario));
   const { pending, rodar, showToast } = useAcao();
 
-  const salvar = () => {
+  /** As listas salvam na escolha: o valor novo vem por parâmetro, porque o estado ainda não mudou. */
+  const salvar = (escolha?: { senioridade?: string; step?: string }) => {
+    const sen = escolha?.senioridade ?? senioridade;
+    const st = escolha?.step ?? step;
     const v = lerSalario(salario);
     if (v === null || v < 0) {
       showToast({ title: "Salário inválido", description: "Use um valor como 3.500,00.", variant: "destructive" });
@@ -607,8 +615,12 @@ function LinhaEditavel({
       return;
     }
     const mudou =
-      setor.trim() !== linha.setor || cargo.trim() !== linha.cargo || Math.abs(v - linha.salario) >= 0.005;
-    if (mudou) rodar(() => salvarLinha({ companyId, id: linha.id, setor, cargo, salario: v }));
+      setor.trim() !== linha.setor ||
+      cargo.trim() !== linha.cargo ||
+      sen !== linha.senioridade ||
+      st !== linha.step ||
+      Math.abs(v - linha.salario) >= 0.005;
+    if (mudou) rodar(() => salvarLinha({ companyId, id: linha.id, setor, cargo, senioridade: sen, step: st, salario: v }));
   };
   const onKey = (e: React.KeyboardEvent<HTMLInputElement>) => e.key === "Enter" && e.currentTarget.blur();
 
@@ -637,16 +649,36 @@ function LinhaEditavel({
         </div>
       </td>
       <td className="py-1 pr-2">
-        <input value={setor} onChange={(e) => setSetor(e.target.value)} onBlur={salvar} onKeyDown={onKey} className={inputCls} disabled={pending} aria-label="Setor" />
+        <input value={setor} onChange={(e) => setSetor(e.target.value)} onBlur={() => salvar()} onKeyDown={onKey} className={inputCls} disabled={pending} aria-label="Setor" />
       </td>
       <td className="py-1 pr-2">
-        <input value={cargo} onChange={(e) => setCargo(e.target.value)} onBlur={salvar} onKeyDown={onKey} className={inputCls} disabled={pending} aria-label="Cargo" />
+        <input value={cargo} onChange={(e) => setCargo(e.target.value)} onBlur={() => salvar()} onKeyDown={onKey} className={inputCls} disabled={pending} aria-label="Cargo" />
+      </td>
+      <td className="py-1 pr-2">
+        <SelectSenioridade
+          value={senioridade}
+          disabled={pending}
+          onChange={(v) => {
+            setSenioridade(v);
+            salvar({ senioridade: v });
+          }}
+        />
+      </td>
+      <td className="py-1 pr-2">
+        <SelectStep
+          value={step}
+          disabled={pending}
+          onChange={(v) => {
+            setStep(v);
+            salvar({ step: v });
+          }}
+        />
       </td>
       <td className="py-1 pr-2">
         <input
           value={salario}
           onChange={(e) => setSalario(e.target.value)}
-          onBlur={salvar}
+          onBlur={() => salvar()}
           onKeyDown={onKey}
           inputMode="decimal"
           className={`${inputCls} text-right tabular-nums`}
@@ -695,9 +727,41 @@ function LinhaEditavel({
   );
 }
 
+/** Senioridade da linha: vazia (o cargo não tem) ou uma das três. */
+function SelectSenioridade({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} className={inputCls} aria-label="Senioridade">
+      <option value="">—</option>
+      {SENIORIDADES.map((s) => (
+        <option key={s} value={s}>
+          {s}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** Step da linha: vazio ou um romano. Mostra I a X; um step acima disso (aceito na planilha) aparece se já estiver gravado. */
+function SelectStep({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
+  const opcoes: string[] = STEPS.slice(0, 10);
+  if (value && !opcoes.includes(value)) opcoes.push(value);
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled} className={inputCls} aria-label="Step">
+      <option value="">—</option>
+      {opcoes.map((s) => (
+        <option key={s} value={s}>
+          {s}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 function LinhaNova({ companyId, depoisDeId, fechar }: { companyId: string; depoisDeId: string | null; fechar: () => void }) {
   const [setor, setSetor] = useState("");
   const [cargo, setCargo] = useState("");
+  const [senioridade, setSenioridade] = useState("");
+  const [step, setStep] = useState("");
   const [salario, setSalario] = useState("");
   const { pending, rodar, showToast } = useAcao();
   const salvar = () => {
@@ -706,7 +770,7 @@ function LinhaNova({ companyId, depoisDeId, fechar }: { companyId: string; depoi
       showToast({ title: "Preencha o cargo e o salário", variant: "destructive" });
       return;
     }
-    rodar(() => criarLinha({ companyId, setor, cargo, salario: v, depoisDeId }), () => {
+    rodar(() => criarLinha({ companyId, setor, cargo, senioridade, step, salario: v, depoisDeId }), () => {
       fechar();
       return null;
     });
@@ -722,7 +786,13 @@ function LinhaNova({ companyId, depoisDeId, fechar }: { companyId: string; depoi
         <input autoFocus value={setor} onChange={(e) => setSetor(e.target.value)} onKeyDown={onKey} placeholder="Setor" className={inputCls} disabled={pending} />
       </td>
       <td className="py-1 pr-2">
-        <input value={cargo} onChange={(e) => setCargo(e.target.value)} onKeyDown={onKey} placeholder="Cargo (ex.: Auxiliar Administrativo 1)" className={inputCls} disabled={pending} />
+        <input value={cargo} onChange={(e) => setCargo(e.target.value)} onKeyDown={onKey} placeholder="Cargo (ex.: Analista de Relacionamento)" className={inputCls} disabled={pending} />
+      </td>
+      <td className="py-1 pr-2">
+        <SelectSenioridade value={senioridade} onChange={setSenioridade} disabled={pending} />
+      </td>
+      <td className="py-1 pr-2">
+        <SelectStep value={step} onChange={setStep} disabled={pending} />
       </td>
       <td className="py-1 pr-2">
         <input value={salario} onChange={(e) => setSalario(e.target.value)} onKeyDown={onKey} placeholder="0,00" inputMode="decimal" className={`${inputCls} text-right`} disabled={pending} />
@@ -826,7 +896,7 @@ function DeParaSolides({ companyId, tabela, cargos }: { companyId: string; tabel
                           <optgroup key={setor} label={setor}>
                             {ls.map((l) => (
                               <option key={l.id} value={l.id}>
-                                {l.cargo} ({formatBRL(l.salario)})
+                                {nomeCargo(l)} ({formatBRL(l.salario)})
                               </option>
                             ))}
                           </optgroup>

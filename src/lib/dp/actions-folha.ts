@@ -38,7 +38,7 @@ import {
   validarLancamento,
   type DpCamposGrade,
 } from "@/lib/dp/folha/validacao";
-import { chaveNome } from "@/lib/dp/cargos";
+import { chaveNome, nomeCargo } from "@/lib/dp/cargos";
 import { getDpCargosPagina } from "@/lib/dp/cargos-queries";
 import { listDpRegras } from "@/lib/dp/queries";
 import { contratoDaPlanilha, empresasPorRotulo, validarAvulso, type DpAvulsoEntrada } from "@/lib/dp/folha/avulsos";
@@ -410,15 +410,16 @@ export async function registrarPromocao(input: {
     const user = await requireDpEmpresa(input.companyId);
     const admin = createAdminClient();
     await pessoaDaEmpresa(admin, input.solidesId, input.companyId);
-    const { data: linha, error: eLinha } = await admin
-      .from("dp_tabela_salarial")
-      .select("id, setor, cargo")
-      .eq("id", input.linhaId)
-      .eq("company_id", input.companyId)
-      .maybeSingle();
+    const lerLinha = (colunas: string) =>
+      admin.from("dp_tabela_salarial").select(colunas).eq("id", input.linhaId).eq("company_id", input.companyId).maybeSingle();
+    let { data: linhaBruta, error: eLinha } = await lerLinha("id, setor, cargo, senioridade, step");
+    // Sem a migration 20261026120000 o nome inteiro ainda está em `cargo`.
+    if (eLinha?.code === "42703") ({ data: linhaBruta, error: eLinha } = await lerLinha("id, setor, cargo"));
     if (eLinha) throw eLinha;
+    const linha = linhaBruta as unknown as { id: string; setor: string | null; cargo: string; senioridade?: string; step?: string } | null;
     if (!linha) throw new Error("O cargo escolhido não está na tabela salarial desta empresa.");
-    const v = validarPromocao({ vigencia: input.vigencia, cargo: linha.cargo as string, salario: input.salario, motivo: input.motivo });
+    // A promoção guarda o NOME COMPLETO (cargo + senioridade + step): é um retrato, lido sozinho na folha.
+    const v = validarPromocao({ vigencia: input.vigencia, cargo: nomeCargo(linha), salario: input.salario, motivo: input.motivo });
     await exigirAberta(admin, input.companyId, v.vigencia);
 
     // O cadastro de hoje (Sólides, ou o do avulso) e o que a folha usava antes do início.
@@ -444,8 +445,8 @@ export async function registrarPromocao(input: {
         company_id: input.companyId,
         solides_id: input.solidesId,
         vigencia: v.vigencia,
-        linha_id: linha.id as string,
-        setor: (linha.setor as string) ?? "",
+        linha_id: linha.id,
+        setor: linha.setor ?? "",
         cargo: v.cargo,
         salario: v.salario,
         cargo_anterior: anterior.cargo,

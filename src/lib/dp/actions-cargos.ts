@@ -5,10 +5,10 @@ import * as XLSX from "xlsx";
 
 import { DP_CARGOS_PATH } from "@/lib/auth/dp";
 import { exigirEmpresa, requireDpEmpresa } from "@/lib/dp/auth";
-import { chaveNome } from "@/lib/dp/cargos";
+import { chaveNome, normalizarCargo } from "@/lib/dp/cargos";
 import { getDpTabela, listDpCentrosCusto, listDpEmpresasComQuadro } from "@/lib/dp/cargos-queries";
 import { podeVerEmpresa } from "@/lib/dp/escopo";
-import { lerPercentual, ordemEntre, parseTabelaPlanilha, planejarCopia, planejarImportacao } from "@/lib/dp/tabela-salarial";
+import { chaveLinha, lerPercentual, ordemEntre, parseTabelaPlanilha, planejarCopia, planejarImportacao } from "@/lib/dp/tabela-salarial";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 // Escrita da tabela salarial e do de-para Sólides → linha. Toda action passa
@@ -20,11 +20,16 @@ export type DpCargoResult<T = undefined> = { ok: true; data: T } | { ok: false; 
 
 type Admin = ReturnType<typeof createAdminClient>;
 
+const JA_EXISTE = "Já existe outra linha com o mesmo setor, cargo, senioridade e step nesta empresa.";
+
 function falha(error: unknown): { ok: false; error: string } {
   const e = error as { code?: string; message?: string } | null;
-  if (e?.code === "23505") return { ok: false, error: "Já existe outra linha com o mesmo setor e cargo nesta empresa." };
+  if (e?.code === "23505") return { ok: false, error: JA_EXISTE };
   if (e?.code === "PGRST205" || e?.code === "42P01" || e?.code === "PGRST202") {
     return { ok: false, error: "Tabela salarial ainda não instalada no banco (migration 20261002130000)." };
+  }
+  if (e?.code === "42703" || e?.code === "PGRST204") {
+    return { ok: false, error: "Senioridade e step ainda não instalados no banco (migration 20261026120000)." };
   }
   return { ok: false, error: e?.message || "Erro inesperado." };
 }
@@ -41,17 +46,34 @@ function salarioValido(v: number): number {
   return Math.round(v * 100) / 100;
 }
 
-function campos(input: { setor: string; cargo: string; salario: number }) {
+/**
+ * A linha como vai para o banco. Cargo, senioridade e step chegam JÁ separados
+ * (a tela tem as três colunas; a planilha e a cópia separam antes) e são
+ * gravados como estão — ver `normalizarCargo`.
+ */
+function campos(input: { setor: string; cargo: string; senioridade: string; step: string; salario: number }) {
   const setor = texto(input.setor);
-  const cargo = texto(input.cargo);
-  if (!cargo) throw new Error("Informe o cargo.");
+  const partes = normalizarCargo({ cargo: texto(input.cargo), senioridade: input.senioridade, step: input.step }, { senioridade: false, step: false });
+  if ("erro" in partes) throw new Error(partes.erro);
   return {
     setor,
     setor_chave: chaveNome(setor),
-    cargo,
-    cargo_chave: chaveNome(cargo),
+    cargo: partes.ok.cargo,
+    cargo_chave: chaveNome(partes.ok.cargo),
+    senioridade: partes.ok.senioridade,
+    step: partes.ok.step,
     salario: salarioValido(input.salario),
   };
+}
+
+/**
+ * Outra linha da tabela já é este setor + cargo + senioridade + step? Pela
+ * chave de casamento (`chaveLinha`), não só pela do banco: uma linha antiga,
+ * ainda com tudo no nome, é a mesma linha que a separada em três colunas.
+ */
+function repetida(tabela: Array<{ id: string; setor: string; cargo: string; senioridade: string; step: string }>, l: ReturnType<typeof campos>, id?: string) {
+  const k = chaveLinha(l);
+  return tabela.some((t) => t.id !== id && chaveLinha(t) === k);
 }
 
 async function empresaExiste(admin: Admin, companyId: string) {
@@ -67,6 +89,8 @@ export async function criarLinha(input: {
   companyId: string;
   setor: string;
   cargo: string;
+  senioridade: string;
+  step: string;
   salario: number;
   /** Insere logo abaixo desta linha; ausente = no fim da tabela. */
   depoisDeId?: string | null;
@@ -75,7 +99,9 @@ export async function criarLinha(input: {
     const user = await requireDpEmpresa(input.companyId);
     const admin = createAdminClient();
     await empresaExiste(admin, input.companyId);
+    const linha = campos(input);
     const tabela = await getDpTabela(admin, input.companyId);
+    if (repetida(tabela, linha)) throw new Error(JA_EXISTE);
     const i = input.depoisDeId ? tabela.findIndex((l) => l.id === input.depoisDeId) : -1;
     const ordem =
       i >= 0
@@ -83,7 +109,7 @@ export async function criarLinha(input: {
         : ordemEntre(tabela.length ? tabela[tabela.length - 1].ordem : null, null);
     const { data, error } = await admin
       .from("dp_tabela_salarial")
-      .insert({ ...campos(input), company_id: input.companyId, ordem, updated_by: user.id })
+      .insert({ ...linha, company_id: input.companyId, ordem, updated_by: user.id })
       .select("id")
       .single();
     if (error) throw error;
@@ -99,13 +125,18 @@ export async function salvarLinha(input: {
   id: string;
   setor: string;
   cargo: string;
+  senioridade: string;
+  step: string;
   salario: number;
 }): Promise<DpCargoResult> {
   try {
     const user = await requireDpEmpresa(input.companyId);
-    const { error } = await createAdminClient()
+    const admin = createAdminClient();
+    const linha = campos(input);
+    if (repetida(await getDpTabela(admin, input.companyId), linha, input.id)) throw new Error(JA_EXISTE);
+    const { error } = await admin
       .from("dp_tabela_salarial")
-      .update({ ...campos(input), updated_by: user.id, updated_at: new Date().toISOString() })
+      .update({ ...linha, updated_by: user.id, updated_at: new Date().toISOString() })
       .eq("id", input.id)
       .eq("company_id", input.companyId);
     if (error) throw error;
@@ -244,8 +275,9 @@ export interface DpImportacaoResultado {
 }
 
 /**
- * Importa a planilha `Setor | Cargo | Salário` de UMA empresa (coluna Step,
- * se vier, é juntada ao nome do cargo — ver @/lib/dp/tabela-salarial).
+ * Importa a planilha `Setor | Cargo | Senioridade | Step | Salário` de UMA
+ * empresa (sem as colunas Senioridade/Step, elas saem do nome do cargo — ver
+ * @/lib/dp/tabela-salarial).
  * Aditiva e idempotente (ver `planejarImportacao`): atualiza o salário do que
  * já existe, acrescenta o novo e NÃO apaga o que ficou fora da planilha.
  * Falha por linha, nunca pelo arquivo.
@@ -387,7 +419,14 @@ export async function copiarTabelaDeEmpresa(input: {
     if (origem.length === 0) throw new Error(`A tabela salarial de ${origemNome} está vazia — nada a copiar.`);
     const nomeCentro = new Map(centrosOrigem.map((c) => [c.id, c.nome]));
     const plano = planejarCopia(
-      origem.map((l) => ({ setor: l.setor, cargo: l.cargo, salario: l.salario, centroNome: l.centroCustoId ? nomeCentro.get(l.centroCustoId) ?? null : null })),
+      origem.map((l) => ({
+        setor: l.setor,
+        cargo: l.cargo,
+        senioridade: l.senioridade,
+        step: l.step,
+        salario: l.salario,
+        centroNome: l.centroCustoId ? nomeCentro.get(l.centroCustoId) ?? null : null,
+      })),
       destino,
       centrosDestino,
       input.atualizarSalarios,

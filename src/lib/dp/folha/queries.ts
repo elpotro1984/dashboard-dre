@@ -1,5 +1,6 @@
 import "server-only";
 
+import { nomeCargo } from "@/lib/dp/cargos";
 import { getDpCargosPagina, rotuloCentro } from "@/lib/dp/cargos-queries";
 import { avulsoNaCompetencia, type DpAvulso } from "@/lib/dp/folha/avulsos";
 import { colaboradorNoMes } from "@/lib/dp/folha/calendario";
@@ -425,7 +426,8 @@ export async function listPessoasDaFolha(
   // Centro de custo pela MESMA regra da tela de cargos (exceção da pessoa ?? padrão da linha).
   const enqPorColab = new Map((pagina?.enquadramento ?? []).map((r) => [r.colaboradorId, r]));
   const centros = (pagina?.centros ?? []).map((c) => ({ id: c.id, rotulo: rotuloCentro(c) }));
-  const tabela: DpFolhaLinhaCargo[] = (pagina?.tabela ?? []).map((l) => ({ id: l.id, setor: l.setor, cargo: l.cargo, salario: l.salario }));
+  // Na escolha do cargo da promoção vale o nome completo (cargo + senioridade + step).
+  const tabela: DpFolhaLinhaCargo[] = (pagina?.tabela ?? []).map((l) => ({ id: l.id, setor: l.setor, cargo: nomeCargo(l), salario: l.salario }));
 
   const pessoas: DpFolhaPessoa[] = daEmpresa.map((r) => {
     const cad = cadPorSolides.get(Number(r.solides_id));
