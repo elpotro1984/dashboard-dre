@@ -15,7 +15,6 @@ import { descreverEvento } from "@/lib/dp/historico";
 import {
   DpNaoInstaladoError,
   getDpColaborador,
-  listDpAcessos,
   listDpEventosDoColaborador,
   registrarAcessoFicha,
 } from "@/lib/dp/queries";
@@ -70,13 +69,13 @@ export default async function DpColaboradorPage({ params }: { params: { id: stri
   // acesso, para a tentativa não virar uma "visita" à ficha.
   if (!c || !podeVerEmpresa(user, c.empresa.companyId)) notFound();
 
-  // A ficha mostra salário, CPF e endereço: toda abertura fica registrada, ANTES
-  // de ler os acessos — assim a própria visita aparece na lista.
+  // A ficha mostra salário, CPF e endereço: toda abertura fica registrada em
+  // dp_acessos. A lista não aparece mais na ficha (pedido de 26/10/2026), mas o
+  // registro continua — é a trilha de quem viu dado sigiloso.
   await registrarAcessoFicha(db, user.id, c.id);
   const companyId = c.empresa.companyId;
-  const [eventos, acessos, vinculo] = await Promise.all([
+  const [eventos, vinculo] = await Promise.all([
     listDpEventosDoColaborador(db, c.solidesId),
-    listDpAcessos(db, c.id),
     // Vínculo com a tabela salarial e o centro de custo: recurso acessório —
     // migration ausente não derruba a ficha, só esconde o bloco.
     companyId
@@ -312,26 +311,6 @@ export default async function DpColaboradorPage({ params }: { params: { id: stri
             A data é a de quando a sincronização diária percebeu a mudança na Sólides, não a data em que ela passou a valer.
             Mudanças anteriores a 01/10/2026 não foram registradas.
           </p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base">Quem abriu esta ficha</CardTitle>
-        </CardHeader>
-        <CardContent className="text-sm">
-          {acessos === null ? (
-            <p className="text-ink-muted">Registro de acessos ainda não instalado no banco (migration 20261001160000).</p>
-          ) : (
-            <ul className="space-y-1">
-              {acessos.map((a, i) => (
-                <li key={`${a.createdAt}-${i}`} className="flex flex-wrap gap-x-3">
-                  <span className="w-32 shrink-0 tabular-nums text-ink-muted">{formatDateTimeBR(a.createdAt)}</span>
-                  <span className="text-ink-primary">{a.userName || a.userEmail || "Usuário removido"}</span>
-                </li>
-              ))}
-            </ul>
-          )}
         </CardContent>
       </Card>
 

@@ -228,12 +228,6 @@ export interface DpEventoRecente extends DpEventoRow {
   nome: string | null;
 }
 
-export interface DpAcessoRow {
-  createdAt: string;
-  userName: string | null;
-  userEmail: string | null;
-}
-
 function ausente(error: { code?: string } | null): boolean {
   return error?.code === "PGRST205" || error?.code === "42P01";
 }
@@ -301,22 +295,6 @@ export async function listDpEventosRecentes(
     if (!podeVerEmpresa(escopo, empresa.companyId)) return [];
     return [{ ...toEvento(r), colaboradorId: colab?.id ?? null, nome: colab?.nome ?? null }];
   }).slice(0, limit);
-}
-
-export async function listDpAcessos(db: AdminClient, colaboradorId: string, limit = 20): Promise<DpAcessoRow[] | null> {
-  const { data, error } = await db
-    .from("dp_acessos")
-    .select("created_at, users(name, email)")
-    .eq("colaborador_id", colaboradorId)
-    .order("created_at", { ascending: false })
-    .limit(limit);
-  if (ausente(error)) return null;
-  check(error, "dp_acessos");
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (data ?? []).map((r: any) => {
-    const u = Array.isArray(r.users) ? r.users[0] : r.users;
-    return { createdAt: r.created_at, userName: u?.name ?? null, userEmail: u?.email ?? null };
-  });
 }
 
 /**
