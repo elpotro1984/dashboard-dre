@@ -156,18 +156,37 @@ export async function gravarAcessos(
   }
 }
 
-/** Apaga tudo do usuário na tabela e insere as linhas pedidas. */
+/**
+ * Apaga tudo do usuário na tabela e insere as linhas pedidas.
+ *
+ * Se a inserção falhar DEPOIS do delete (rede caiu — aconteceu na migração de
+ * 26/10/2026 e deixou uma pessoa sem empresa no Compras), tenta de novo uma vez
+ * e, falhando, DEVOLVE as linhas de antes: a pessoa nunca fica sem o escopo que
+ * tinha por causa de uma gravação pela metade.
+ */
 async function substituir(
   admin: Admin,
   tabela: string,
   userId: string,
   linhas: Array<Record<string, unknown>>,
 ): Promise<void> {
+  const { data: antes, error: readErr } = await admin.from(tabela).select("*").eq("user_id", userId);
+  if (readErr) throw new Error(`${tabela}: ${readErr.message}`);
+
   const { error: delErr } = await admin.from(tabela).delete().eq("user_id", userId);
   if (delErr) throw new Error(`${tabela}: ${delErr.message}`);
   if (linhas.length === 0) return;
-  const { error } = await admin.from(tabela).insert(linhas.map((l) => ({ user_id: userId, ...l })));
-  if (error) throw new Error(`${tabela}: ${error.message}`);
+
+  const novas = linhas.map((l) => ({ user_id: userId, ...l }));
+  let { error } = await admin.from(tabela).insert(novas);
+  if (error) ({ error } = await admin.from(tabela).insert(novas));
+  if (error) {
+    if (antes && antes.length > 0) {
+      const { error: volta } = await admin.from(tabela).insert(antes);
+      if (volta) throw new Error(`${tabela}: ${error.message} — e NÃO foi possível devolver as linhas anteriores (${volta.message})`);
+    }
+    throw new Error(`${tabela}: ${error.message} (linhas anteriores devolvidas)`);
+  }
 }
 
 /**
