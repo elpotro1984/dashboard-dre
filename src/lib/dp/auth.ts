@@ -15,9 +15,10 @@ export interface DpUserContext extends DpEscopo {
 }
 
 /**
- * Empresas liberadas a um ANALISTA (`dp_user_empresas`). Gestor não consulta:
- * vê todas. Tabela ausente (migration 20261019120000 não aplicada) = nenhuma
- * empresa — falha fechada, nunca "todas".
+ * Empresas liberadas no DP (`dp_user_empresas`) — para os DOIS papéis desde
+ * 26/10/2026 (tela de Usuários módulo → perfil: a Visão Estratégica também é
+ * por empresa). Só o admin vê todas. Tabela ausente = nenhuma empresa — falha
+ * fechada, nunca "todas".
  */
 export async function empresasDoAnalista(userId: string): Promise<string[]> {
   const { data, error } = await createAdminClient().from("dp_user_empresas").select("company_id").eq("user_id", userId);
@@ -28,9 +29,12 @@ export async function empresasDoAnalista(userId: string): Promise<string[]> {
   return (data ?? []).map((r) => r.company_id as string);
 }
 
-/** Escopo de empresa de um papel — usado também pela tela inicial. */
-export async function escopoDp(userId: string, role: DpRole): Promise<DpEscopo> {
-  return { role, empresas: role === "gestor" ? null : await empresasDoAnalista(userId) };
+/**
+ * Escopo de empresa — usado também pela tela inicial. Admin vê todas (herda o
+ * DP como gestor); gestor e analista, só as empresas marcadas para eles.
+ */
+export async function escopoDp(userId: string, role: DpRole, isAdmin: boolean): Promise<DpEscopo> {
+  return { role, empresas: isAdmin ? null : await empresasDoAnalista(userId) };
 }
 
 /**
@@ -46,7 +50,11 @@ export const getDpUser = cache(async (): Promise<DpUserContext | null> => {
     id: ctx.profile.id,
     name: ctx.profile.name,
     email: ctx.profile.email,
-    ...(await escopoDp(ctx.profile.id, role)),
+    ...(await escopoDp(
+      ctx.profile.id,
+      role,
+      ctx.profile.profile === "admin" || ctx.profile.role === "admin",
+    )),
   };
 });
 

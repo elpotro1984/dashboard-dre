@@ -4,9 +4,11 @@ import {
 } from "@/lib/auth/bi-validation";
 import { isCaixaPath } from "@/lib/auth/caixa";
 import { isDpPath } from "@/lib/auth/dp";
+import { financeiroPerfilDoPerfil, type FinanceiroPerfil } from "@/lib/auth/module-access";
 import { isOrcamentoConfigPath, isOrcamentoPath } from "@/lib/auth/orcamento";
 import { isVbPath } from "@/lib/auth/vb";
 import { hasCtrlFullView } from "@/lib/ctrl/full-view";
+import { isCtrlOrgRole, type CtrlOrgRole } from "@/lib/ctrl/roles";
 import { VIAGENS_ENABLED } from "@/lib/viagens/flags";
 import type { DreRole, CtrlRole, UserProfileType } from "@/lib/supabase/types";
 
@@ -125,10 +127,24 @@ export function canAccessPathByProfile(
   canOrcamento: boolean = false,
   /**
    * Módulo Departamento Pessoal (sigiloso). Só a concessão em
-   * user_module_roles libera; admin NÃO passa por cima — ver @/lib/auth/dp.
+   * user_module_roles OU admin (desde 26/10/2026, salvo e-mail bloqueado) — ver @/lib/auth/dp.
    */
   canDp: boolean = false,
+  /**
+   * Perfis POR MÓDULO (@/lib/auth/module-access). Ausente = deriva do `profile`
+   * exatamente como antes — é o que mantém chamadores antigos idênticos.
+   */
+  perfis?: { financeiro: FinanceiroPerfil | null; compras: CtrlOrgRole | null },
 ): boolean {
+  // Perfil que decide a whitelist do Financeiro e o perfil que decide as rotas
+  // do Compras. Sem `perfis`, os dois saem do `profile` único, como sempre.
+  const financeiroPerfil = perfis
+    ? perfis.financeiro
+    : financeiroPerfilDoPerfil(profile, canFinanceiro);
+  const comprasPerfil: string = perfis ? (perfis.compras ?? "") : profile;
+  const financeiroRestrito =
+    financeiroPerfil === "visao_financeira" || financeiroPerfil === "csc";
+
   // Tela inicial (cockpit): liberada para TODOS os perfis, sem depender de
   // módulo. O que cada um VÊ lá dentro é decidido por perfil na própria tela
   // (ver @/lib/home/ctrl-widgets) — aqui é só o acesso à rota.
@@ -153,7 +169,7 @@ export function canAccessPathByProfile(
   // nominais). Precisa vir ANTES das regras genéricas de /financeiro, que
   // liberariam a tela para qualquer perfil com o módulo Financeiro.
   if (pathname === BI_VALIDATION_PATH || pathname.startsWith(`${BI_VALIDATION_PATH}/`)) {
-    return canAccessBiValidationByProfile(profile, email);
+    return canAccessBiValidationByProfile(financeiroPerfil === "csc" ? "csc" : profile, email);
   }
 
   // Módulo Case (Case Shows) — acesso binário via can_case (admin sempre pode).
@@ -210,7 +226,12 @@ export function canAccessPathByProfile(
   // qualquer página fora das visualizações permitidas. As telas "Validação
   // Relatório" (CSC) e "Validação de Contratos" (quem tem o módulo) já foram
   // decididas acima.
-  if (profile === "franqueado" || profile === "csc") {
+  //
+  // A whitelist é do FINANCEIRO: quem também tem um perfil do Compras (ex.:
+  // Visão Financeira + Diretor, possível desde o modelo módulo → perfil) segue
+  // para as regras do /ctrl abaixo. Franqueado/CSC sem perfil do Compras —
+  // todos os de hoje — continuam barrados no /ctrl, como sempre.
+  if (financeiroRestrito) {
     if (FRANQUEADO_BASE_PATHS.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
       return true;
     }
@@ -221,7 +242,7 @@ export function canAccessPathByProfile(
       const sub = parts[3] ? `/${parts[3]}` : "";
       return FRANQUEADO_SEGMENT_SUBS.has(sub);
     }
-    return false;
+    if (!(pathname.startsWith("/ctrl") && isCtrlOrgRole(comprasPerfil))) return false;
   }
 
   // Admin: tudo.
@@ -259,14 +280,14 @@ export function canAccessPathByProfile(
     if (pathname.startsWith("/ctrl/aprovacoes")) {
       return (
         fullView ||
-        ["gerente", "gerente_setor", "diretor", "contas_a_pagar"].includes(profile)
+        ["gerente", "gerente_setor", "diretor", "contas_a_pagar"].includes(comprasPerfil)
       );
     }
     // Contas a Pagar: exclusivo do perfil Contas a Pagar (+ admin, que já
     // retornou true no topo). Diretor/gerente/solicitante não acessam — só a
     // visão completa entra, e em modo somente-leitura (gate na própria página).
     if (pathname.startsWith("/ctrl/contas-a-pagar")) {
-      return fullView || profile === "contas_a_pagar";
+      return fullView || comprasPerfil === "contas_a_pagar";
     }
     // Editar Orçamento vive no hub Configurações: admin + perfil Contas a
     // Pagar. Precisa vir ANTES da regra geral /ctrl/orcamento abaixo, senão
@@ -274,7 +295,7 @@ export function canAccessPathByProfile(
     // função. A visão completa (fullView) NÃO entra aqui — ela é leitura do
     // módulo operacional, não das Configurações.
     if (pathname.startsWith("/ctrl/orcamento/editar")) {
-      return profile === "contas_a_pagar";
+      return comprasPerfil === "contas_a_pagar";
     }
     // Orcamento (visualizacao): gerente + gerente_setor + diretor +
     // contas_a_pagar (csc). O gerente_setor entra na tela, mas só enxerga os
@@ -282,12 +303,12 @@ export function canAccessPathByProfile(
     if (pathname.startsWith("/ctrl/orcamento")) {
       return (
         fullView ||
-        ["gerente", "gerente_setor", "diretor", "contas_a_pagar"].includes(profile)
+        ["gerente", "gerente_setor", "diretor", "contas_a_pagar"].includes(comprasPerfil)
       );
     }
     // Relatorios: diretor + contas_a_pagar (csc); escondido do gerente/solicitante.
     if (pathname.startsWith("/ctrl/relatorios")) {
-      return fullView || ["diretor", "contas_a_pagar"].includes(profile);
+      return fullView || ["diretor", "contas_a_pagar"].includes(comprasPerfil);
     }
     // Fornecedores: qualquer perfil do CTRL pode listar/cadastrar/editar.
     // A aprovação em si fica restrita ao CSC/admin (gate no client + server
@@ -296,7 +317,7 @@ export function canAccessPathByProfile(
       return (
         fullView ||
         ["solicitante", "gerente", "gerente_setor", "diretor", "csc", "contas_a_pagar"].includes(
-          profile,
+          comprasPerfil,
         )
       );
     }
@@ -310,7 +331,7 @@ export function canAccessPathByProfile(
       pathname.startsWith("/ctrl/configuracoes") ||
       pathname.startsWith("/ctrl/admin")
     ) {
-      return profile === "contas_a_pagar";
+      return comprasPerfil === "contas_a_pagar";
     }
     // Padrão dentro de /ctrl (requisicoes, orçamento, notificações, etc.)
     return true;

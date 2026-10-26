@@ -1075,7 +1075,7 @@ export async function notifyCscPendingValidation(
 
   const { data, error } = await admin
     .from("users")
-    .select("id, profile, role, email")
+    .select("id, profile, role, email, user_module_roles!user_module_roles_user_id_fkey(module, role)")
     .eq("active", true);
 
   if (error) {
@@ -1083,12 +1083,15 @@ export async function notifyCscPendingValidation(
     return 0;
   }
 
-  // Mesmo conjunto da tela: perfil CSC, admins e os e-mails nominais.
+  // Mesmo conjunto da tela: CSC (pelo perfil ou pela linha do módulo
+  // Financeiro — tela de Usuários módulo → perfil), admins e os e-mails nominais.
   const targets = (data ?? []).filter((u) => {
     const profile = (u.profile as string | null) ?? null;
     const email = String(u.email ?? "").trim().toLowerCase();
+    const linhas = (u.user_module_roles as Array<{ module: string; role: string }> | null) ?? [];
     return (
       profile === "csc" ||
+      linhas.some((l) => l.module === "financeiro" && l.role === "csc") ||
       profile === "admin" ||
       u.role === "admin" ||
       BI_VALIDATION_EXTRA_EMAILS.has(email)

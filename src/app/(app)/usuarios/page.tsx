@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { UsersAcessosManager } from "@/components/app/users-acessos-manager";
 import { UsersAdminManager } from "@/components/app/users-admin-manager";
 import { fetchCaixaGrantUserIds } from "@/lib/auth/caixa";
 import { fetchOrcamentoGrantUserIds } from "@/lib/auth/orcamento";
@@ -8,15 +9,37 @@ import { fetchContratosGrantUserIds } from "@/lib/auth/contratos";
 import { getCurrentSessionContext } from "@/lib/auth/session";
 import { isCtrlOrgRole, type CtrlOrgRole } from "@/lib/ctrl/roles";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { acessosIniciais } from "@/lib/usuarios/acessos";
+import { carregarAcessos } from "@/lib/usuarios/carregar-acessos";
 
 export const dynamic = "force-dynamic";
 
-export default async function UsuariosPage() {
+/**
+ * Qual tela de Usuários abre. A nova (módulo → perfil, docs/superpowers/specs/
+ * 2026-10-26-usuarios-modulo-perfil.md) é a PADRÃO desde a virada (26/10/2026).
+ * A antiga fica só como reserva: `?tela=antiga`, ou env
+ * USUARIOS_TELA_MODULOS=0 para voltar a ela por padrão.
+ */
+function usaTelaModulos(tela: string | undefined): boolean {
+  if (tela === "antiga") return false;
+  if (tela === "modulos") return true;
+  return process.env.USUARIOS_TELA_MODULOS !== "0";
+}
+
+export default async function UsuariosPage({
+  searchParams,
+}: {
+  searchParams?: { tela?: string };
+}) {
   const { user, profile } = await getCurrentSessionContext();
   if (!user) redirect("/login");
   if (!profile || profile.profile !== "admin") redirect("/dashboard");
 
   const adminClient = createAdminClient();
+
+  if (usaTelaModulos(searchParams?.tela)) {
+    return <TelaModulos adminClient={adminClient} />;
+  }
 
   const [
     { data: users },
@@ -109,26 +132,7 @@ export default async function UsuariosPage() {
     }
   }
 
-  // Setores do ORÇAMENTO por empresa, para o seletor da tela. De TODOS os anos,
-  // deduplicados por nome: a atribuição é year-agnostic (casa por nome), e o
-  // mesmo setor aparece uma vez por ano clonado.
-  const orcamentoSetoresPorEmpresa: Record<string, string[]> = {};
-  {
-    const { data } = await adminClient
-      .from("orcamento_setores")
-      .select("company_id, name, active");
-    const porEmpresa = new Map<string, string[]>();
-    for (const row of (data ?? []) as Array<Record<string, unknown>>) {
-      if (row.active === false) continue;
-      const cid = row.company_id as string;
-      porEmpresa.set(cid, [...(porEmpresa.get(cid) ?? []), (row.name as string) ?? ""]);
-    }
-    for (const [cid, nomes] of Array.from(porEmpresa.entries())) {
-      orcamentoSetoresPorEmpresa[cid] = nomesUnicos(nomes).sort((a: string, b: string) =>
-        a.localeCompare(b, "pt-BR", { sensitivity: "base" }),
-      );
-    }
-  }
+  const orcamentoSetoresPorEmpresa = await setoresDoOrcamentoPorEmpresa(adminClient);
 
   const usersData = (users ?? []).map((item) => ({
     id: item.id as string,
@@ -177,6 +181,59 @@ export default async function UsuariosPage() {
         nome: o.nome as string,
         slug: o.slug as string,
       }))}
+    />
+  );
+}
+
+type AdminClient = ReturnType<typeof createAdminClient>;
+
+/**
+ * Setores do ORÇAMENTO por empresa, para o seletor da tela. De TODOS os anos,
+ * deduplicados por nome: a atribuição é year-agnostic (casa por nome), e o
+ * mesmo setor aparece uma vez por ano clonado.
+ */
+async function setoresDoOrcamentoPorEmpresa(adminClient: AdminClient): Promise<Record<string, string[]>> {
+  const { data } = await adminClient.from("orcamento_setores").select("company_id, name, active");
+  const porEmpresa = new Map<string, string[]>();
+  for (const row of (data ?? []) as Array<Record<string, unknown>>) {
+    if (row.active === false) continue;
+    const cid = row.company_id as string;
+    porEmpresa.set(cid, [...(porEmpresa.get(cid) ?? []), (row.name as string) ?? ""]);
+  }
+  const out: Record<string, string[]> = {};
+  for (const [cid, nomes] of Array.from(porEmpresa.entries())) {
+    out[cid] = nomesUnicos(nomes).sort((a: string, b: string) =>
+      a.localeCompare(b, "pt-BR", { sensitivity: "base" }),
+    );
+  }
+  return out;
+}
+
+/** Tela nova: o acesso EFETIVO de hoje de cada pessoa vira o formulário. */
+async function TelaModulos({ adminClient }: { adminClient: AdminClient }) {
+  const [{ usuarios, atual }, { data: companies }, { data: orgs }, { data: sectors }, orcamentoSetores] =
+    await Promise.all([
+      carregarAcessos(adminClient),
+      adminClient.from("companies").select("id,name").eq("active", true).order("name"),
+      adminClient.from("ctrl_orgs").select("id,nome").eq("ativo", true).order("nome"),
+      adminClient.from("ctrl_sectors").select("id,name,org_id").eq("active", true).order("name"),
+      setoresDoOrcamentoPorEmpresa(adminClient),
+    ]);
+
+  return (
+    <UsersAcessosManager
+      usuarios={usuarios.map((u) => {
+        const { form, avisos } = acessosIniciais(atual.get(u.id)!);
+        return { ...u, form, avisos };
+      })}
+      companies={(companies ?? []).map((c) => ({ id: c.id as string, name: c.name as string }))}
+      ctrlOrgs={(orgs ?? []).map((o) => ({ id: o.id as string, name: o.nome as string }))}
+      ctrlSectors={(sectors ?? []).map((s) => ({
+        id: s.id as string,
+        name: s.name as string,
+        orgId: (s.org_id as string | null) ?? null,
+      }))}
+      orcamentoSetores={orcamentoSetores}
     />
   );
 }

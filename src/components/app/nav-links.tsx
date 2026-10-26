@@ -38,7 +38,7 @@ interface NavLinksProps {
    * mesma mecânica de vbRole/vbGestorOnly.
    */
   orcamentoPapel?: OrcamentoPapel | null;
-  /** Módulo Departamento Pessoal (grupo DP, sigiloso). Só a concessão; admin não herda. */
+  /** Módulo Departamento Pessoal (grupo DP, sigiloso). Concessão ou admin (salvo e-mail bloqueado). */
   dpRole?: DpRole | null;
   segments: Segment[];
   activeSegmentSlug: string | null;
@@ -355,7 +355,7 @@ function isItemVisible(
   if (item.vbAccess) return vbRole !== null && (!item.vbGestorOnly || vbRole === "gestor");
 
   // Departamento Pessoal (sigiloso): só a concessão, como o VB. Decidido antes
-  // das whitelists de franqueado/CSC; admin não herda.
+  // das whitelists de franqueado/CSC; o dpRole já inclui o admin.
   if (item.dpAccess) return dpRole !== null && (!item.dpGestorOnly || dpRole === "gestor");
 
   // Caixa: módulo próprio, concedido por usuário (ou admin). Como o Contratos,
@@ -371,12 +371,19 @@ function isItemVisible(
     return !item.orcamentoAdminOnly || orcamentoPapel === "admin";
   }
 
+  // A whitelist do franqueado/CSC é do FINANCEIRO: item de outro módulo (Compras,
+  // Case, Viagens) segue para as regras abaixo — é o que deixa "Visão Financeira
+  // + Diretor no Compras" ou "+ Case" ver esses menus (espelha access.ts, que
+  // decide /case e /viagens antes da whitelist). Franqueado/CSC de hoje não têm
+  // Compras nem Case, então para eles nada muda.
+  const itemSoDoCompras =
+    (Boolean(item.ctrlRoles) && !item.dreRoles) || Boolean(item.caseAccess) || Boolean(item.viagensAccess);
   // CSC: cópia do franqueado + a tela "Validação Relatório".
-  if (isCsc) return CSC_NAV_KEYS.has(item.key);
+  if (isCsc && !itemSoDoCompras) return CSC_NAV_KEYS.has(item.key);
   // Franqueado: a visibilidade não segue o dreRole (cai em 'gestor_unidade',
   // que esconderia o Business Intelligence). Mostra exatamente as telas da
   // whitelist, espelhando FRANQUEADO_BASE_PATHS em access.ts.
-  if (isFranqueado) return FRANQUEADO_NAV_KEYS.has(item.key);
+  if (isFranqueado && !itemSoDoCompras) return FRANQUEADO_NAV_KEYS.has(item.key);
 
   // "Validação Relatório" não passa por dreRole/ctrlRole: whitelist própria.
   if (item.biValidationAccess) return Boolean(canBiValidation);

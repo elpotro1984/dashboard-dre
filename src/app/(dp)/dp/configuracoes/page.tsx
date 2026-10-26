@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Building2, ChevronRight, Percent, Scale, Target, Users } from "lucide-react";
+import { Building2, ChevronRight, Percent, Scale, Target } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import { DpSyncPanel } from "@/components/dp/sync-panel";
-import { DP_ACESSOS_PATH, DP_CENTROS_PATH, DP_EMPRESAS_PATH, DP_ENCARGOS_PATH, DP_PARAMETROS_FOLHA_PATH } from "@/lib/auth/dp";
+import { DP_CENTROS_PATH, DP_EMPRESAS_PATH, DP_ENCARGOS_PATH, DP_PARAMETROS_FOLHA_PATH } from "@/lib/auth/dp";
 import { getDpUser } from "@/lib/dp/auth";
 import { getDpEmpresaAtiva } from "@/lib/dp/empresa-ativa";
 import { DpNaoInstaladoError, lastDpSyncRun } from "@/lib/dp/queries";
@@ -49,12 +49,6 @@ const DO_GRUPO: ConfigCard[] = [
     description: "A que empresa do Control Hub pertence cada unidade e departamento da Sólides.",
     href: DP_EMPRESAS_PATH,
     icon: Building2,
-  },
-  {
-    title: "Acessos",
-    description: "Quem usa o DP, com qual papel (gestor ou analista) e quais empresas cada analista vê.",
-    href: DP_ACESSOS_PATH,
-    icon: Users,
   },
 ];
 

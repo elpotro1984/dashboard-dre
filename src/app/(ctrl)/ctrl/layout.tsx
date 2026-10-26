@@ -125,7 +125,8 @@ export default async function CtrlLayout({ children }: { children: React.ReactNo
       unreadNotifications={unreadNotifications}
       // Perfil unificado: o tour guiado usa para escolher a variante de texto
       // dos passos que mudam conforme quem lê (os cinco perfis do Compras).
-      userProfile={profile?.profile ?? null}
+      // Perfil DO MÓDULO Compras quando houver (sem gravado, é o próprio profile).
+      userProfile={profile?.compras_perfil ?? profile?.profile ?? null}
       // Tour guiado: aparece sozinho uma única vez por usuário. A marca vive em
       // user_module_roles (module='tour') — ver @/lib/tour/seen.
       tourSeen={profile?.tour_seen ?? false}

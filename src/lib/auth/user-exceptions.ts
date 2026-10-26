@@ -16,6 +16,7 @@
 // ============================================================================
 
 import { BI_VALIDATION_EXTRA_EMAILS } from "@/lib/auth/bi-validation";
+import { DP_EMAILS_BLOQUEADOS, dpBloqueado } from "@/lib/auth/dp";
 import { CASE_CONTRACT_APPROVER_EMAILS, CASE_RESUMO_EMAIL_TO } from "@/lib/case/contract-config";
 import { CTRL_FULL_VIEW_EMAILS } from "@/lib/ctrl/full-view";
 import {
@@ -32,7 +33,7 @@ export interface UserException {
   /** Identificador estável da regra (chave de render). */
   key: string;
   /** Módulo onde a exceção age — vira o rótulo colorido no diálogo. */
-  scope: "Compras" | "Financeiro" | "Case";
+  scope: "Compras" | "Financeiro" | "Case" | "Departamento Pessoal";
   title: string;
   detail: string;
   /** Arquivo que precisa ser editado para mudar a regra. */
@@ -182,6 +183,21 @@ export function describeUserExceptions(user: UserRef): UserException[] {
     });
   }
 
+  // ── Departamento Pessoal: e-mail bloqueado mesmo sendo admin (dp.ts) ──────
+  // Ficava fora do catálogo enquanto o DP era sigiloso; o regime saiu em
+  // 26/10/2026 (o admin passou a herdar o DP), e esta é a exceção que sobrou.
+  if (dpBloqueado(email)) {
+    out.push({
+      key: "dp-bloqueado",
+      scope: "Departamento Pessoal",
+      title: "Sem acesso ao Departamento Pessoal",
+      detail:
+        "Não acessa o Departamento Pessoal, mesmo sendo admin (que herda todos os módulos) e mesmo " +
+        "que alguém marque o módulo por engano: a sessão, as rotas e o banco (dp_has_access) recusam.",
+      source: "src/lib/auth/dp.ts (DP_EMAILS_BLOQUEADOS) + dp_has_access() no banco",
+    });
+  }
+
   // ── Compras: roteamento fixo por ID (routing.ts) ─────────────────────────
   if (user.id === APPROVAL_ROUTING.directorOnly.requesterId) {
     out.push({
@@ -276,6 +292,11 @@ export function findOrphanExceptionRules(users: UserRef[]): OrphanExceptionRule[
       key: `report-extra:${r.email}`,
       email: r.email,
       label: "Relatório: enxerga setores extras",
+    })),
+    ...DP_EMAILS_BLOQUEADOS.map((email) => ({
+      key: `dp-bloqueado:${email}`,
+      email,
+      label: "Sem acesso ao Departamento Pessoal",
     })),
   ];
 

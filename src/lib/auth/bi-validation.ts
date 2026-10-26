@@ -53,12 +53,16 @@ export function canAccessBiValidationByProfile(
 
 /** Versão usada nas páginas/rotas, a partir do perfil da sessão. */
 export function canAccessBiValidation(
-  profile: Pick<UnifiedProfile, "profile" | "role" | "email"> | null,
+  profile: Pick<UnifiedProfile, "profile" | "role" | "email"> &
+    Partial<Pick<UnifiedProfile, "financeiro_perfil">> | null,
 ): boolean {
   if (!profile) return false;
   // A ilha do validador de contrato vence inclusive o `role` legado abaixo.
   if (profile.profile === "validador_contrato") return false;
   // `role` legado ainda marca admins criados antes do modelo unificado.
   if (profile.role === "admin") return true;
+  // CSC pelo perfil DO MÓDULO Financeiro (sem perfil gravado, é o próprio
+  // profile 'csc' — ver @/lib/auth/module-access).
+  if (profile.financeiro_perfil === "csc") return true;
   return canAccessBiValidationByProfile(profile.profile, profile.email);
 }

@@ -17,8 +17,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  *   2. alcança ESTA empresa?       → `podeVerEmpresa()` / `assertEmpresa()`
  *   3. alcança ESTE setor?         → `setoresDeLeitura()` / `setoresDeEscrita()`
  *
- * O escopo: empresa vem de `user_company_access` (as "Unidades" da tela de
- * Usuários) e setor de `orcamento_user_setores`, a atribuição POR EMPRESA do
+ * O escopo: empresa vem de `orcamento_user_empresas` (a lista do próprio
+ * módulo; até a tela nova, espelho das "Unidades" de `user_company_access`) e
+ * setor de `orcamento_user_setores`, a atribuição POR EMPRESA do
  * próprio módulo, que casa pelo NOME do setor do orçamento. **Não é
  * `user_sectors`**, que é do Compras e não tem empresa.
  *
@@ -47,7 +48,7 @@ export interface OrcamentoUser {
   papel: OrcamentoPapel;
   /** Atalho: papel === 'admin'. */
   isAdmin: boolean;
-  /** Empresas de `user_company_access`; "todas" para admin. */
+  /** Empresas de `orcamento_user_empresas`; "todas" para admin. */
   companyIds: string[] | "todas";
   /**
    * Setores do COMPRAS vinculados ao usuário (`user_sectors`).
@@ -85,7 +86,7 @@ export const SEM_EDICAO_METODO =
  * sessão (perfil + concessão em user_module_roles) — ver @/lib/auth/orcamento.
  */
 export async function getOrcamentoUser(): Promise<OrcamentoUser | null> {
-  const { profile, modules } = await getCurrentSessionContext();
+  const { supabase, profile, modules } = await getCurrentSessionContext();
   const papel = modules?.orcamento?.papel ?? null;
   if (!profile || !papel) return null;
 
@@ -93,9 +94,42 @@ export async function getOrcamentoUser(): Promise<OrcamentoUser | null> {
     userId: profile.id,
     papel,
     isAdmin: papel === "admin",
-    companyIds: papel === "admin" ? "todas" : profile.company_ids,
+    companyIds:
+      papel === "admin"
+        ? "todas"
+        : await empresasDoOrcamento(supabase, profile.id, profile.company_ids),
     ctrlSectorIds: profile.sector_ids,
   };
+}
+
+/**
+ * Empresas do usuário NO ORÇAMENTO (`orcamento_user_empresas`, migration
+ * 20261026120000) — a lista do próprio módulo, que é a mesma que as policies
+ * leem. Até a tela de Usuários módulo → perfil, ela é espelho exato de
+ * `user_company_access` (gatilho no banco), então o alcance é o de sempre.
+ *
+ * Fora do `select` da sessão de propósito: embed de tabela que ainda não existe
+ * derruba a sessão inteira de todo mundo. Tabela ausente (migration pendente)
+ * cai nas unidades do Financeiro — exatamente o comportamento anterior. Qualquer
+ * outro erro devolve NENHUMA empresa: falhar para o lado de esconder.
+ */
+async function empresasDoOrcamento(
+  supabase: SupabaseClient,
+  userId: string,
+  unidadesDoFinanceiro: string[],
+): Promise<string[]> {
+  // Filtro por usuário EXPLÍCITO, não só pela RLS: a policy deixa admin ler as
+  // linhas de todos, e um admin no "ver como" (papel rebaixado na linha de
+  // concessão — ver resolveOrcamentoPapel) cai aqui com o papel de construtor.
+  const { data, error } = await supabase
+    .from("orcamento_user_empresas")
+    .select("company_id")
+    .eq("user_id", userId);
+  if (error) {
+    const tabelaAusente = error.code === "42P01" || error.code === "PGRST205";
+    return tabelaAusente ? unidadesDoFinanceiro : [];
+  }
+  return ((data ?? []) as Array<{ company_id: string }>).map((r) => r.company_id);
 }
 
 /**

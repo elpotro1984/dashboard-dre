@@ -1079,7 +1079,7 @@ export function UsersAdminManager({
 
 // ─── Regras nominais (exceções fixas no código) ─────────────────────────────
 
-function ExceptionsDialog({
+export function ExceptionsDialog({
   open,
   focusUserId,
   users,
@@ -1090,7 +1090,7 @@ function ExceptionsDialog({
   open: boolean;
   /** Quando preenchido, mostra só este usuário (clique no ícone da linha). */
   focusUserId: string | null;
-  users: UserItem[];
+  users: Array<Pick<UserItem, "id" | "name" | "email">>;
   exceptionsByUser: Map<string, UserException[]>;
   orphanRules: ReturnType<typeof findOrphanExceptionRules>;
   onClose: () => void;
@@ -1700,7 +1700,7 @@ function UserForm({
 // Filtro compacto embutido no cabeçalho da tabela. Quando nada está
 // selecionado ("all"), o gatilho mostra apenas o título da coluna; ao escolher
 // um valor, mostra o rótulo selecionado.
-function HeaderFilter({
+export function HeaderFilter({
   value,
   onChange,
   title,
@@ -1731,7 +1731,7 @@ function HeaderFilter({
   );
 }
 
-function PillMultiSelect({
+export function PillMultiSelect({
   options,
   selected,
   onToggle,
@@ -1786,7 +1786,7 @@ function PillMultiSelect({
  * dele existe como setor de compras — oferecer a lista do Compras deixava
  * metade dos setores desta base inatingível.
  */
-function OrcamentoSetoresPorEmpresaField({
+export function OrcamentoSetoresPorEmpresaField({
   companies,
   setoresPorEmpresa,
   companyIds,

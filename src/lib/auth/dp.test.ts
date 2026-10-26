@@ -27,16 +27,24 @@ test("e-mail bloqueado não entra no DP nem com linha de gestor (sem caixa)", ()
 });
 
 test("isDpGestorPath: configurações do grupo e de-para de empresas; hub e telas da empresa não", () => {
-  assert.equal(isDpGestorPath("/dp/configuracoes/acessos"), true);
   assert.equal(isDpGestorPath("/dp/configuracoes/parametros"), true);
   assert.equal(isDpGestorPath("/dp/empresas"), true);
   assert.equal(isDpGestorPath("/dp/configuracoes"), false);
   assert.equal(isDpGestorPath("/dp/configuracoes/centros-custo"), false);
   assert.equal(isDpGestorPath("/dp/configuracoes/encargos"), false);
-  assert.equal(isDpGestorPath("/dp/configuracoes/acessosx"), false);
+  // A tela de Acessos saiu em 26/10/2026 (o DP é concedido pela tela de Usuários).
+  assert.equal(isDpGestorPath("/dp/configuracoes/acessos"), false);
   assert.equal(isDpGestorPath("/dp/cargos"), false);
   assert.equal(isDpGestorPath("/dp/colaboradores"), false);
   assert.equal(isDpGestorPath("/dp/configuracoesx"), false);
+});
+
+test("admin herda o DP como gestor (26/10/2026), salvo e-mail bloqueado", () => {
+  assert.equal(resolveDpRole([], "fulano@exemplo.com", true), "gestor");
+  assert.equal(resolveDpRole([{ module: "dp", role: "analista" }], "fulano@exemplo.com", true), "gestor");
+  assert.equal(resolveDpRole([], "carol@quokka.net.br", true), null);
+  assert.equal(hasDpGrant([], "fulano@exemplo.com", true), true);
+  assert.equal(resolveDpRole([], "fulano@exemplo.com"), null, "sem admin e sem linha, nada");
 });
 
 test("hasDpGrant: só a linha module='dp' com papel conhecido concede", () => {
