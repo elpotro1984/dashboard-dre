@@ -160,8 +160,9 @@ export function computeModuleAccess(input: ModuleAccessInput): ModuleAccess {
     canCaixa: hasCaixaGrant(rows) || isAdmin,
     // VB: só a concessão, sem override de admin.
     vbRole: resolveVbRole(rows),
-    // DP: concessão OU admin (desde 26/10/2026); e-mail bloqueado nunca.
-    dpRole: resolveDpRole(rows, input.email, isAdmin),
+    // DP: SÓ a concessão — admin não herda; quem concede é só o Lucas
+    // (@/lib/auth/concessao-reservada).
+    dpRole: resolveDpRole(rows),
     // Orçamento: concessão OU admin, papel derivado do perfil.
     orcamentoPapel: resolveOrcamentoPapel(profile ?? (isAdmin ? "admin" : null), rows),
     dreRole: deriveDreRole(profile, input.legacyRole as DreRole | null),

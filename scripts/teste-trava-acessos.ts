@@ -31,6 +31,7 @@ import { readFileSync } from "node:fs";
 
 import { computeModuleAccess } from "@/lib/auth/module-access";
 import { FORM_VAZIO, type AcessosForm } from "@/lib/usuarios/acessos";
+import { CONCEDENTE_RESERVADO_ID } from "@/lib/auth/concessao-reservada";
 import { gravarAcessos, planoValidado } from "@/lib/usuarios/gravar-acessos";
 
 function env(): (k: string) => string {
@@ -172,7 +173,8 @@ async function configurar(
   form: AcessosForm,
   extra: { active?: boolean; role?: string; profile?: string } = {},
 ) {
-  const r = await planoValidado(admin as never, form, EMAIL_TESTE);
+  // Grava como o concedente reservado: o teste confere a trava de LEITURA, não quem pode conceder.
+  const r = await planoValidado(admin as never, form, { atorId: CONCEDENTE_RESERVADO_ID, alvoId: id });
   if ("error" in r) throw new Error(`plano: ${r.error}`);
   const g = await gravarAcessos(admin as never, id, r.plano, id);
   if (g.error) throw new Error(`gravar: ${g.error}`);

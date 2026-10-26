@@ -30,20 +30,21 @@ test("admin NÃO herda o VB (só a concessão)", () => {
   assert.equal(a.orcamentoPapel, "admin");
 });
 
-test("admin herda o DP como gestor (26/10/2026), inclusive pela coluna legada", () => {
-  assert.equal(computeModuleAccess({ ...base, profile: "admin" }).dpRole, "gestor");
-  assert.equal(computeModuleAccess({ ...base, profile: "gerente", legacyRole: "admin" }).dpRole, "gestor");
+test("admin NÃO herda o DP, nem pela coluna legada — só com a concessão", () => {
+  assert.equal(computeModuleAccess({ ...base, profile: "admin" }).dpRole, null);
+  assert.equal(computeModuleAccess({ ...base, profile: "gerente", legacyRole: "admin" }).dpRole, null);
   assert.equal(computeModuleAccess(base).dpRole, null);
 });
 
-test("e-mail bloqueado não entra no DP mesmo com a concessão", () => {
+test("qualquer conta com a concessão entra no DP — inclusive a admin Carol, se o Lucas a liberar", () => {
   const a = computeModuleAccess({
     ...base,
     profile: "admin",
     email: "carol@quokka.net.br",
     moduleRoles: [{ module: "dp", role: "gestor" }],
   });
-  assert.equal(a.dpRole, null);
+  assert.equal(a.dpRole, "gestor");
+  assert.equal(computeModuleAccess({ ...base, profile: "admin", email: "carol@quokka.net.br" }).dpRole, null);
 });
 
 test("validador de contrato e flag legado implicam o módulo Contratos", () => {

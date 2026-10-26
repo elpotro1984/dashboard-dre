@@ -17,8 +17,8 @@ export interface DpUserContext extends DpEscopo {
 /**
  * Empresas liberadas no DP (`dp_user_empresas`) — para os DOIS papéis desde
  * 26/10/2026 (tela de Usuários módulo → perfil: a Visão Estratégica também é
- * por empresa). Só o admin vê todas. Tabela ausente = nenhuma empresa — falha
- * fechada, nunca "todas".
+ * por empresa). Só o admin COM a concessão vê todas. Tabela ausente = nenhuma
+ * empresa — falha fechada, nunca "todas".
  */
 export async function empresasDoAnalista(userId: string): Promise<string[]> {
   const { data, error } = await createAdminClient().from("dp_user_empresas").select("company_id").eq("user_id", userId);
@@ -30,17 +30,18 @@ export async function empresasDoAnalista(userId: string): Promise<string[]> {
 }
 
 /**
- * Escopo de empresa — usado também pela tela inicial. Admin vê todas (herda o
- * DP como gestor); gestor e analista, só as empresas marcadas para eles.
+ * Escopo de empresa — usado também pela tela inicial, e só para quem JÁ tem a
+ * concessão do DP (admin não herda o módulo). Admin com a concessão vê todas as
+ * empresas; os demais, só as marcadas para eles.
  */
 export async function escopoDp(userId: string, role: DpRole, isAdmin: boolean): Promise<DpEscopo> {
   return { role, empresas: isAdmin ? null : await empresasDoAnalista(userId) };
 }
 
 /**
- * Contexto do usuário no Departamento Pessoal, ou null sem concessão (admin
- * incluso, e a Carol sempre — ver @/lib/auth/dp). Memoizado por requisição:
- * layout, página e action pedem o mesmo.
+ * Contexto do usuário no Departamento Pessoal, ou null sem concessão — admin
+ * incluso (ver @/lib/auth/dp). Memoizado por requisição: layout, página e
+ * action pedem o mesmo.
  */
 export const getDpUser = cache(async (): Promise<DpUserContext | null> => {
   const ctx = await getSessionContext();

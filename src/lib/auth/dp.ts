@@ -3,29 +3,29 @@
  * Construído aos poucos; esta é a fonte de verdade do ACESSO.
  *
  * ── Acesso (desde 26/10/2026) ───────────────────────────────────────────────
- * Até 26/10/2026 o DP era sigiloso (admin não herdava, concessão só pela tela
- * Configurações › Acessos do próprio módulo, fora da tela de Usuários). Por
- * decisão do dono do projeto, esse regime saiu: o DP é concedido pela tela de
- * Usuários (módulo → perfil), como todo módulo, e o ADMIN o herda — ver
- * docs/superpowers/specs/2026-10-26-usuarios-modulo-perfil.md. Ficaram:
+ * O DP é concedido pela tela de Usuários (módulo → perfil) — a tela de Acessos
+ * do próprio módulo saiu — e SÓ PELO LUCAS MEIRELES, a qualquer pessoa,
+ * inclusive a um admin (@/lib/auth/concessao-reservada). Por isso o ADMIN NÃO
+ * HERDA o DP: sem a linha `module='dp'`, nem admin entra. Se herdasse, qualquer
+ * admin abriria o DP a outra conta só por torná-la admin.
  *
- *  - o trigger do banco que só aceita escrita da linha `module='dp'` pelo
- *    service role (a tela de Usuários grava por ele; o console, não);
- *  - o registro de cada concessão em `dp_concessoes`;
- *  - o bloqueio nominal abaixo.
+ * Isto substituiu, no mesmo dia, duas regras anteriores — não as traga de
+ * volta: "admin herda o DP como gestor" e o bloqueio por e-mail da admin Carol
+ * (que nunca vê o DP sem a concessão, agora pela regra geral, e que o Lucas
+ * pode liberar marcando o módulo no cadastro dela).
+ *
+ * Ficaram: o trigger do banco que só aceita escrita da linha `module='dp'` pelo
+ * service role (a tela de Usuários grava por ele; o console, não) e o registro
+ * de cada concessão em `dp_concessoes`. O banco espelha a regra em
+ * dp_has_access() (migration 20261026170000).
  *
  * ── Dois papéis ────────────────────────────────────────────────────────────
  *  - `gestor` ("Visão Estratégica"): as empresas marcadas + as configurações
  *    do grupo (parâmetros da folha, de-para de empresas).
  *  - `analista` ("Visão Operacional"): as empresas marcadas; folha e cadastros,
  *    sem as configurações do grupo.
- *  Os dois são recortados por `dp_user_empresas`; só o admin vê todas.
- *
- * ── Bloqueio nominal (regra especial) ──────────────────────────────────────
- * `DP_EMAILS_BLOQUEADOS`: pedido do dono do projeto — a admin Carol não vê o
- * DP, apesar de admin. Vale mesmo que alguém crie a concessão por engano: a
- * sessão, o middleware, a root page e dp_has_access() ignoram a linha. Está no
- * catálogo de regras especiais (@/lib/auth/user-exceptions).
+ *  Os dois são recortados por `dp_user_empresas`; o admin COM a concessão vê
+ *  todas as empresas.
  *
  * Client-safe: só constantes e funções puras.
  */
@@ -35,18 +35,6 @@ export type DpRole = "gestor" | "analista";
 
 export const DP_ROLE_GESTOR: DpRole = "gestor";
 export const DP_ROLE_ANALISTA: DpRole = "analista";
-
-/**
- * E-mails que NUNCA entram no DP, com ou sem concessão. Não é lista de
- * permissão: é a trava para um engano na tela de Acessos não abrir o módulo a
- * quem o dono do projeto decidiu que não vê. Comparação sem caixa.
- */
-export const DP_EMAILS_BLOQUEADOS: readonly string[] = ["carol@quokka.net.br"];
-
-export function dpBloqueado(email: string | null | undefined): boolean {
-  const e = (email ?? "").trim().toLowerCase();
-  return e !== "" && DP_EMAILS_BLOQUEADOS.includes(e);
-}
 
 /** Rota raiz do módulo. */
 export const DP_PATH = "/dp";
@@ -83,19 +71,11 @@ export const DP_FOLHA_GRUPO_PATH = "/dp/folha-grupo";
  * Papel efetivo no DP a partir das linhas de `user_module_roles`, ou null.
  * Com as duas linhas, `gestor` prevalece. Papel desconhecido não concede nada —
  * falha fechada, para uma linha digitada errado não abrir um módulo sigiloso.
- * E-mail bloqueado não entra, com concessão ou sem — nem sendo admin.
- *
- * Admin herda o DP como `gestor` desde 26/10/2026 (tela de Usuários módulo →
- * perfil: "Admin tem acesso a todos os módulos"). Espelha dp_has_access() no
- * banco (migration 20261026120000).
+ * Ser admin NÃO conta (ver o cabeçalho): só a linha concede.
  */
 export function resolveDpRole(
   rows: Array<{ module?: string | null; role?: string | null }> | null | undefined,
-  email?: string | null,
-  isAdmin: boolean = false,
 ): DpRole | null {
-  if (dpBloqueado(email)) return null;
-  if (isAdmin) return DP_ROLE_GESTOR;
   let role: DpRole | null = null;
   for (const row of rows ?? []) {
     if (row?.module !== DP_MODULE) continue;
@@ -106,12 +86,8 @@ export function resolveDpRole(
 }
 
 /** Há concessão do módulo (qualquer papel)? Para o middleware e a root page. */
-export function hasDpGrant(
-  rows: Array<{ module?: string | null; role?: string | null }> | null | undefined,
-  email?: string | null,
-  isAdmin: boolean = false,
-): boolean {
-  return resolveDpRole(rows, email, isAdmin) !== null;
+export function hasDpGrant(rows: Array<{ module?: string | null; role?: string | null }> | null | undefined): boolean {
+  return resolveDpRole(rows) !== null;
 }
 
 export function isDpPath(pathname: string): boolean {

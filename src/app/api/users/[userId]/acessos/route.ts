@@ -46,7 +46,9 @@ export async function PUT(request: Request, { params }: Params) {
   if (alvoErr) return NextResponse.json({ error: alvoErr.message }, { status: 400 });
   if (!alvo) return NextResponse.json({ error: "Usuário não encontrado." }, { status: 404 });
 
-  const res = await planoValidado(admin, body.acessos, (alvo.email as string) ?? "");
+  // Quem salva vem da SESSÃO: é ele que decide as concessões reservadas (DP e
+  // as empresas Dataforte, VE Franqueadora e SPDX — @/lib/auth/concessao-reservada).
+  const res = await planoValidado(admin, body.acessos, { atorId: profile.id, alvoId: params.userId });
   if ("error" in res) return NextResponse.json({ error: res.error }, { status: 400 });
 
   const cadastro: Record<string, unknown> = {};

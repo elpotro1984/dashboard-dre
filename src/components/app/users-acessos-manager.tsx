@@ -48,7 +48,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { dpBloqueado } from "@/lib/auth/dp";
+import { AVISO_EMPRESA_RESERVADA, empresaReservada } from "@/lib/auth/concessao-reservada";
 import {
   describeUserExceptions,
   findOrphanExceptionRules,
@@ -70,7 +70,11 @@ import {
 
 // Tela de Usuários MÓDULO → PERFIL (docs/superpowers/specs/
 // 2026-10-26-usuarios-modulo-perfil.md): primeiro o módulo, depois o perfil
-// dentro dele, depois empresa e setor. Admin marca tudo e desabilita o resto.
+// dentro dele, depois empresa e setor. Admin marca tudo e desabilita o resto —
+// MENOS o Departamento Pessoal, que admin não herda e que só o Lucas concede
+// (`reservado`). Para os demais admins a seção do DP não existe, nem no
+// filtro nem no catálogo de regras, e as empresas reservadas não podem ser
+// marcadas (@/lib/auth/concessao-reservada).
 // As regras (formulário inicial, validação, plano de gravação) moram em
 // @/lib/usuarios/acessos, puro e testado; esta tela só as desenha.
 
@@ -95,6 +99,8 @@ interface Opcao {
 }
 
 interface Props {
+  /** Quem está na tela concede o DP e as empresas reservadas (só o Lucas). */
+  reservado: boolean;
   usuarios: UsuarioTela[];
   companies: Opcao[];
   ctrlOrgs: Opcao[];
@@ -114,9 +120,14 @@ interface Cadastro {
 const CADASTRO_VAZIO: Cadastro = { email: "", name: "", phone: "", position: "" };
 
 /** Resumo de uma linha da lista: um item por módulo, com o perfil. */
-function resumoAcessos(u: UsuarioTela): string[] {
+function resumoAcessos(u: UsuarioTela, reservado: boolean): string[] {
   const f = u.form;
-  if (f.admin) return ["Admin (todos os módulos)"];
+  // Para quem concede o DP, o admin aparece com o DP à parte (ele não o herda).
+  // Para os demais, o DP não existe na tela.
+  if (f.admin) {
+    if (!reservado) return ["Admin (todos os módulos)"];
+    return f.dp.ativo ? ["Admin", `Departamento Pessoal · ${rotuloPerfil("dp", f.dp.perfil)}`] : ["Admin (sem o DP)"];
+  }
   const out: string[] = [];
   if (f.financeiro.ativo) out.push(`Financeiro · ${rotuloPerfil("financeiro", f.financeiro.perfil)}`);
   if (f.orcamento.ativo) out.push(`Orçamento · ${rotuloPerfil("orcamento", f.orcamento.perfil)}`);
@@ -142,7 +153,8 @@ const MODULOS_FILTRO = [
 ] as const;
 
 function temModulo(f: AcessosForm, m: string): boolean {
-  if (f.admin) return true;
+  // Admin tem tudo, menos o DP: esse só com a concessão.
+  if (f.admin && m !== "dp") return true;
   switch (m) {
     case "financeiro":
       return f.financeiro.ativo;
@@ -163,7 +175,7 @@ function temModulo(f: AcessosForm, m: string): boolean {
   }
 }
 
-export function UsersAcessosManager({ usuarios, companies, ctrlOrgs, ctrlSectors, orcamentoSetores }: Props) {
+export function UsersAcessosManager({ reservado, usuarios, companies, ctrlOrgs, ctrlSectors, orcamentoSetores }: Props) {
   const router = useRouter();
   const [editando, setEditando] = useState<UsuarioTela | null>(null);
   const [convidando, setConvidando] = useState(false);
@@ -180,11 +192,11 @@ export function UsersAcessosManager({ usuarios, companies, ctrlOrgs, ctrlSectors
   const excecoesPorUsuario = useMemo(() => {
     const map = new Map<string, UserException[]>();
     for (const u of usuarios) {
-      const lista = describeUserExceptions({ id: u.id, email: u.email, name: u.name });
+      const lista = describeUserExceptions({ id: u.id, email: u.email, name: u.name }, { verDp: reservado });
       if (lista.length > 0) map.set(u.id, lista);
     }
     return map;
-  }, [usuarios]);
+  }, [usuarios, reservado]);
   const regrasOrfas = useMemo(
     () => findOrphanExceptionRules(usuarios.map((u) => ({ id: u.id, email: u.email }))),
     [usuarios],
@@ -225,7 +237,7 @@ export function UsersAcessosManager({ usuarios, companies, ctrlOrgs, ctrlSectors
     e.preventDefault();
     if (convidando && !cadastro.email.trim()) return setErro("Informe o e-mail.");
     if (!cadastro.name.trim()) return setErro("Informe o nome.");
-    const v = validarAcessos(form, cadastro.email);
+    const v = validarAcessos(form, { verDp: reservado, novo: convidando });
     if (v) return setErro(v);
 
     setSalvando(true);
@@ -306,7 +318,10 @@ export function UsersAcessosManager({ usuarios, companies, ctrlOrgs, ctrlSectors
                   value={filtroModulo}
                   onChange={setFiltroModulo}
                   title="Acessos"
-                  options={[{ value: "all", label: "Todos os módulos" }, ...MODULOS_FILTRO]}
+                  options={[
+                    { value: "all", label: "Todos os módulos" },
+                    ...MODULOS_FILTRO.filter((m) => reservado || m.value !== "dp"),
+                  ]}
                 />
               </TableHead>
               <TableHead>
@@ -363,7 +378,7 @@ export function UsersAcessosManager({ usuarios, companies, ctrlOrgs, ctrlSectors
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-wrap gap-1">
-                    {resumoAcessos(u).map((t) => (
+                    {resumoAcessos(u, reservado).map((t) => (
                       <Badge
                         key={t}
                         variant="outline"
@@ -372,7 +387,7 @@ export function UsersAcessosManager({ usuarios, companies, ctrlOrgs, ctrlSectors
                         {t}
                       </Badge>
                     ))}
-                    {resumoAcessos(u).length === 0 && <span className="text-xs text-muted-foreground">—</span>}
+                    {resumoAcessos(u, reservado).length === 0 && <span className="text-xs text-muted-foreground">—</span>}
                   </div>
                   {u.avisos.length > 0 && (
                     <p className="mt-1 flex items-center gap-1 text-xs text-amber-700">
@@ -471,7 +486,7 @@ export function UsersAcessosManager({ usuarios, companies, ctrlOrgs, ctrlSectors
 
             <EditorAcessos
               form={form}
-              email={cadastro.email}
+              reservado={reservado}
               onChange={setForm}
               companies={companies}
               ctrlOrgs={ctrlOrgs}
@@ -552,7 +567,7 @@ function CamposCadastro({
 
 function EditorAcessos({
   form,
-  email,
+  reservado,
   onChange,
   companies,
   ctrlOrgs,
@@ -560,7 +575,8 @@ function EditorAcessos({
   orcamentoSetores,
 }: {
   form: AcessosForm;
-  email: string;
+  /** Quem está na tela concede o DP e as empresas reservadas (só o Lucas). */
+  reservado: boolean;
   onChange: (f: AcessosForm) => void;
   companies: Opcao[];
   ctrlOrgs: Opcao[];
@@ -568,7 +584,8 @@ function EditorAcessos({
   orcamentoSetores: Record<string, string[]>;
 }) {
   const off = form.admin;
-  const dpTravado = dpBloqueado(email);
+  // Empresa reservada: quem não é o Lucas não MARCA (desmarcar segue livre). O servidor confere de novo.
+  const travadaReservada = reservado ? undefined : (id: string) => (empresaReservada(id) ? AVISO_EMPRESA_RESERVADA : null);
 
   const alternar = (lista: string[], id: string) =>
     lista.includes(id) ? lista.filter((x) => x !== id) : [...lista, id];
@@ -615,7 +632,7 @@ function EditorAcessos({
           </span>
           <span className="block text-xs text-muted-foreground">
             Acesso a todos os módulos e a todas as empresas, inclusive Usuários e Configurações.
-            {dpTravado && " Exceção: pela regra especial, este e-mail não acessa o Departamento Pessoal."}
+            {reservado && " O Departamento Pessoal não vem junto: ele é marcado à parte, abaixo."}
           </span>
         </span>
       </button>
@@ -646,6 +663,7 @@ function EditorAcessos({
                 onChange({ ...form, financeiro: { ...form.financeiro, empresas: alternar(form.financeiro.empresas, id) } })
               }
               emptyMessage="Nenhuma empresa cadastrada."
+              travado={travadaReservada}
             />
           </Bloco>
         </CartaoModulo>
@@ -673,6 +691,7 @@ function EditorAcessos({
                 onChange({ ...form, orcamento: { ...form.orcamento, empresas, setores } });
               }}
               emptyMessage="Nenhuma empresa cadastrada."
+              travado={travadaReservada}
             />
           </Bloco>
           <Bloco titulo="Setores, por empresa">
@@ -790,22 +809,24 @@ function EditorAcessos({
           </p>
         )}
 
-        {/* 7. Departamento Pessoal */}
-        {dpTravado ? (
-          <div className="rounded-md border border-dashed p-3 text-xs text-muted-foreground">
-            <strong>Departamento Pessoal</strong> — indisponível para este e-mail por regra especial.
-          </div>
-        ) : (
-          <CartaoModulo
-            titulo="Departamento Pessoal"
-            ativo={form.dp.ativo}
-            onAlternar={() => onChange({ ...form, dp: { ...form.dp, ativo: !form.dp.ativo } })}
-          >
-            <EscolhaPerfil
-              opcoes={PERFIS_DP}
-              valor={form.dp.perfil}
-              onEscolher={(perfil) => onChange({ ...form, dp: { ...form.dp, perfil } })}
-            />
+      </div>
+
+      {/* 7. Departamento Pessoal — fora do bloco do Admin: admin não o herda. Só
+          quem o concede (o Lucas) vê esta seção; para os demais ela não existe. */}
+      {reservado && (
+        <CartaoModulo
+          titulo="Departamento Pessoal"
+          ativo={form.dp.ativo}
+          onAlternar={() => onChange({ ...form, dp: { ...form.dp, ativo: !form.dp.ativo } })}
+        >
+          <EscolhaPerfil
+            opcoes={PERFIS_DP}
+            valor={form.dp.perfil}
+            onEscolher={(perfil) => onChange({ ...form, dp: { ...form.dp, perfil } })}
+          />
+          {form.admin ? (
+            <p className="text-xs text-muted-foreground">Como admin, vê o DP de todas as empresas.</p>
+          ) : (
             <Bloco titulo="Empresas" obrigatorio>
               <PillMultiSelect
                 options={companies}
@@ -814,9 +835,9 @@ function EditorAcessos({
                 emptyMessage="Nenhuma empresa cadastrada."
               />
             </Bloco>
-          </CartaoModulo>
-        )}
-      </div>
+          )}
+        </CartaoModulo>
+      )}
     </div>
   );
 }

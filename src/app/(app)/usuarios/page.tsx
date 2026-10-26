@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { UsersAcessosManager } from "@/components/app/users-acessos-manager";
+import { podeConcederReservado } from "@/lib/auth/concessao-reservada";
 import { getCurrentSessionContext } from "@/lib/auth/session";
 import { nomesUnicos } from "@/lib/orcamento/setor-atribuicao";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -20,7 +21,9 @@ export default async function UsuariosPage() {
   if (!user) redirect("/login");
   if (!profile || profile.profile !== "admin") redirect("/dashboard");
 
-  return <TelaModulos adminClient={createAdminClient()} />;
+  // Concessões reservadas (@/lib/auth/concessao-reservada): só o Lucas vê e
+  // concede o DP e libera as empresas reservadas. Decidido pela SESSÃO.
+  return <TelaModulos adminClient={createAdminClient()} reservado={podeConcederReservado(profile.id)} />;
 }
 
 type AdminClient = ReturnType<typeof createAdminClient>;
@@ -47,8 +50,12 @@ async function setoresDoOrcamentoPorEmpresa(adminClient: AdminClient): Promise<R
   return out;
 }
 
-/** Tela nova: o acesso EFETIVO de hoje de cada pessoa vira o formulário. */
-async function TelaModulos({ adminClient }: { adminClient: AdminClient }) {
+/**
+ * Tela nova: o acesso EFETIVO de hoje de cada pessoa vira o formulário. Sem
+ * `reservado`, a seção do DP vai VAZIA para o navegador — o estado do DP de
+ * cada pessoa nem sai do servidor.
+ */
+async function TelaModulos({ adminClient, reservado }: { adminClient: AdminClient; reservado: boolean }) {
   const [{ usuarios, atual }, { data: companies }, { data: orgs }, { data: sectors }, orcamentoSetores] =
     await Promise.all([
       carregarAcessos(adminClient),
@@ -60,8 +67,9 @@ async function TelaModulos({ adminClient }: { adminClient: AdminClient }) {
 
   return (
     <UsersAcessosManager
+      reservado={reservado}
       usuarios={usuarios.map((u) => {
-        const { form, avisos } = acessosIniciais(atual.get(u.id)!);
+        const { form, avisos } = acessosIniciais(atual.get(u.id)!, { verDp: reservado });
         return { ...u, form, avisos };
       })}
       companies={(companies ?? []).map((c) => ({ id: c.id as string, name: c.name as string }))}

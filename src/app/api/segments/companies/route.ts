@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { acrescimosReservados, AVISO_EMPRESA_RESERVADA, podeConcederReservado } from "@/lib/auth/concessao-reservada";
 import { getCurrentSessionContext } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -46,6 +47,22 @@ export async function POST(request: Request) {
   }
 
   const adminClient = createAdminClient();
+
+  // Nenhuma tela chama esta rota, mas ela grava user_company_access: a mesma
+  // trava da tela de Usuários vale aqui — só o Lucas acrescenta Dataforte,
+  // VE Franqueadora e SPDX (@/lib/auth/concessao-reservada).
+  if (!podeConcederReservado(profile.id)) {
+    const { data: atual, error: atualError } = await adminClient
+      .from("user_company_access")
+      .select("company_id")
+      .eq("user_id", body.userId);
+    if (atualError) return NextResponse.json({ error: atualError.message }, { status: 400 });
+    const acrescidas = acrescimosReservados(
+      { financeiro: body.companyIds, orcamento: [], setoresOrcamento: {} },
+      { financeiro: (atual ?? []).map((r) => r.company_id as string), orcamento: [], setoresOrcamento: {} },
+    );
+    if (acrescidas.length > 0) return NextResponse.json({ error: AVISO_EMPRESA_RESERVADA }, { status: 403 });
+  }
 
   const { error: deleteError } = await adminClient
     .from("user_company_access")

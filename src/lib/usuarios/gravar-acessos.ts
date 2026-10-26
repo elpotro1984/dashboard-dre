@@ -1,4 +1,10 @@
 import { setCaixaGrant } from "@/lib/auth/caixa";
+import {
+  acrescimosReservados,
+  AVISO_EMPRESA_RESERVADA,
+  podeConcederReservado,
+  type EscopoDeEmpresas,
+} from "@/lib/auth/concessao-reservada";
 import { setContratosGrant } from "@/lib/auth/contratos";
 import { DP_MODULE, type DpRole } from "@/lib/auth/dp";
 import { COMPRAS_MODULE, FINANCEIRO_MODULE } from "@/lib/auth/module-access";
@@ -21,7 +27,8 @@ import {
 // client de fora e nunca é importado por componente de cliente.
 // Service role: as policies de escrita destas tabelas são de admin (e a linha
 // module='dp' só aceita o service role — gatilho dp_guard_module_grant). Quem
-// chama já conferiu que é admin.
+// chama já conferiu que é admin; as concessões RESERVADAS (DP e as empresas
+// Dataforte, VE Franqueadora e SPDX) são conferidas aqui, em planoValidado.
 //
 // ORDEM das gravações: escopo (empresas, setores) → linhas de perfil →
 // cadastro em `users`. É a ordem que nunca deixa a pessoa com MAIS acesso do
@@ -35,14 +42,21 @@ type Admin = ReturnType<typeof createAdminClient>;
  * empresas ativas, empresas e setores do Compras existentes) e devolve o plano.
  * O cliente nunca é a fonte da verdade: id desconhecido é recusado, não
  * ignorado — gravar escopo que a tela não mostra seria acesso invisível.
+ *
+ * `atorId` é quem salva (da SESSÃO, nunca do corpo) e decide as concessões
+ * reservadas (@/lib/auth/concessao-reservada): o DP só é gravado quando é o
+ * Lucas — para os demais, o que vier na seção do DP é ignorado e ela fica como
+ * está —, e só ele acrescenta Dataforte, VE Franqueadora ou SPDX. `alvoId` é a
+ * pessoa editada (null no convite: ainda não tem nada).
  */
 export async function planoValidado(
   admin: Admin,
   form: AcessosForm,
-  email: string,
+  { atorId, alvoId }: { atorId: string; alvoId: string | null },
 ): Promise<{ plano: PlanoDeGravacao } | { error: string }> {
   if (!formBemFormado(form)) return { error: "Formulário de acessos inválido." };
-  const erro = validarAcessos(form, email);
+  const reservado = podeConcederReservado(atorId);
+  const erro = validarAcessos(form, { verDp: reservado, novo: alvoId === null });
   if (erro) return { error: erro };
 
   const [companies, orgs, sectors] = await Promise.all([
@@ -63,7 +77,7 @@ export async function planoValidado(
     const empresasPedidas = [
       ...(form.financeiro.ativo ? form.financeiro.empresas : []),
       ...(form.orcamento.ativo ? form.orcamento.empresas : []),
-      ...(form.dp.ativo ? form.dp.empresas : []),
+      ...(reservado && form.dp.ativo ? form.dp.empresas : []),
     ];
     if (empresasPedidas.some((id) => !empresas.has(id))) return { error: "Empresa inválida ou inativa." };
     if (form.compras.ativo) {
@@ -71,7 +85,52 @@ export async function planoValidado(
       if (form.compras.setores.some((id) => !(id in orgDoSetor))) return { error: "Setor do Compras inválido." };
     }
   }
-  return { plano: planoDeGravacao(form, orgDoSetor) };
+
+  let atual: Awaited<ReturnType<typeof escopoAtual>> = { empresas: ESCOPO_VAZIO, dpAtivo: false };
+  if (alvoId) {
+    try {
+      atual = await escopoAtual(admin, alvoId);
+    } catch (err) {
+      return { error: (err as Error).message };
+    }
+  }
+  const plano = planoDeGravacao(form, orgDoSetor, { gravarDp: reservado, dpAtualAtivo: atual.dpAtivo });
+  if (!reservado && plano.escopo) {
+    const acrescidas = acrescimosReservados(
+      {
+        financeiro: plano.escopo.empresasFinanceiro,
+        orcamento: plano.escopo.empresasOrcamento,
+        setoresOrcamento: plano.escopo.setoresOrcamento,
+      },
+      atual.empresas,
+    );
+    if (acrescidas.length > 0) return { error: AVISO_EMPRESA_RESERVADA };
+  }
+  return { plano };
+}
+
+const ESCOPO_VAZIO: EscopoDeEmpresas = { financeiro: [], orcamento: [], setoresOrcamento: {} };
+
+/** O que a pessoa tem HOJE — a base para saber o que um pedido acrescenta e se o DP dela segue ativo. */
+async function escopoAtual(admin: Admin, userId: string): Promise<{ empresas: EscopoDeEmpresas; dpAtivo: boolean }> {
+  const [fin, orc, setores, dp] = await Promise.all([
+    admin.from("user_company_access").select("company_id").eq("user_id", userId),
+    admin.from("orcamento_user_empresas").select("company_id").eq("user_id", userId),
+    admin.from("orcamento_user_setores").select("company_id, setor_nome").eq("user_id", userId),
+    admin.from("user_module_roles").select("role").eq("user_id", userId).eq("module", DP_MODULE),
+  ]);
+  const erro = fin.error ?? orc.error ?? setores.error ?? dp.error;
+  if (erro) throw new Error(erro.message);
+  const setoresOrcamento: Record<string, string[]> = {};
+  for (const s of setores.data ?? []) (setoresOrcamento[s.company_id as string] ??= []).push(s.setor_nome as string);
+  return {
+    empresas: {
+      financeiro: (fin.data ?? []).map((r) => r.company_id as string),
+      orcamento: (orc.data ?? []).map((r) => r.company_id as string),
+      setoresOrcamento,
+    },
+    dpAtivo: (dp.data ?? []).some((r) => r.role === "gestor" || r.role === "analista"),
+  };
 }
 
 const PERFIS_VALIDOS = {
@@ -132,19 +191,22 @@ export async function gravarAcessos(
       const setores = await setOrcamentoSetores(admin, userId, e.setoresOrcamento, autorId);
       if (setores.error) throw new Error(setores.error);
 
-      const dpAntes = await estadoDp(admin, userId);
-      await substituir(admin, "dp_user_empresas", userId, e.empresasDp.map((company_id) => ({ company_id, created_by: autorId })));
-
       await definirLinha(admin, userId, FINANCEIRO_MODULE, e.linhas.financeiro, autorId);
       await definirLinha(admin, userId, COMPRAS_MODULE, e.linhas.compras, autorId);
       await definirLinha(admin, userId, ORCAMENTO_MODULE, e.linhas.orcamento, autorId);
-      await definirLinha(admin, userId, DP_MODULE, e.linhas.dp, autorId);
       const caixa = await setCaixaGrant(admin, userId, e.linhas.caixa);
       if (caixa.error) throw new Error(caixa.error);
       const contratos = await setContratosGrant(admin, userId, e.linhas.contratos);
       if (contratos.error) throw new Error(contratos.error);
+    }
 
-      await registrarDp(admin, userId, dpAntes, e.linhas.dp, e.empresasDp, autorId);
+    // DP à parte (vale também para admin) e só quando quem salva o concede —
+    // plano.dp nulo = não mexer. Empresas antes da linha, como o resto.
+    if (plano.dp) {
+      const dpAntes = await estadoDp(admin, userId);
+      await substituir(admin, "dp_user_empresas", userId, plano.dp.empresas.map((company_id) => ({ company_id, created_by: autorId })));
+      await definirLinha(admin, userId, DP_MODULE, plano.dp.papel, autorId);
+      await registrarDp(admin, userId, dpAntes, plano.dp.papel, plano.dp.empresas, autorId);
     }
 
     const { error } = await admin.from("users").update(plano.users).eq("id", userId);

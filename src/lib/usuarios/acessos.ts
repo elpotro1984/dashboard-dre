@@ -12,9 +12,14 @@
 // Regra de ouro: módulo DESMARCADO limpa o escopo dele (empresas, setores,
 // linha de perfil). Escopo de um módulo que a pessoa não tem é cadastro
 // invisível, e voltaria a valer sozinho numa reconcessão.
+//
+// O Departamento Pessoal é À PARTE (@/lib/auth/concessao-reservada): só o
+// Lucas o concede, ele vale também para admin (que não o herda), e quem não é o
+// Lucas nem RECEBE o estado do DP de ninguém — `verDp: false` zera a seção no
+// formulário inicial, e o plano não toca no DP.
 // ============================================================================
 
-import { dpBloqueado, type DpRole } from "@/lib/auth/dp";
+import type { DpRole } from "@/lib/auth/dp";
 import { computeModuleAccess, type ModuleRoleRow } from "@/lib/auth/module-access";
 import { isCtrlOrgRole, type CtrlOrgRole } from "@/lib/ctrl/roles";
 import type { OrcamentoPapel, UserProfileType } from "@/lib/supabase/types";
@@ -187,7 +192,11 @@ export interface FormInicial {
   avisos: string[];
 }
 
-export function acessosIniciais(a: AcessoAtual): FormInicial {
+/**
+ * `verDp`: quem abre a tela pode ver e conceder o DP (só o Lucas). Sem isso a
+ * seção do DP chega vazia — o estado do DP de cada pessoa nem sai do servidor.
+ */
+export function acessosIniciais(a: AcessoAtual, { verDp }: { verDp: boolean }): FormInicial {
   const acesso = computeModuleAccess({
     email: a.email,
     profile: a.profile,
@@ -201,11 +210,19 @@ export function acessosIniciais(a: AcessoAtual): FormInicial {
     moduleRoles: a.moduleRoles,
   });
   const avisos: string[] = [];
+  const dp: AcessosForm["dp"] = verDp
+    ? {
+        ativo: acesso.dpRole !== null,
+        perfil: acesso.dpRole,
+        // Admin com o DP vê todas as empresas: as marcadas não valem para ele.
+        empresas: acesso.dpRole && !acesso.isAdmin ? [...a.empresasDp] : [],
+      }
+    : { ...FORM_VAZIO.dp };
 
   if (acesso.isAdmin) {
-    // Admin tem tudo: a tela mostra os módulos desabilitados. O escopo
-    // guardado não é exibido nem regravado (ver planoDeGravacao).
-    return { form: { ...FORM_VAZIO, admin: true }, avisos };
+    // Admin tem tudo, MENOS o DP: a tela mostra os módulos desabilitados e o DP
+    // à parte. O escopo guardado não é exibido nem regravado (ver planoDeGravacao).
+    return { form: { ...FORM_VAZIO, admin: true, dp }, avisos };
   }
 
   const financeiroAtivo = acesso.financeiroPerfil !== null && a.canFinanceiro;
@@ -228,7 +245,7 @@ export function acessosIniciais(a: AcessoAtual): FormInicial {
   const orcamentoPerfil =
     acesso.orcamentoPapel && acesso.orcamentoPapel !== "admin" ? acesso.orcamentoPapel : null;
 
-  if (acesso.dpRole === "gestor" && a.empresasDp.length === 0) {
+  if (verDp && acesso.dpRole === "gestor" && a.empresasDp.length === 0) {
     avisos.push(
       "Departamento Pessoal: hoje a Visão Estratégica vê todas as empresas. Agora ela vale só nas empresas marcadas — marque as empresas antes de salvar.",
     );
@@ -258,11 +275,7 @@ export function acessosIniciais(a: AcessoAtual): FormInicial {
       caixa: acesso.canCaixa,
       case: acesso.canCase,
       contratos: acesso.canContratos,
-      dp: {
-        ativo: acesso.dpRole !== null,
-        perfil: acesso.dpRole,
-        empresas: acesso.dpRole ? [...a.empresasDp] : [],
-      },
+      dp,
     },
     avisos,
   };
@@ -274,7 +287,16 @@ function clonarMapa(m: Record<string, string[]>): Record<string, string[]> {
 
 // ── Validação ───────────────────────────────────────────────────────────────
 
-export function validarAcessos(form: AcessosForm, email: string): string | null {
+/**
+ * `verDp`: quem salva é quem concede o DP — sem isso a seção do DP é ignorada.
+ * `novo`: convite (a pessoa ainda não tem acesso nenhum).
+ */
+export function validarAcessos(form: AcessosForm, { verDp, novo = false }: { verDp: boolean; novo?: boolean }): string | null {
+  if (verDp && form.dp.ativo) {
+    if (!form.dp.perfil) return "Departamento Pessoal: escolha o perfil.";
+    // Admin com o DP vê todas as empresas; os demais precisam das marcadas.
+    if (!form.admin && form.dp.empresas.length === 0) return "Departamento Pessoal: marque pelo menos uma empresa.";
+  }
   if (form.admin) return null;
 
   const algum =
@@ -284,8 +306,10 @@ export function validarAcessos(form: AcessosForm, email: string): string | null 
     form.caixa ||
     form.case ||
     form.contratos ||
-    form.dp.ativo;
-  if (!algum) return "Marque o Admin ou pelo menos um módulo.";
+    (verDp && form.dp.ativo);
+  // Quem não vê o DP não sabe se a pessoa o tem: exigir "algum módulo" numa
+  // edição seria recusar quem só tem o DP — e a recusa contaria que ele tem.
+  if (!algum && (verDp || novo)) return "Marque o Admin ou pelo menos um módulo.";
 
   if (form.financeiro.ativo) {
     if (!form.financeiro.perfil) return "Financeiro: escolha o perfil.";
@@ -301,11 +325,6 @@ export function validarAcessos(form: AcessosForm, email: string): string | null 
     if (comprasExigeSetor(form.compras.perfil) && form.compras.setores.length === 0) {
       return "Compras: Solicitante, Gerente e Gerente Sócio precisam de pelo menos um setor.";
     }
-  }
-  if (form.dp.ativo) {
-    if (dpBloqueado(email)) return "Este usuário não pode receber o Departamento Pessoal (regra especial).";
-    if (!form.dp.perfil) return "Departamento Pessoal: escolha o perfil.";
-    if (form.dp.empresas.length === 0) return "Departamento Pessoal: marque pelo menos uma empresa.";
   }
   return null;
 }
@@ -334,15 +353,18 @@ export interface PlanoDeGravacao {
       orcamento: OrcamentoPerfilTela | null;
       caixa: boolean;
       contratos: boolean;
-      dp: DpRole | null;
     };
     empresasFinanceiro: string[];
     comprasEmpresas: Array<{ org_id: string; role: CtrlOrgRole | null }>;
     setoresCompras: string[];
     empresasOrcamento: string[];
     setoresOrcamento: Record<string, string[]>;
-    empresasDp: string[];
   };
+  /**
+   * Departamento Pessoal, FORA do escopo: vale também para admin (que não o
+   * herda). `null` = NÃO MEXER — é o caso de toda gravação que não é do Lucas.
+   */
+  dp: null | { papel: DpRole | null; empresas: string[] };
 }
 
 /**
@@ -379,8 +401,16 @@ export function planoDeGravacao(
   form: AcessosForm,
   /** setor do Compras → empresa do Compras, para descartar setor de empresa não marcada. */
   orgDoSetor: Record<string, string | null>,
+  /**
+   * `gravarDp`: quem salva concede o DP (só o Lucas). Sem isso o DP fica como
+   * está, e `dpAtualAtivo` (o que o banco tem) entra no perfil de
+   * compatibilidade no lugar do formulário — que chega sem o DP para quem não o
+   * vê. Sem isso, Contratos + DP viraria o perfil-ilha e cortaria o DP calado.
+   */
+  { gravarDp, dpAtualAtivo = false }: { gravarDp: boolean; dpAtualAtivo?: boolean },
 ): PlanoDeGravacao {
-  const profile = perfilDeCompatibilidade(form);
+  const dpAtivo = gravarDp ? form.dp.ativo : dpAtualAtivo;
+  const profile = perfilDeCompatibilidade({ ...form, dp: { ...form.dp, ativo: dpAtivo } });
   const users = {
     profile,
     role: papelLegado(profile),
@@ -389,12 +419,17 @@ export function planoDeGravacao(
     can_compras: form.admin || form.compras.ativo,
     can_case: form.admin || form.case,
   };
-  if (form.admin) return { users, escopo: null };
+  const dp = !gravarDp
+    ? null
+    : form.dp.ativo && form.dp.perfil
+      ? // Admin com o DP vê todas as empresas: lista guardada não valeria nada.
+        { papel: form.dp.perfil, empresas: form.admin ? [] : unicos(form.dp.empresas) }
+      : { papel: null, empresas: [] };
+  if (form.admin) return { users, escopo: null, dp };
 
   const fin = form.financeiro.ativo ? form.financeiro : null;
   const orc = form.orcamento.ativo ? form.orcamento : null;
   const comp = form.compras.ativo ? form.compras : null;
-  const dp = form.dp.ativo ? form.dp : null;
 
   const orgsCompras = unicos(comp?.empresas ?? []);
   const empresasOrc = unicos(orc?.empresas ?? []);
@@ -408,7 +443,6 @@ export function planoDeGravacao(
         orcamento: orc?.perfil ?? null,
         caixa: form.caixa,
         contratos: form.contratos,
-        dp: dp?.perfil ?? null,
       },
       empresasFinanceiro: unicos(fin?.empresas ?? []),
       comprasEmpresas: orgsCompras.map((org_id) => {
@@ -428,8 +462,8 @@ export function planoDeGravacao(
           .filter(([empresa, nomes]) => empresasOrc.includes(empresa) && nomes.length > 0)
           .map(([empresa, nomes]) => [empresa, unicos(nomes)]),
       ),
-      empresasDp: unicos(dp?.empresas ?? []),
     },
+    dp,
   };
 }
 

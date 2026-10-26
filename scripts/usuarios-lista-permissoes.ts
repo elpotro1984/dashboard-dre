@@ -14,7 +14,6 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import * as XLSX from "xlsx";
 
-import { dpBloqueado as dpBloqueadoEmail } from "@/lib/auth/dp";
 
 const txt = readFileSync(".env.local", "utf8");
 const get = (k: string) => (txt.match(new RegExp(`^${k}=(.*)$`, "m"))?.[1] ?? "").trim();
@@ -155,6 +154,8 @@ const REGRAS: Record<string, string> = {
   "routing-requester": "Rota direta ao diretor",
   "routing-director": "Diretor fixo do solicitante especial",
   "report-extra-sectors": "Relatório: setores extras",
+  "empresas-reservadas": "Único que libera Dataforte, VE Franqueadora e SPDX",
+  "dp-concedente": "Único que concede o Departamento Pessoal",
 };
 const PERFIL_SISTEMA: Record<string, string> = {
   ...PERFIL_COMPRAS,
@@ -177,7 +178,6 @@ function gravarPlanilha(caminho: string, geradoEm: string, linhas: any[]) {
 
   const usuarios = ordenadas.map((l) => {
     const regras = (l.regras_especiais as string[]).map((k) => REGRAS[k] ?? k);
-    if (dpBloqueadoEmail(l.email)) regras.push("Bloqueada no DP (admin sem DP)");
     if (l.vb) regras.push(`Viva Bank (VB): ${l.vb}`);
     return {
       Nome: l.nome,

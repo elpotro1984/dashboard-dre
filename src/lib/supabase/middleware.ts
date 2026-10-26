@@ -132,8 +132,8 @@ export async function updateSession(request: NextRequest) {
       userProfile === "admin";
     // Módulo VB (Viva Bank): só a concessão. Sem override de admin.
     const canVb = hasVbGrant(profileData?.user_module_roles);
-    // Módulo Departamento Pessoal: concessão OU admin; e-mail bloqueado nunca.
-    const dpRole = resolveDpRole(profileData?.user_module_roles, user.email, userProfile === "admin");
+    // Módulo Departamento Pessoal: SÓ a concessão (admin não herda — @/lib/auth/dp).
+    const dpRole = resolveDpRole(profileData?.user_module_roles);
     const canDp = dpRole !== null;
     // Modulo Caixa: concessao OU admin (modelo do Case/Contratos).
     const canCaixa =

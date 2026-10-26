@@ -354,8 +354,8 @@ function isItemVisible(
   // dreRole/ctrlRole nem pelas whitelists de franqueado/CSC; admin não herda.
   if (item.vbAccess) return vbRole !== null && (!item.vbGestorOnly || vbRole === "gestor");
 
-  // Departamento Pessoal (sigiloso): só a concessão, como o VB. Decidido antes
-  // das whitelists de franqueado/CSC; o dpRole já inclui o admin.
+  // Departamento Pessoal: só a concessão, como o VB — admin não herda. Decidido
+  // antes das whitelists de franqueado/CSC.
   if (item.dpAccess) return dpRole !== null && (!item.dpGestorOnly || dpRole === "gestor");
 
   // Caixa: módulo próprio, concedido por usuário (ou admin). Como o Contratos,

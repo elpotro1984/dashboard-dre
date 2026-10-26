@@ -21,7 +21,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import { canAccessPathByProfile } from "@/lib/auth/access";
-import { dpBloqueado } from "@/lib/auth/dp";
+import { podeConcederReservado } from "@/lib/auth/concessao-reservada";
 import { computeModuleAccess } from "@/lib/auth/module-access";
 import { describeUserExceptions } from "@/lib/auth/user-exceptions";
 import { hasCtrlFullView } from "@/lib/ctrl/full-view";
@@ -286,7 +286,7 @@ async function tirarRetrato(): Promise<Retrato[]> {
         can_compras: canCompras,
         contracts_only: Boolean(u.contracts_only),
         is_admin: isAdminUser,
-        dp_bloqueado: dpBloqueado(email),
+        concedente_reservado: podeConcederReservado(id),
         ctrl_full_view: hasCtrlFullView(email),
       },
       modulos: {
@@ -311,7 +311,8 @@ async function tirarRetrato(): Promise<Retrato[]> {
           : [...(orcEmpPorUser.get(id) ?? [])].sort()
         : [],
       rotas,
-      regras_especiais: describeUserExceptions({ id, email }).map((e) => e.key).sort(),
+      // O retrato é para quem administra o sistema: inclui as regras do DP.
+      regras_especiais: describeUserExceptions({ id, email }, { verDp: true }).map((e) => e.key).sort(),
       perfis_modulo: { financeiro: financeiroPerfil, compras: comprasPerfil },
     };
   });

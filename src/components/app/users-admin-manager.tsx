@@ -5,6 +5,7 @@ import {
   Check,
   CheckCircle2,
   Loader2,
+  Lock,
   MailPlus,
   Pencil,
   ShieldAlert,
@@ -1736,11 +1737,14 @@ export function PillMultiSelect({
   selected,
   onToggle,
   emptyMessage,
+  travado,
 }: {
   options: SimpleOption[];
   selected: string[];
   onToggle: (id: string) => void;
   emptyMessage: string;
+  /** Opção que não pode ser MARCADA por quem está na tela: devolve o motivo (vira o title). Desmarcar continua livre. */
+  travado?: (id: string) => string | null;
 }) {
   if (options.length === 0) {
     return <p className="text-xs text-muted-foreground">{emptyMessage}</p>;
@@ -1749,18 +1753,24 @@ export function PillMultiSelect({
     <div className="flex flex-wrap gap-1.5">
       {options.map((opt) => {
         const active = selected.includes(opt.id);
+        const motivo = active ? null : travado?.(opt.id) ?? null;
         return (
           <button
             key={opt.id}
             type="button"
             onClick={() => onToggle(opt.id)}
+            disabled={motivo !== null}
+            title={motivo ?? undefined}
             className={`inline-flex max-w-full items-center gap-1 break-words rounded-full border px-2.5 py-1 text-left text-xs font-medium transition-colors ${
               active
                 ? "border-primary bg-primary/10 text-primary"
-                : "hover:bg-muted"
+                : motivo
+                  ? "cursor-not-allowed border-dashed text-muted-foreground opacity-60"
+                  : "hover:bg-muted"
             }`}
           >
             {active && <Check className="h-3 w-3" />}
+            {motivo && <Lock className="h-3 w-3" />}
             {opt.name}
           </button>
         );

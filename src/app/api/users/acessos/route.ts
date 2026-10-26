@@ -32,7 +32,7 @@ export async function POST(request: Request) {
   const admin = createAdminClient();
   // Valida ANTES de convidar: convite enviado com acesso recusado deixaria
   // alguém com login e sem nada.
-  const res = await planoValidado(admin, body.acessos, email);
+  const res = await planoValidado(admin, body.acessos, { atorId: profile.id, alvoId: null });
   if ("error" in res) return NextResponse.json({ error: res.error }, { status: 400 });
 
   const { data: convite, error: conviteErr } = await admin.auth.admin.inviteUserByEmail(email, {

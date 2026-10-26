@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import { canAccessPathByProfile, defaultLandingFor } from "@/lib/auth/access";
-import { dpBloqueado, hasDpGrant, isDpGestorPath, isDpPath, resolveDpRole } from "@/lib/auth/dp";
+import { hasDpGrant, isDpGestorPath, isDpPath, resolveDpRole } from "@/lib/auth/dp";
 
 test("resolveDpRole: gestor prevalece; analista sozinho é analista", () => {
   assert.equal(resolveDpRole([{ module: "dp", role: "analista" }]), "analista");
@@ -14,16 +14,6 @@ test("resolveDpRole: gestor prevalece; analista sozinho é analista", () => {
     "gestor",
   );
   assert.equal(resolveDpRole([{ module: "vb", role: "gestor" }]), null);
-});
-
-test("e-mail bloqueado não entra no DP nem com linha de gestor (sem caixa)", () => {
-  const rows = [{ module: "dp", role: "gestor" }];
-  assert.equal(resolveDpRole(rows, "carol@quokka.net.br"), null);
-  assert.equal(resolveDpRole(rows, "  Carol@Quokka.NET.br "), null);
-  assert.equal(hasDpGrant(rows, "carol@quokka.net.br"), false);
-  assert.equal(dpBloqueado("carol@quokka.net.br"), true);
-  assert.equal(dpBloqueado(""), false);
-  assert.equal(resolveDpRole(rows, "lucas@quokka.net.br"), "gestor");
 });
 
 test("isDpGestorPath: configurações do grupo e de-para de empresas; hub e telas da empresa não", () => {
@@ -39,12 +29,12 @@ test("isDpGestorPath: configurações do grupo e de-para de empresas; hub e tela
   assert.equal(isDpGestorPath("/dp/configuracoesx"), false);
 });
 
-test("admin herda o DP como gestor (26/10/2026), salvo e-mail bloqueado", () => {
-  assert.equal(resolveDpRole([], "fulano@exemplo.com", true), "gestor");
-  assert.equal(resolveDpRole([{ module: "dp", role: "analista" }], "fulano@exemplo.com", true), "gestor");
-  assert.equal(resolveDpRole([], "carol@quokka.net.br", true), null);
-  assert.equal(hasDpGrant([], "fulano@exemplo.com", true), true);
-  assert.equal(resolveDpRole([], "fulano@exemplo.com"), null, "sem admin e sem linha, nada");
+test("admin NÃO herda o DP: só a linha concede (quem dá a linha é só o Lucas)", () => {
+  // A função nem recebe "é admin": não há como uma chamada esquecida reabrir a herança.
+  assert.equal(resolveDpRole.length, 1);
+  assert.equal(hasDpGrant.length, 1);
+  assert.equal(resolveDpRole([]), null);
+  assert.equal(resolveDpRole([{ module: "dp", role: "analista" }]), "analista", "admin com o DP de analista segue analista");
 });
 
 test("hasDpGrant: só a linha module='dp' com papel conhecido concede", () => {

@@ -16,7 +16,7 @@
 // ============================================================================
 
 import { BI_VALIDATION_EXTRA_EMAILS } from "@/lib/auth/bi-validation";
-import { DP_EMAILS_BLOQUEADOS, dpBloqueado } from "@/lib/auth/dp";
+import { CONCEDENTE_RESERVADO_ID, EMPRESAS_RESERVADAS } from "@/lib/auth/concessao-reservada";
 import { CASE_CONTRACT_APPROVER_EMAILS, CASE_RESUMO_EMAIL_TO } from "@/lib/case/contract-config";
 import { CTRL_FULL_VIEW_EMAILS } from "@/lib/ctrl/full-view";
 import {
@@ -33,7 +33,7 @@ export interface UserException {
   /** Identificador estável da regra (chave de render). */
   key: string;
   /** Módulo onde a exceção age — vira o rótulo colorido no diálogo. */
-  scope: "Compras" | "Financeiro" | "Case" | "Departamento Pessoal";
+  scope: "Compras" | "Financeiro" | "Case" | "Departamento Pessoal" | "Usuários";
   title: string;
   detail: string;
   /** Arquivo que precisa ser editado para mudar a regra. */
@@ -53,10 +53,39 @@ function normalizeEmail(email: string | null | undefined): string {
 /**
  * Todas as exceções nominais que se aplicam a um usuário. Lista vazia = o
  * usuário segue exatamente as regras do perfil dele.
+ *
+ * `verDp`: quem olha é quem concede o Departamento Pessoal (só o Lucas). As
+ * regras do DP ficam fora do catálogo para os demais — para eles a seção do DP
+ * nem existe na tela de Usuários.
  */
-export function describeUserExceptions(user: UserRef): UserException[] {
+export function describeUserExceptions(user: UserRef, { verDp = false }: { verDp?: boolean } = {}): UserException[] {
   const email = normalizeEmail(user.email);
   const out: UserException[] = [];
+
+  // ── Concessões reservadas ao dono do projeto (concessao-reservada.ts) ─────
+  if (user.id === CONCEDENTE_RESERVADO_ID) {
+    const nomes = EMPRESAS_RESERVADAS.map((e) => e.nome).join(", ").replace(/, ([^,]*)$/, " e $1");
+    out.push({
+      key: "empresas-reservadas",
+      scope: "Usuários",
+      title: `Único que libera ${nomes}`,
+      detail:
+        `Só ele acrescenta essas empresas a alguém, em qualquer módulo. Os outros admins podem tirar, ` +
+        "mas não dar — a tela trava as caixas e o servidor recusa.",
+      source: "src/lib/auth/concessao-reservada.ts",
+    });
+    if (verDp) {
+      out.push({
+        key: "dp-concedente",
+        scope: "Departamento Pessoal",
+        title: "Único que concede o Departamento Pessoal",
+        detail:
+          "Só ele marca o DP de alguém, inclusive de admin — admin não herda o DP. Para os outros admins a " +
+          "seção do DP não aparece na tela de Usuários, e o servidor ignora o que vier nela.",
+        source: "src/lib/auth/concessao-reservada.ts + dp_has_access() no banco",
+      });
+    }
+  }
 
   // ── Case: aprovadores dos contratos (contract-config.ts) ──────────────────
   if (CASE_CONTRACT_APPROVER_EMAILS.some((a) => normalizeEmail(a) === email)) {
@@ -183,21 +212,6 @@ export function describeUserExceptions(user: UserRef): UserException[] {
     });
   }
 
-  // ── Departamento Pessoal: e-mail bloqueado mesmo sendo admin (dp.ts) ──────
-  // Ficava fora do catálogo enquanto o DP era sigiloso; o regime saiu em
-  // 26/10/2026 (o admin passou a herdar o DP), e esta é a exceção que sobrou.
-  if (dpBloqueado(email)) {
-    out.push({
-      key: "dp-bloqueado",
-      scope: "Departamento Pessoal",
-      title: "Sem acesso ao Departamento Pessoal",
-      detail:
-        "Não acessa o Departamento Pessoal, mesmo sendo admin (que herda todos os módulos) e mesmo " +
-        "que alguém marque o módulo por engano: a sessão, as rotas e o banco (dp_has_access) recusam.",
-      source: "src/lib/auth/dp.ts (DP_EMAILS_BLOQUEADOS) + dp_has_access() no banco",
-    });
-  }
-
   // ── Compras: roteamento fixo por ID (routing.ts) ─────────────────────────
   if (user.id === APPROVAL_ROUTING.directorOnly.requesterId) {
     out.push({
@@ -293,11 +307,6 @@ export function findOrphanExceptionRules(users: UserRef[]): OrphanExceptionRule[
       email: r.email,
       label: "Relatório: enxerga setores extras",
     })),
-    ...DP_EMAILS_BLOQUEADOS.map((email) => ({
-      key: `dp-bloqueado:${email}`,
-      email,
-      label: "Sem acesso ao Departamento Pessoal",
-    })),
   ];
 
   for (const rule of byEmail) {
@@ -325,6 +334,12 @@ export function findOrphanExceptionRules(users: UserRef[]): OrphanExceptionRule[
       key: "routing:manager",
       id: APPROVAL_ROUTING.expenseTypeManager.managerId,
       label: "Gerente fixo de um tipo de despesa",
+    },
+    {
+      // Órfã, ninguém mais liberaria as empresas reservadas (nem o DP).
+      key: "concessao-reservada",
+      id: CONCEDENTE_RESERVADO_ID,
+      label: "Único que libera Dataforte, VE Franqueadora e SPDX",
     },
   ];
 

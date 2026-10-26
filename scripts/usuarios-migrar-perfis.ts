@@ -122,17 +122,24 @@ function retratoDe(
 
 /** Linhas de user_module_roles depois do plano (as de fora da tela ficam). */
 function linhasDepois(atual: AcessoAtual, plano: PlanoDeGravacao) {
-  if (!plano.escopo) return atual.moduleRoles;
+  // O DP é à parte do escopo (vale também para admin) e só muda com plano.dp.
+  const dp = plano.dp
+    ? plano.dp.papel
+      ? [{ module: "dp", role: plano.dp.papel }]
+      : []
+    : atual.moduleRoles.filter((r) => r.module === "dp");
+  const semDp = atual.moduleRoles.filter((r) => r.module !== "dp");
+  if (!plano.escopo) return [...semDp, ...dp];
   const l = plano.escopo.linhas;
-  const geridos = new Set(["financeiro", "compras", "orcamento", "caixa", "contratos", "dp"]);
+  const geridos = new Set(["financeiro", "compras", "orcamento", "caixa", "contratos"]);
   return [
-    ...atual.moduleRoles.filter((r) => !geridos.has(String(r.module))),
+    ...semDp.filter((r) => !geridos.has(String(r.module))),
     ...(l.financeiro ? [{ module: "financeiro", role: l.financeiro }] : []),
     ...(l.compras ? [{ module: "compras", role: l.compras }] : []),
     ...(l.orcamento ? [{ module: "orcamento", role: l.orcamento }] : []),
     ...(l.caixa ? [{ module: "caixa", role: "user" }] : []),
     ...(l.contratos ? [{ module: "contratos", role: "validador" }] : []),
-    ...(l.dp ? [{ module: "dp", role: l.dp }] : []),
+    ...dp,
   ];
 }
 
@@ -156,7 +163,8 @@ async function main() {
 
   for (const u of usuarios) {
     const a = atual.get(u.id)!;
-    const inicial = acessosIniciais(a);
+    // A migração roda com o service role, fora da tela: enxerga e regrava o DP como está.
+    const inicial = acessosIniciais(a, { verDp: true });
     const { form, retirados } = aplicarRegraDaMigracao(inicial.form);
     const nome = `${u.name || "(sem nome)"} <${u.email}>${u.active ? "" : " [inativo]"}`;
 
@@ -173,13 +181,13 @@ async function main() {
       continue;
     }
 
-    const erro = validarAcessos(form, u.email);
+    const erro = validarAcessos(form, { verDp: true });
     if (erro) {
       invalidos++;
       console.log(`! ${nome}: NÃO MIGRA — ${erro}`);
       continue;
     }
-    const plano = planoDeGravacao(form, orgDoSetor);
+    const plano = planoDeGravacao(form, orgDoSetor, { gravarDp: true });
     planos.push({ id: u.id, nome, plano });
 
     const antes = retratoDe(u.email, {
