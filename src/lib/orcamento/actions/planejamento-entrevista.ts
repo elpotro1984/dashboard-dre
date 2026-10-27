@@ -14,6 +14,7 @@ import {
   type EntrevistaDespesaRegistrada,
 } from "@/lib/orcamento/entrevista-prompt";
 import { gruposDisponiveis, type EscopoGrupo } from "@/lib/orcamento/grupos";
+import { gruposDespesaAtivo } from "@/lib/orcamento/grupos-ativo";
 import {
   toPeriodicidade,
   type PlanejamentoMensagem,
@@ -154,6 +155,12 @@ export async function montarPromptEntrevista(input: MontarPromptInput): Promise<
     grupoNome: (r.orcamento_grupos_despesa as { name?: string } | null | undefined)?.name ?? null,
   }));
 
+  // Empresa com a chave dos grupos DESLIGADA não oferece nenhum: o catálogo
+  // continua no banco (desligar não apaga), e mandá-lo à IA a faria propor um
+  // subnível que a tela nem exibe. Lista vazia já é um estado que o prompt
+  // trata — ele manda deixar o campo em branco e não perguntar sobre grupo.
+  const usaGrupos = await gruposDespesaAtivo(supabase, companyId);
+
   // Só os grupos que valem NESTA categoria × setor. Oferecer o catálogo inteiro
   // fazia a IA sugerir grupo de marketing numa categoria de pró-labore.
   const { data: escopoRows } = await supabase
@@ -166,16 +173,18 @@ export async function montarPromptEntrevista(input: MontarPromptInput): Promise<
     setorId: (r.setor_id as string | null) ?? null,
     categoryCode: r.category_code as string,
   }));
-  const grupos = gruposDisponiveis(
-    ((gruposRes.data ?? []) as Array<{ id: string; name: string }>).map((r) => ({
-      id: r.id,
-      name: r.name,
-    })),
-    escopos,
-    { categoryCode, setorIds: [setorId] },
-  )
-    .map((g) => g.name)
-    .sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
+  const grupos = !usaGrupos
+    ? []
+    : gruposDisponiveis(
+        ((gruposRes.data ?? []) as Array<{ id: string; name: string }>).map((r) => ({
+          id: r.id,
+          name: r.name,
+        })),
+        escopos,
+        { categoryCode, setorIds: [setorId] },
+      )
+        .map((g) => g.name)
+        .sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
 
   // Realizado: do cache do cliente quando ele o mandou, senão da Omie.
   let realizado: MediaRealizado | undefined;

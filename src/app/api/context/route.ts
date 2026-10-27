@@ -9,6 +9,7 @@ import {
   CONTEXT_COOKIE_OPTIONS,
   CTRL_ORG_CONFIRMED_COOKIE,
   CTRL_ORG_CONFIRMED_COOKIE_OPTIONS,
+  DP_EMPRESA_CONFIRMED_COOKIE,
   VALID_MODULES,
 } from "@/lib/context/active-context";
 import { getCurrentSessionContext } from "@/lib/auth/session";
@@ -82,6 +83,14 @@ export async function POST(request: Request) {
     // Aqui basta o formato: getDpEmpresaAtiva ignora empresa que a pessoa não
     // pode ver (o cookie vem do navegador e nunca é obedecido sem conferência).
     store.set(ACTIVE_DP_EMPRESA_COOKIE, body.dpEmpresaId, CONTEXT_COOKIE_OPTIONS);
+    // Escolher a empresa É a confirmação deste login (seleção obrigatória do DP,
+    // mesma regra do Compras). Empresa fora do escopo não passa: a leitura a
+    // trata como cookie inválido e pergunta de novo.
+    store.set(
+      DP_EMPRESA_CONFIRMED_COOKIE,
+      await currentCtrlConfirmationKey(supabase, user.id),
+      CTRL_ORG_CONFIRMED_COOKIE_OPTIONS,
+    );
   }
 
   return NextResponse.json({ ok: true });

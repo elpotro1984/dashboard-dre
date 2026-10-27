@@ -39,6 +39,7 @@ export function PlanejamentoDespesas({
   year,
   despesas,
   grupos,
+  usaGrupos,
   podeEscrever,
   onMudou,
 }: {
@@ -46,6 +47,16 @@ export function PlanejamentoDespesas({
   year: number;
   despesas: PlanejamentoDespesaLinha[];
   grupos: PlanejamentoGrupoOption[];
+  /**
+   * A empresa usa o subnível de grupo? Desligada, a lista sai corrida e sem o
+   * seletor.
+   *
+   * Não dá para deduzir de `grupos.length === 0`: lista vazia com a chave
+   * LIGADA é "o admin ainda não cadastrou", e a tela avisa pedindo o cadastro;
+   * com a chave desligada o mesmo vazio é "esta empresa não usa grupos", e o
+   * aviso viraria um pedido para o admin fazer algo que ele acabou de desligar.
+   */
+  usaGrupos: boolean;
   podeEscrever: boolean;
   onMudou: () => void;
 }) {
@@ -64,9 +75,14 @@ export function PlanejamentoDespesas({
   const ativas = despesas.filter((d) => !d.cancelado);
   const total = ativas.reduce((a, d) => a + d.totalAno, 0);
 
-  const agrupadas = agruparPorGrupo(
-    despesas.map((d) => ({ ...d, grupoId: d.grupoId, grupoNome: d.grupoNome })),
-  );
+  // Sem grupos, UM bloco com tudo — e sem cabeçalho (ver a renderização). O
+  // agrupamento devolveria o balde "Sem grupo" para todas, com o aviso que
+  // manda pedir cadastro ao administrador.
+  const agrupadas = usaGrupos
+    ? agruparPorGrupo(
+        despesas.map((d) => ({ ...d, grupoId: d.grupoId, grupoNome: d.grupoNome })),
+      )
+    : [{ grupoId: null, nome: "", itens: despesas }];
 
   function abrirEdicao(d: PlanejamentoDespesaLinha) {
     setEditandoId(d.id);
@@ -147,7 +163,12 @@ export function PlanejamentoDespesas({
         <div className="divide-y">
           {agrupadas.map((g) => (
             <div key={g.grupoId ?? "sem"}>
-              <div className="flex items-baseline justify-between gap-2 bg-muted/30 px-4 py-1.5">
+              <div
+                className={cn(
+                  "flex items-baseline justify-between gap-2 bg-muted/30 px-4 py-1.5",
+                  !usaGrupos && "hidden",
+                )}
+              >
                 <span
                   className={cn(
                     "text-xs font-semibold",
@@ -183,20 +204,22 @@ export function PlanejamentoDespesas({
                             autoFocus
                             className={INPUT_CLS + " min-w-[12rem] flex-1"}
                           />
-                          <select
-                            value={rascunho.grupoId}
-                            onChange={(e) =>
-                              setRascunho((r) => ({ ...r, grupoId: e.target.value }))
-                            }
-                            className={INPUT_CLS}
-                          >
-                            <option value="">— sem grupo —</option>
-                            {grupos.map((gr) => (
-                              <option key={gr.id} value={gr.id}>
-                                {gr.name}
-                              </option>
-                            ))}
-                          </select>
+                          {usaGrupos && (
+                            <select
+                              value={rascunho.grupoId}
+                              onChange={(e) =>
+                                setRascunho((r) => ({ ...r, grupoId: e.target.value }))
+                              }
+                              className={INPUT_CLS}
+                            >
+                              <option value="">— sem grupo —</option>
+                              {grupos.map((gr) => (
+                                <option key={gr.id} value={gr.id}>
+                                  {gr.name}
+                                </option>
+                              ))}
+                            </select>
+                          )}
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
                           <label className="flex items-center gap-1 text-xs text-muted-foreground">

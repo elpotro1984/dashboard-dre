@@ -144,7 +144,7 @@ export function DpColaboradoresClient({
           rows.length === 0
             ? semEmpresa
               ? "Todos os colaboradores têm empresa definida."
-              : "Nenhum colaborador nesta empresa. Se a Sólides ainda não foi sincronizada, a sincronização fica na Visão geral."
+              : "Nenhum colaborador nesta empresa. Se a Sólides ainda não foi sincronizada, a sincronização fica em Configurações."
             : "Nenhum colaborador corresponde aos filtros."
         }
       />

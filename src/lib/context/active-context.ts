@@ -22,6 +22,10 @@ export const ACTIVE_DP_EMPRESA_COOKIE = "active_dp_empresa";
 // novo. O `active_ctrl_org` acima continua lembrando a ÚLTIMA empresa (só para
 // marcar "última utilizada" na seleção), mas sozinho não libera as telas.
 export const CTRL_ORG_CONFIRMED_COOKIE = "ctrl_org_confirmed";
+// O mesmo, para a empresa do Departamento Pessoal (DpEmpresaGate, 27/10/2026):
+// escolher a empresa grava a chave deste login; o `active_dp_empresa` sozinho
+// não libera as telas de quem vê mais de uma empresa.
+export const DP_EMPRESA_CONFIRMED_COOKIE = "dp_empresa_confirmed";
 
 export type ActiveModule = "dre" | "ctrl" | "case" | "viagens" | "vb" | "caixa" | "dp";
 
@@ -68,6 +72,12 @@ export async function readCtrlOrgConfirmedSession(): Promise<string | null> {
   return store.get(CTRL_ORG_CONFIRMED_COOKIE)?.value ?? null;
 }
 
+/** Lê o session_id em que a empresa do DP foi confirmada (ou null). */
+export async function readDpEmpresaConfirmedSession(): Promise<string | null> {
+  const store = await cookies();
+  return store.get(DP_EMPRESA_CONFIRMED_COOKIE)?.value ?? null;
+}
+
 /**
  * Le o filtro de empresas compartilhado (Dashboard/Fluxo/Budget) do cookie.
  * Retorna a lista de company ids salva pela ultima selecao do usuario, ou []
@@ -102,7 +112,7 @@ export const CONTEXT_COOKIE_OPTIONS = {
 };
 
 /**
- * Opções do cookie de confirmação da empresa do Compras: cookie de SESSÃO (sem
+ * Opções do cookie de confirmação da empresa (Compras e DP): cookie de SESSÃO (sem
  * maxAge — some ao fechar o navegador). O vínculo com o session_id do login é o
  * que garante o "pergunta a cada login"; a falta de maxAge é reforço.
  */

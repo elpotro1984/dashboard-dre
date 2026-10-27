@@ -3,6 +3,7 @@ import * as XLSX from "xlsx";
 
 import { getOrcamentoAdmin } from "@/lib/orcamento/auth";
 import { inserirEscoposFaltantes } from "@/lib/orcamento/grupo-escopo";
+import { gruposDespesaAtivo } from "@/lib/orcamento/grupos-ativo";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClientIfAvailable } from "@/lib/supabase/admin";
 import { isValidBudgetYear } from "@/lib/orcamento/years";
@@ -48,6 +49,23 @@ export async function POST(request: Request) {
   }
   if (!isValidBudgetYear(year)) {
     return NextResponse.json({ error: "Ano do orçamento inválido." }, { status: 400 });
+  }
+
+  // A chave dos grupos tem de estar LIGADA na empresa. A tela esconde o botão
+  // quando não está, mas esconder não é a única defesa: uma aba aberta antes de
+  // alguém desligar continua conseguindo postar a planilha, e 200 grupos
+  // entrariam num cadastro que ninguém mais vê.
+  {
+    const supabase = createAdminClientIfAvailable() ?? (await createClient());
+    if (!(await gruposDespesaAtivo(supabase, companyId))) {
+      return NextResponse.json(
+        {
+          error:
+            "Esta empresa está com os grupos de despesa desativados. Ligue a chave na Configuração da empresa › Grupos de despesa antes de importar.",
+        },
+        { status: 409 },
+      );
+    }
   }
 
   // ── Leitura da planilha ───────────────────────────────────────────────────

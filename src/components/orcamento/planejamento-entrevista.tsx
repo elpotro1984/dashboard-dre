@@ -448,18 +448,22 @@ function CartaoDespesaForm({
             onChange={(e) => setDescricao(e.target.value)}
             className={INPUT_CLS + " min-w-[12rem] flex-1"}
           />
-          <select
-            value={grupo}
-            onChange={(e) => setGrupo(e.target.value)}
-            className={INPUT_CLS}
-          >
-            <option value="">— sem grupo —</option>
-            {grupos.map((g) => (
-              <option key={g.id} value={g.name}>
-                {g.name}
-              </option>
-            ))}
-          </select>
+          {/* Lista vazia (empresa sem grupos, ou com a chave desligada) deixava
+              aqui um seletor com uma opção só, que não escolhe nada. */}
+          {grupos.length > 0 && (
+            <select
+              value={grupo}
+              onChange={(e) => setGrupo(e.target.value)}
+              className={INPUT_CLS}
+            >
+              <option value="">— sem grupo —</option>
+              {grupos.map((g) => (
+                <option key={g.id} value={g.name}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">

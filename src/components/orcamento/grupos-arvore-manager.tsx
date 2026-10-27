@@ -23,6 +23,7 @@ import {
   listarOrigensDeCopia,
   removerGrupoDoNo,
   replicarGruposDoNo,
+  setGruposAtivo,
   type GruposArvore,
   type OrigemCopia,
 } from "@/lib/orcamento/actions/grupos-arvore";
@@ -57,6 +58,14 @@ export function GruposArvoreManager({
   const companyId = fixedCompanyId;
   const year = fixedYear ?? defaultBudgetYear();
   const [arvore, setArvore] = useState<GruposArvore | null>(null);
+  /**
+   * A empresa usa grupos de despesa? `null` = ainda não se sabe (primeira
+   * carga). Fica em estado próprio, e não lido de `arvore`, para o clique na
+   * chave responder na hora — o round-trip inteiro é o que fazia o gesto
+   * parecer travado nas outras telas do módulo.
+   */
+  const [ativo, setAtivo] = useState<boolean | null>(null);
+  const [salvandoChave, setSalvandoChave] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [needsMigration, setNeedsMigration] = useState(false);
@@ -104,7 +113,30 @@ export function GruposArvoreManager({
     setNeedsMigration(false);
     setErro(null);
     setArvore(res.data ?? null);
+    if (res.data) setAtivo(res.data.ativo);
   }, [companyId, year]);
+
+  /**
+   * Liga/desliga a chave. O estado da tela muda antes do servidor confirmar e
+   * volta atrás se a gravação falhar — ligar e esperar a árvore inteira
+   * carregar para só então ver a chave mexer não é um gesto aceitável aqui.
+   */
+  async function alternarChave() {
+    if (ativo === null || salvandoChave) return;
+    const proximo = !ativo;
+    setAtivo(proximo);
+    setSalvandoChave(true);
+    setErro(null);
+    setResultado(null);
+    const res = await setGruposAtivo(companyId, proximo);
+    setSalvandoChave(false);
+    if (res?.error) {
+      setAtivo(!proximo);
+      setErro(res.error);
+      return;
+    }
+    await recarregar();
+  }
 
   useEffect(() => {
     void recarregar();
@@ -115,11 +147,13 @@ export function GruposArvoreManager({
   // Origens possíveis da cópia: só empresas que TÊM grupos no ano. Oferecer
   // empresa vazia seria oferecer uma cópia que não copia nada.
   useEffect(() => {
-    if (!companyId) return;
+    // Com a chave desligada o seletor de cópia não é desenhado: a consulta não
+    // tem para quem responder.
+    if (!companyId || ativo !== true) return;
     void listarOrigensDeCopia(companyId, year).then((res) => {
       setOrigens(res.items ?? []);
     });
-  }, [companyId, year]);
+  }, [companyId, year, ativo]);
 
   async function copiar() {
     if (!copiarDe) return;
@@ -253,8 +287,79 @@ export function GruposArvoreManager({
     );
   }
 
+  // ── A chavinha ────────────────────────────────────────────────────────────
+  // Padrão DESLIGADO: a maioria das empresas não organiza a despesa em grupos,
+  // e para essas a árvore (todas as categorias × todos os setores) é uma tela
+  // longa que convida a preencher o que não se aplica.
+  const chave = (
+    <div className="flex items-center justify-between gap-4 rounded-lg border px-4 py-3">
+      <div className="min-w-0">
+        <p className="font-medium">Usar grupos de despesa</p>
+        <p className="text-xs text-muted-foreground">
+          {ativo === null
+            ? "Carregando…"
+            : ativo
+              ? "As categorias aparecem abaixo para cadastrar os grupos, e a montagem oferece o campo “grupo” em cada despesa."
+              : "Esta empresa não usa o subnível de grupo: a despesa fica direto na categoria da DRE."}
+        </p>
+      </div>
+      <div className="flex items-center gap-2">
+        {salvandoChave && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+        <button
+          type="button"
+          role="switch"
+          aria-checked={ativo === true}
+          aria-label="Usar grupos de despesa"
+          disabled={ativo === null || salvandoChave}
+          onClick={() => void alternarChave()}
+          className={cn(
+            "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50",
+            ativo ? "bg-emerald-600" : "bg-muted-foreground/30",
+          )}
+        >
+          <span
+            className={cn(
+              "inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform",
+              ativo ? "translate-x-5" : "translate-x-0.5",
+            )}
+          />
+        </button>
+      </div>
+    </div>
+  );
+
+  if (ativo !== true) {
+    return (
+      <div className="space-y-4">
+        {chave}
+        {erro && <p className="text-sm text-destructive">{erro}</p>}
+        {ativo === null && !erro && (
+          <div className="flex items-center justify-center gap-2 rounded-lg border p-12 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> Carregando…
+          </div>
+        )}
+        {ativo === false && (
+          <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">
+            <p>
+              Ligue a chave para cadastrar os grupos desta empresa, categoria por categoria.
+            </p>
+            {/* Desligar não apaga: o `grupo_id` continua gravado em cada despesa
+                e a Prévia segue mostrando o subnível que já existe. Dizer isso
+                aqui é o que torna a chave reversível aos olhos de quem a usa —
+                sem a frase, desligar parece perder trabalho. */}
+            <p className="mt-2 text-xs">
+              Desligar não apaga nada: os grupos já cadastrados e os que as despesas apontam
+              continuam no banco, e voltam a aparecer quando a chave for ligada de novo.
+            </p>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4">
+      {chave}
       {/* ── Filtros ───────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-muted/20 p-4">
         {origens.length > 0 && (

@@ -282,9 +282,7 @@ export function DpFolhaClient({
                 ))}
               </div>
               <DpTotaisTabela t={totais} rotuloGrupo={agrupar === "setor" ? "Setor" : "Centro de custo"} />
-              <p className="text-xs text-ink-muted">
-                {companyName}. Os totais por empresa, para o grupo inteiro, ficam em DP · Visão do grupo › Folha do grupo.
-              </p>
+              <p className="text-xs text-ink-muted">{companyName}.</p>
             </div>
           )}
         </CardContent>

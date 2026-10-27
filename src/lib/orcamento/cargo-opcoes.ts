@@ -85,3 +85,57 @@ export function rotuloOpcaoDeCargo(o: CargoOpcao): string {
 export function listaDaMovimentacao<T>(doDp: readonly T[], doPlano: readonly T[]): readonly T[] {
   return doDp.length > 0 ? doDp : doPlano;
 }
+
+// ─── Salário digitado à mão ─────────────────────────────────────────────────
+
+/** Meio centavo: o mesmo corte usado no resto do módulo. */
+const EPSILON = 0.005;
+
+/**
+ * O salário que a lista oferece para este cargo, ou `null` quando ela não o
+ * tem (cargo digitado à mão, ou nível que saiu do cadastro).
+ */
+export function salarioDoCargo(
+  lista: readonly { label: string; salario: number }[],
+  cargo: string | null | undefined,
+): number | null {
+  const nome = (cargo ?? "").trim();
+  if (!nome) return null;
+  const achado = lista.find((o) => o.label === nome);
+  return achado ? achado.salario : null;
+}
+
+/**
+ * Este salário foi digitado à mão, em vez de vir da tabela de cargos?
+ *
+ * A marca é DERIVADA, não uma coluna: comparar o valor com o que a tabela
+ * oferece para o cargo escolhido responde a pergunta sem guardar nada, e
+ * continua respondendo depois de recarregar a tela — que é o que o pedido
+ * exige ("deve ficar marcado com *").
+ *
+ * Três casos dão `true`, e os três merecem a marca:
+ *  - cargo que a lista NÃO tem (foi digitado): não há de onde o número viesse;
+ *  - cargo da lista com valor diferente: alguém editou por cima;
+ *  - salário sem cargo nenhum: idem, não veio de lista.
+ *
+ * Consequência assumida: se a tabela de cargos mudar DEPOIS, um valor que veio
+ * dela passa a aparecer marcado. Não é erro de leitura — aquele número deixou
+ * de ser o da tabela, que é exatamente o que a marca informa. Por isso a
+ * legenda fala em "não é o da tabela", e não em "alguém digitou".
+ */
+export function salarioEhManual(input: {
+  lista: readonly { label: string; salario: number }[];
+  cargo: string | null | undefined;
+  salario: number | null | undefined;
+}): boolean {
+  const { salario } = input;
+  // Sem valor não há o que marcar — a célula está vazia.
+  if (salario == null || !Number.isFinite(salario)) return false;
+  const daTabela = salarioDoCargo(input.lista, input.cargo);
+  if (daTabela == null) return true;
+  return Math.abs(daTabela - salario) >= EPSILON;
+}
+
+/** A legenda do asterisco, num lugar só — a tela e um export futuro concordam. */
+export const LEGENDA_SALARIO_MANUAL =
+  "* salário digitado à mão: não é o valor que a tabela de cargos dá para esse cargo.";

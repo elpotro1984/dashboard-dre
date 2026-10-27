@@ -5,6 +5,8 @@ import assert from "node:assert/strict";
 
 import {
   listaDaMovimentacao,
+  salarioDoCargo,
+  salarioEhManual,
   opcoesDeCargo,
   rotuloOpcaoDeCargo,
 } from "./cargo-opcoes";
@@ -76,4 +78,67 @@ test("sem tabela no DP, cai no Plano de Cargos em vez de ficar vazia", () => {
 
 test("as duas vazias devolvem vazio, não erro", () => {
   assert.deepEqual(listaDaMovimentacao([], []), []);
+});
+
+// ─── O asterisco do salário digitado à mão ──────────────────────────────────
+
+test("o salário da lista para o cargo escolhido", () => {
+  assert.equal(salarioDoCargo(PLANO, "Analista — Pleno"), 4000);
+  assert.equal(salarioDoCargo(PLANO, "  Analista — Pleno  "), 4000, "apara o espaço");
+  assert.equal(salarioDoCargo(PLANO, "Cargo digitado"), null);
+  assert.equal(salarioDoCargo(PLANO, ""), null);
+  assert.equal(salarioDoCargo(PLANO, null), null);
+});
+
+test("salário IGUAL ao da tabela não é manual", () => {
+  assert.equal(
+    salarioEhManual({ lista: PLANO, cargo: "Analista — Pleno", salario: 4000 }),
+    false,
+  );
+});
+
+test("meio centavo de diferença é arredondamento, não digitação", () => {
+  assert.equal(
+    salarioEhManual({ lista: PLANO, cargo: "Analista — Pleno", salario: 4000.001 }),
+    false,
+  );
+});
+
+test("um centavo de verdade é manual", () => {
+  assert.equal(
+    salarioEhManual({ lista: PLANO, cargo: "Analista — Pleno", salario: 4000.01 }),
+    true,
+  );
+});
+
+test("cargo DIGITADO (fora da lista) com salário é sempre manual", () => {
+  // Não há de onde o número viesse — é o caso do cargo novo que a tabela de
+  // cargos ainda não tem.
+  assert.equal(
+    salarioEhManual({ lista: PLANO, cargo: "Coordenador de Expansão", salario: 7000 }),
+    true,
+  );
+});
+
+test("salário sem cargo nenhum é manual", () => {
+  assert.equal(salarioEhManual({ lista: PLANO, cargo: "", salario: 7000 }), true);
+  assert.equal(salarioEhManual({ lista: PLANO, cargo: null, salario: 7000 }), true);
+});
+
+test("célula de salário VAZIA não ganha marca", () => {
+  // Marcar o vazio poria asterisco em toda movimentação ainda não preenchida.
+  for (const v of [null, undefined]) {
+    assert.equal(salarioEhManual({ lista: PLANO, cargo: "Qualquer", salario: v }), false);
+  }
+  assert.equal(salarioEhManual({ lista: PLANO, cargo: "Qualquer", salario: NaN }), false);
+});
+
+test("ZERO é valor, não ausência — e zero fora da tabela é manual", () => {
+  // Mesma distinção do resto do módulo: 0 é "não recebe", null é "não informado".
+  assert.equal(salarioEhManual({ lista: PLANO, cargo: "Analista — Pleno", salario: 0 }), true);
+});
+
+test("lista vazia: qualquer salário é manual", () => {
+  // É o caso da empresa sem Plano de Cargos e sem tabela do DP.
+  assert.equal(salarioEhManual({ lista: [], cargo: "Analista", salario: 100 }), true);
 });

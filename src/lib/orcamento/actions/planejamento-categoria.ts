@@ -38,6 +38,7 @@ import {
   gruposDisponiveis,
   type EscopoGrupo,
 } from "@/lib/orcamento/grupos";
+import { gruposDespesaAtivo } from "@/lib/orcamento/grupos-ativo";
 import { getPreviaOrcamento } from "@/lib/orcamento/actions/previa-orcamento";
 import { SETOR_TODOS } from "@/lib/orcamento/setor-filtro";
 import { travaDeFinalizacao } from "@/lib/orcamento/actions/finalizacao";
@@ -138,6 +139,17 @@ export interface PlanejamentoMontagemDetalhe {
   orcaPorSetor: boolean;
   /** Grupos ATIVOS da empresa, em ordem alfabética — a faixa do topo da tela. */
   grupos: PlanejamentoGrupoOption[];
+  /**
+   * A empresa usa o subnível de grupo? Desligada (o padrão), a tela não
+   * oferece o campo nem agrupa a lista.
+   *
+   * É uma informação SEPARADA de `grupos` estar vazio, e precisa ser: lista
+   * vazia com a chave ligada significa "o admin ainda não cadastrou" — e a tela
+   * diz isso, pedindo que ele cadastre. Com a chave desligada a mesma lista
+   * vazia significa "esta empresa não usa grupos", e aí mandar o gestor pedir
+   * cadastro ao administrador é conselho errado.
+   */
+  usaGrupos: boolean;
   base: PlanejamentoBaseLinha[];
   baseSalva: boolean;
   contextoAdmin: string;
@@ -359,7 +371,13 @@ export async function getPlanejamentoMontagem(
   // Grupos DESTA categoria × setor, não todos os da empresa. O escopo é o que
   // impede "Publicidade" de ser oferecida em "Pró-labore" — e um grupo sem
   // escopo nenhum continua valendo em todo lugar (ver gruposDisponiveis).
-  const grupos = await gruposDoEscopo(supabase, companyId, year, categoryCode, [setorId]);
+  //
+  // Com a chave da empresa desligada nem se consulta: o catálogo existe (nada é
+  // apagado ao desligar) e oferecê-lo contradiria a chave.
+  const usaGrupos = await gruposDespesaAtivo(supabase, companyId);
+  const grupos = usaGrupos
+    ? await gruposDoEscopo(supabase, companyId, year, categoryCode, [setorId])
+    : [];
 
   // Sem setor escolhido (a tela vai pedir), devolve só o cabeçalho.
   const vazio: PlanejamentoMontagemDetalhe = {
@@ -372,6 +390,7 @@ export async function getPlanejamentoMontagem(
     setorNome: "",
     orcaPorSetor: porSetor,
     grupos,
+    usaGrupos,
     base: [],
     baseSalva: false,
     contextoAdmin: "",

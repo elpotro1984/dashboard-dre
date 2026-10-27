@@ -4,19 +4,37 @@
 // topo e pelos painéis do grupo. Se cada tela decidisse por conta, uma delas
 // acabaria mostrando a empresa errada a uma analista.
 //
-//   gestor   → `empresas = null` → todas, inclusive quem está SEM empresa
-//              definida (só o gestor resolve o de-para).
-//   analista → `empresas = [...]` → só essas; nunca "sem empresa".
+//   `empresas = null`  → todas, inclusive quem está SEM empresa definida. Só o
+//                       ADMIN com o DP e sem empresa marcada chega aqui
+//                       (escopoDeEmpresasDp).
+//   `empresas = [...]` → só essas; nunca "sem empresa". É o caso dos dois
+//                       papéis (Visão Estratégica e Operacional) desde
+//                       26/10/2026, e do admin com empresas marcadas desde 27/10.
 //
-// Analista sem nenhuma empresa liberada vê ZERO — falha fechada.
+// Quem não tem nenhuma empresa liberada vê ZERO — falha fechada.
 // ============================================================================
 
 import type { DpRole } from "@/lib/auth/dp";
 
 export interface DpEscopo {
   role: DpRole;
-  /** null = todas as empresas (gestor). */
+  /** null = todas as empresas (só o admin sem empresa marcada). */
   empresas: string[] | null;
+}
+
+/**
+ * O recorte a partir das empresas marcadas na tela de Usuários
+ * (`dp_user_empresas`). ADMIN sem nenhuma marcada vê todas — é o "Todas as
+ * empresas" da tela, que o Lucas e o Marcelo têm. Admin COM empresas marcadas
+ * fica só nelas, como qualquer pessoa (27/10/2026, para a Carol). Quem não é
+ * admin: só as marcadas, e nenhuma = zero.
+ *
+ * Leitura que FALHOU (`null`) vira zero para todos, admin inclusive: tratá-la
+ * como "nenhuma marcada" daria todas as empresas justamente ao admin recortado.
+ */
+export function escopoDeEmpresasDp(marcadas: string[] | null, isAdmin: boolean): string[] | null {
+  if (marcadas === null) return [];
+  return isAdmin && marcadas.length === 0 ? null : marcadas;
 }
 
 export function podeVerEmpresa(escopo: DpEscopo, companyId: string | null): boolean {

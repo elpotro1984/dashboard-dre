@@ -81,6 +81,23 @@ test("resumo: guia do INSS = a mesma regra dos Totais + o patronal; FGTS e IRRF 
   assert.ok(r.licenca > 0);
 });
 
+test("setor e centro de custo da folha chegam a toda linha de imposto (são colunas filtráveis na tela)", () => {
+  const comCentro = [
+    calcularFolhaPessoa(pessoa(6, "Fábio", { setor: "Comercial", centroCusto: "001 · Comercial" }), P, "2026-09"),
+    linhas[0],
+  ];
+  for (const imposto of ["inss", "irrf", "fgts"] as const) {
+    const [ana, fabio] = linhasDoImposto(comCentro, imposto);
+    assert.deepEqual([fabio.setor, fabio.centroCusto], ["Comercial", "001 · Comercial"], imposto);
+    assert.deepEqual([ana.setor, ana.centroCusto], ["ADM", null], imposto);
+  }
+  const [, fabio] = patronalPorPessoa(comCentro, ENC);
+  assert.deepEqual([fabio.setor, fabio.centroCusto], ["Comercial", "001 · Comercial"]);
+  // Retrato de folha fechada sem o campo: sem centro, nunca undefined.
+  const antigo = { ...linhas[0], centroCusto: undefined as unknown as null };
+  assert.equal(linhasDoImposto([antigo], "inss")[0].centroCusto, null);
+});
+
 test("folha fechada antes das bases: a base sai da conta equivalente", () => {
   const ana = { ...linhas[0], bases: undefined };
   assert.equal(baseDe(ana, "inss"), 3000);

@@ -33,9 +33,12 @@ import {
   beneficiosQueMudam,
 } from "@/lib/orcamento/cargo-beneficios";
 import {
+  LEGENDA_SALARIO_MANUAL,
   listaDaMovimentacao,
   opcoesDeCargo,
   rotuloOpcaoDeCargo,
+  salarioDoCargo,
+  salarioEhManual,
 } from "@/lib/orcamento/cargo-opcoes";
 import { formatBRL, numberToInput, parseBrNumber } from "@/lib/orcamento/format";
 import {
@@ -374,6 +377,19 @@ export function DespesasPessoalManager({
   // `orcamento_setores`. Filtrada por `setorId === setorAtual` ela sairia
   // sempre vazia (as opções do DP têm `setorId: null`), e o campo de
   // movimentação ficaria sem nenhuma opção numa empresa que orça por setor.
+  // A legenda do asterisco só aparece quando ALGUMA linha está marcada —
+  // legenda de marca que não existe na tela é ruído. Usa a mesma regra pura da
+  // célula, então as duas nunca discordam.
+  const temSalarioManual = items.some((c) => {
+    const lista = listaDaMovimentacao(setup.cargoOptionsDp, setup.cargoOptions);
+    return [c.mov1, c.mov2].some(
+      (m) =>
+        m != null &&
+        movTemCargo(m.tipo) &&
+        salarioEhManual({ lista, cargo: m.cargo, salario: m.salario }),
+    );
+  });
+
   const cargoOptionsForSetor = !setup.orcarPorSetor
     ? setup.cargoOptions.filter((o) => o.setorId == null)
     : todosSetores
@@ -567,7 +583,7 @@ export function DespesasPessoalManager({
                 </div>
               ) : (
                 <div className="overflow-x-auto rounded-lg border">
-                  <table className="min-w-[1040px] w-full border-collapse text-sm">
+                  <table className="min-w-[1152px] w-full border-collapse text-sm">
                     <thead>
                       <tr className="border-b bg-muted/40 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                         <th
@@ -680,6 +696,13 @@ export function DespesasPessoalManager({
                     )}
                   </table>
                 </div>
+              )}
+
+              {temSalarioManual && (
+                <p className="text-xs text-muted-foreground">
+                  <span className="font-bold text-amber-600 dark:text-amber-500">*</span>{" "}
+                  {LEGENDA_SALARIO_MANUAL.replace("* ", "")}
+                </p>
               )}
             </>
           ) : (
@@ -937,8 +960,7 @@ function ColaboradorRow({
   // com o dado intacto.
   const movLista = listaDaMovimentacao(cargoOptionsDp, cargoOptions);
   const opcoesAtual = opcoesDeCargo(cargoOptions, draft.cargoAtual);
-  const opcoesMov1 = opcoesDeCargo(movLista, draft.mov1Cargo);
-  const opcoesMov2 = opcoesDeCargo(movLista, draft.mov2Cargo);
+
 
   /**
    * Escolher o cargo traz do plano o salário E os benefícios do nível.
@@ -962,12 +984,25 @@ function ColaboradorRow({
     else onBeneficiosDoPlano(colab.id, beneficios);
   }
 
+  /**
+   * O cargo da movimentação é texto LIVRE com sugestões (datalist): a tabela de
+   * cargos nunca tem tudo, e o pedido é poder acrescentar um cargo que ainda não
+   * existe nela. Era um `<select>`, que não deixava.
+   *
+   * O salário continua vindo da TABELA quando o que foi digitado casa com uma
+   * linha dela ("prioritariamente puxar da tabela, quando existir") — e aí
+   * sobrescreve o que estiver na célula, como o Plano de Cargos já faz no cargo
+   * atual. Cargo que a tabela não tem **não mexe no salário**: não há de onde
+   * puxar, e zerar a célula apagaria um número que alguém digitou.
+   */
   function movCargoChange(field: "mov1" | "mov2", label: string) {
-    const opt = movLista.find((o) => o.label === label);
+    const daTabela = salarioDoCargo(movLista, label);
+    const atual = field === "mov1" ? draftRef.current.mov1Salario : draftRef.current.mov2Salario;
+    const salario = daTabela == null ? atual : numberToInput(daTabela);
     commit(
       field === "mov1"
-        ? { mov1Cargo: label, mov1Salario: opt ? numberToInput(opt.salario) : draftRef.current.mov1Salario }
-        : { mov2Cargo: label, mov2Salario: opt ? numberToInput(opt.salario) : draftRef.current.mov2Salario },
+        ? { mov1Cargo: label, mov1Salario: salario }
+        : { mov2Cargo: label, mov2Salario: salario },
     );
   }
 
@@ -998,6 +1033,22 @@ function ColaboradorRow({
 
   const mov1IsMov = Boolean(draft.mov1Tipo) && movTemCargo(draft.mov1Tipo as MovTipo);
   const mov2IsMov = Boolean(draft.mov2Tipo) && movTemCargo(draft.mov2Tipo as MovTipo);
+  // O asterisco é DERIVADO do par (cargo, salário) — ver `salarioEhManual`.
+  // Nada é gravado para isso, então a marca continua certa depois de recarregar.
+  const mov1SalarioManual =
+    mov1IsMov &&
+    salarioEhManual({
+      lista: movLista,
+      cargo: draft.mov1Cargo,
+      salario: parseBrNumber(draft.mov1Salario),
+    });
+  const mov2SalarioManual =
+    mov2IsMov &&
+    salarioEhManual({
+      lista: movLista,
+      cargo: draft.mov2Cargo,
+      salario: parseBrNumber(draft.mov2Salario),
+    });
   // PJ e Estágio não escolhem cargo do plano: o cargo atual é o próprio vínculo.
   const cargoIsAuto = draft.vinculo === "pj" || draft.vinculo === "estagio";
 
@@ -1065,7 +1116,10 @@ function ColaboradorRow({
           onChange={(e) => edit({ nome: e.target.value })}
           onBlur={blurCommit}
           placeholder="Nome"
-          className={cn(CELL, "min-w-[9rem]")}
+          // 16rem: com 9rem o nome completo de quem vem da Sólides não cabia
+          // ("Maria Aparecida da Silva Santos"), e é a coluna pela qual se
+          // procura a pessoa na tabela.
+          className={cn(CELL, "min-w-[16rem]")}
         />
       </td>
       {/* Vínculo */}
@@ -1147,28 +1201,40 @@ function ColaboradorRow({
         </select>
       </td>
       <td className="border-r bg-sky-500/[0.04] px-1.5 py-1">
-        <select
+        <input
+          list={`cargos-mov1-${colab.id}`}
           value={draft.mov1Cargo}
-          onChange={(e) => movCargoChange("mov1", e.target.value)}
+          onChange={(e) => edit({ mov1Cargo: e.target.value })}
+          onBlur={() => movCargoChange("mov1", draftRef.current.mov1Cargo)}
           disabled={!mov1IsMov}
+          placeholder="cargo"
+          title="Escolha da tabela de cargos ou digite um cargo novo"
           className={cn(CELL, "min-w-[11rem]")}
-        >
-          <option value="">— cargo —</option>
-          {opcoesMov1.map((o) => (
-            <option key={o.label} value={o.label}>
-              {rotuloOpcaoDeCargo(o)}
-            </option>
+        />
+        <datalist id={`cargos-mov1-${colab.id}`}>
+          {movLista.map((o) => (
+            <option key={o.label} value={o.label} />
           ))}
-        </select>
+        </datalist>
       </td>
       <td className="border-r bg-sky-500/[0.04] px-1.5 py-1">
-        <CurrencyCell
-          value={draft.mov1Salario}
-          onChange={(v) => edit({ mov1Salario: v })}
-          onBlur={blurCommit}
-          disabled={!mov1IsMov}
-          className={cn(CELL, "min-w-[7rem] text-right tabular-nums")}
-        />
+        <div className="flex items-center gap-1">
+          {mov1SalarioManual && (
+            <span
+              title={LEGENDA_SALARIO_MANUAL}
+              className="shrink-0 font-bold text-amber-600 dark:text-amber-500"
+            >
+              *
+            </span>
+          )}
+          <CurrencyCell
+            value={draft.mov1Salario}
+            onChange={(v) => edit({ mov1Salario: v })}
+            onBlur={blurCommit}
+            disabled={!mov1IsMov}
+            className={cn(CELL, "min-w-[7rem] text-right tabular-nums")}
+          />
+        </div>
       </td>
 
       {/* Movimentação 2 (cor distinta para marcar a divisão) */}
@@ -1202,28 +1268,40 @@ function ColaboradorRow({
         </select>
       </td>
       <td className="border-r bg-violet-500/[0.06] px-1.5 py-1">
-        <select
+        <input
+          list={`cargos-mov2-${colab.id}`}
           value={draft.mov2Cargo}
-          onChange={(e) => movCargoChange("mov2", e.target.value)}
+          onChange={(e) => edit({ mov2Cargo: e.target.value })}
+          onBlur={() => movCargoChange("mov2", draftRef.current.mov2Cargo)}
           disabled={!mov2IsMov}
+          placeholder="cargo"
+          title="Escolha da tabela de cargos ou digite um cargo novo"
           className={cn(CELL, "min-w-[11rem]")}
-        >
-          <option value="">— cargo —</option>
-          {opcoesMov2.map((o) => (
-            <option key={o.label} value={o.label}>
-              {rotuloOpcaoDeCargo(o)}
-            </option>
+        />
+        <datalist id={`cargos-mov2-${colab.id}`}>
+          {movLista.map((o) => (
+            <option key={o.label} value={o.label} />
           ))}
-        </select>
+        </datalist>
       </td>
       <td className="border-r bg-violet-500/[0.06] px-1.5 py-1">
-        <CurrencyCell
-          value={draft.mov2Salario}
-          onChange={(v) => edit({ mov2Salario: v })}
-          onBlur={blurCommit}
-          disabled={!mov2IsMov}
-          className={cn(CELL, "min-w-[7rem] text-right tabular-nums")}
-        />
+        <div className="flex items-center gap-1">
+          {mov2SalarioManual && (
+            <span
+              title={LEGENDA_SALARIO_MANUAL}
+              className="shrink-0 font-bold text-amber-600 dark:text-amber-500"
+            >
+              *
+            </span>
+          )}
+          <CurrencyCell
+            value={draft.mov2Salario}
+            onChange={(v) => edit({ mov2Salario: v })}
+            onBlur={blurCommit}
+            disabled={!mov2IsMov}
+            className={cn(CELL, "min-w-[7rem] text-right tabular-nums")}
+          />
+        </div>
       </td>
 
       {/* Justificativa */}

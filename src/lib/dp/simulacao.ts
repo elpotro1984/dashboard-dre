@@ -17,7 +17,7 @@
 // diz isso, em vez de o custo só parecer menor.
 // ============================================================================
 
-import { grupoContrato } from "@/lib/dp/indicadores";
+import { grupoContrato } from "@/lib/dp/contrato";
 import { FRACAO_DECIMO_MES, FRACAO_FERIAS_MES, fatorEncargos, type EncargoValues } from "@/lib/orcamento/encargos";
 
 export type DpVinculoCusto = "clt" | "sem_encargos";

@@ -73,13 +73,14 @@ export async function planoValidado(
     (sectors.data ?? []).map((s) => [s.id as string, (s.org_id as string | null) ?? null]),
   );
 
+  const empresasPedidas = [
+    ...(!form.admin && form.financeiro.ativo ? form.financeiro.empresas : []),
+    ...(!form.admin && form.orcamento.ativo ? form.orcamento.empresas : []),
+    // O DP vale também para admin: as empresas marcadas recortam o que ele vê.
+    ...(reservado && form.dp.ativo ? form.dp.empresas : []),
+  ];
+  if (empresasPedidas.some((id) => !empresas.has(id))) return { error: "Empresa inválida ou inativa." };
   if (!form.admin) {
-    const empresasPedidas = [
-      ...(form.financeiro.ativo ? form.financeiro.empresas : []),
-      ...(form.orcamento.ativo ? form.orcamento.empresas : []),
-      ...(reservado && form.dp.ativo ? form.dp.empresas : []),
-    ];
-    if (empresasPedidas.some((id) => !empresas.has(id))) return { error: "Empresa inválida ou inativa." };
     if (form.compras.ativo) {
       if (form.compras.empresas.some((id) => !orgIds.has(id))) return { error: "Empresa do Compras inválida." };
       if (form.compras.setores.some((id) => !(id in orgDoSetor))) return { error: "Setor do Compras inválido." };
@@ -164,7 +165,9 @@ function formBemFormado(f: AcessosForm): boolean {
       Object.values(f.compras.papelPorEmpresa ?? {}).every((p) => PERFIS_VALIDOS.compras.has(p)) &&
       typeof f.dp.ativo === "boolean" &&
       perfil(f.dp.perfil, PERFIS_VALIDOS.dp) &&
-      lista(f.dp.empresas)
+      lista(f.dp.empresas) &&
+      // Opcional: uma aba aberta antes do campo existir manda sem ele (= desmarcado).
+      (f.dp.todasEmpresas === undefined || typeof f.dp.todasEmpresas === "boolean")
     );
   } catch {
     return false;

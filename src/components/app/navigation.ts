@@ -10,13 +10,13 @@ import {
   CheckSquare,
   ClipboardCheck,
   Cog,
+  Coins,
   DollarSign,
   FileCheck,
   Files,
   FileText,
   GitCompare,
   GitMerge,
-  IdCard,
   Inbox,
   Landmark,
   LayoutDashboard,
@@ -46,23 +46,19 @@ import {
   DP_CARGOS_PATH,
   DP_COLABORADORES_PATH,
   DP_CONFIG_PATH,
-  DP_INDICADORES_PATH,
+  DP_CUSTO_PATH,
   DP_NAV_KEY_CARGOS,
   DP_NAV_KEY_COLABORADORES,
   DP_NAV_KEY_CONFIG,
-  DP_NAV_KEY_INDICADORES,
-  DP_NAV_KEY_OVERVIEW,
+  DP_NAV_KEY_CUSTO,
   DP_NAV_KEY_SIMULACOES,
-  DP_PATH,
   DP_SIMULACOES_PATH,
-  DP_FOLHA_GRUPO_PATH,
   DP_FOLHA_PATH,
   DP_DECIMO_PATH,
   DP_NAV_KEY_DECIMO,
   DP_IMPOSTOS_PATH,
   DP_NAV_KEY_IMPOSTOS,
   DP_NAV_KEY_FOLHA,
-  DP_NAV_KEY_FOLHA_GRUPO,
 } from "@/lib/auth/dp";
 import {
   VB_NAV_KEY_OMIE,
@@ -287,6 +283,11 @@ export interface NavItem {
   /** Item só do GESTOR do DP (Configurações): o analista não vê. */
   dpGestorOnly?: boolean;
   /**
+   * Item só do ADMIN que tem o DP na Visão Estratégica (Custo com colaborador)
+   * — as duas condições, ver podeVerCustoColaborador.
+   */
+  dpAdminEstrategica?: boolean;
+  /**
    * Item visível a QUALQUER usuário logado (ex.: Chamados/Suporte). Ignora
    * dreRoles/ctrlRoles e as whitelists de franqueado/CSC.
    */
@@ -439,22 +440,13 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { key: DP_NAV_KEY_DECIMO, title: "13º salário", icon: Calendar, scope: "global", href: DP_DECIMO_PATH, dpAccess: true },
       { key: DP_NAV_KEY_COLABORADORES, title: "Colaboradores", icon: Users, scope: "global", href: DP_COLABORADORES_PATH, dpAccess: true },
       { key: DP_NAV_KEY_CARGOS, title: "Cargos e salários", icon: Sliders, scope: "global", href: DP_CARGOS_PATH, dpAccess: true },
+      { key: DP_NAV_KEY_CUSTO, title: "Custo com colaborador", icon: Coins, scope: "global", href: DP_CUSTO_PATH, dpAccess: true, dpAdminEstrategica: true },
       { key: DP_NAV_KEY_SIMULACOES, title: "Simulações", icon: Calculator, scope: "global", href: DP_SIMULACOES_PATH, dpAccess: true },
       // Centros de custo, encargos e (para o gestor) as configurações do grupo — ver /dp/configuracoes.
       { key: DP_NAV_KEY_CONFIG, title: "Configurações", icon: Cog, scope: "global", href: DP_CONFIG_PATH, dpAccess: true },
     ],
   },
-  {
-    // Painéis comuns: IGNORAM o seletor de empresa e consolidam as empresas que
-    // a pessoa pode ver (gestor = todas; analista = as liberadas para ela).
-    id: "dp_grupo",
-    label: "DP · VISÃO DO GRUPO",
-    items: [
-      { key: DP_NAV_KEY_OVERVIEW, title: "Visão geral", icon: IdCard, scope: "global", href: DP_PATH, dpAccess: true },
-      { key: DP_NAV_KEY_INDICADORES, title: "Indicadores", icon: BarChart3, scope: "global", href: DP_INDICADORES_PATH, dpAccess: true },
-      { key: DP_NAV_KEY_FOLHA_GRUPO, title: "Folha do grupo", icon: Landmark, scope: "global", href: DP_FOLHA_GRUPO_PATH, dpAccess: true },
-    ],
-  },
+  // O grupo DP · VISÃO DO GRUPO (Visão geral, Indicadores, Folha do grupo) saiu em 27/10/2026 — será refeito.
   {
     id: "plataforma",
     label: "PLATAFORMA",
