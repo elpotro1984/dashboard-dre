@@ -8,9 +8,7 @@ import {
   type DpEmpresaResolvida,
   type DpRegraOrigem,
 } from "@/lib/dp/empresa";
-import { podeVerEmpresa, type DpEscopo } from "@/lib/dp/escopo";
 import type { DpCampoRastreado, DpEventoTipo } from "@/lib/dp/historico";
-import type { DpIndicadorEntrada } from "@/lib/dp/indicadores";
 import type { DpBeneficioSolides, DpDependente, DpEndereco } from "@/lib/dp/solides/parse";
 
 // Leituras das telas do DP. Todas com o admin client DEPOIS de getDpUser(), e
@@ -227,7 +225,7 @@ export async function lastDpSyncRun(db: AdminClient): Promise<DpSyncRun | null> 
 
 // ── Histórico e acessos (migration 20261001160000) ──────────────────────────
 // Recurso acessório: tabela ausente vira `null` ("não instalado") em vez de
-// derrubar a ficha ou a Visão geral, que funcionam sem ele.
+// derrubar a ficha, que funciona sem ele.
 
 export interface DpEventoRow {
   id: string;
@@ -237,11 +235,6 @@ export interface DpEventoRow {
   valorAnterior: unknown;
   valorNovo: unknown;
   detectadoEm: string;
-}
-
-export interface DpEventoRecente extends DpEventoRow {
-  colaboradorId: string | null;
-  nome: string | null;
 }
 
 function ausente(error: { code?: string } | null): boolean {
@@ -276,44 +269,6 @@ export async function listDpEventosDoColaborador(db: AdminClient, solidesId: num
 }
 
 /**
- * Movimentações recentes, recortadas pelo ESCOPO: a empresa de cada evento é a
- * empresa ATUAL da pessoa (mesma regra das telas). Para a analista a leitura
- * busca mais linhas antes de recortar, senão as 50 mais recentes do grupo
- * poderiam ser todas de outras empresas e a lista dela viria vazia.
- */
-export async function listDpEventosRecentes(
-  db: AdminClient,
-  desdeIso: string,
-  escopo: DpEscopo,
-  limit = 50,
-): Promise<DpEventoRecente[] | null> {
-  const [{ data, error }, ctx] = await Promise.all([
-    db
-      .from("dp_colaborador_eventos")
-      .select(`${EVENTO_COLUMNS}, dp_colaboradores(id, nome, unidade_id, departamento_id)`)
-      .gte("detectado_em", desdeIso)
-      .order("detectado_em", { ascending: false })
-      .limit(escopo.empresas === null ? limit : 1000),
-    contexto(db),
-  ]);
-  if (ausente(error)) return null;
-  check(error, "dp_colaborador_eventos");
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (data ?? []).flatMap((r: any) => {
-    const colab = Array.isArray(r.dp_colaboradores) ? r.dp_colaboradores[0] : r.dp_colaboradores;
-    const empresa = resolverEmpresa(
-      {
-        unidadeId: colab?.unidade_id == null ? null : Number(colab.unidade_id),
-        departamentoId: colab?.departamento_id == null ? null : Number(colab.departamento_id),
-      },
-      ctx.idx,
-    );
-    if (!podeVerEmpresa(escopo, empresa.companyId)) return [];
-    return [{ ...toEvento(r), colaboradorId: colab?.id ?? null, nome: colab?.nome ?? null }];
-  }).slice(0, limit);
-}
-
-/**
  * Registra a abertura de uma ficha. Melhor esforço: falhar aqui não impede a
  * leitura (a ficha é de quem tem a concessão; travar a tela por causa do
  * registro tiraria o DP do ar a cada instabilidade), mas o erro vai ao log.
@@ -321,40 +276,4 @@ export async function listDpEventosRecentes(
 export async function registrarAcessoFicha(db: AdminClient, userId: string, colaboradorId: string): Promise<void> {
   const { error } = await db.from("dp_acessos").insert({ user_id: userId, colaborador_id: colaboradorId, acao: "ficha" });
   if (error && !ausente(error)) console.error("[dp] registrar acesso falhou:", error.message);
-}
-
-/**
- * Entradas dos indicadores, com SALÁRIO. Consulta separada da lista de
- * propósito: a lista vai para o navegador (componente client), e levar o
- * salário de cada pessoa até lá só para somar seria expor o dado individual
- * sem necessidade. Esta roda no servidor e só os totais saem da página.
- */
-export async function listDpIndicadorEntradas(db: AdminClient, escopo: DpEscopo): Promise<DpIndicadorEntrada[]> {
-  const [{ data, error }, ctx] = await Promise.all([
-    db
-      .from("dp_colaboradores")
-      .select("ativo, unidade_id, departamento_id, tipo_contrato, salario, data_admissao, data_desligamento, desligado_detectado_em"),
-    contexto(db),
-  ]);
-  check(error, "dp_colaboradores");
-  return (data ?? []).flatMap((r) => {
-    const empresa = resolverEmpresa(
-      {
-        unidadeId: r.unidade_id === null ? null : Number(r.unidade_id),
-        departamentoId: r.departamento_id === null ? null : Number(r.departamento_id),
-      },
-      ctx.idx,
-    );
-    // Recorte no SERVIDOR: salário de empresa fora do escopo nem entra na soma.
-    if (!podeVerEmpresa(escopo, empresa.companyId)) return [];
-    return [{
-      ativo: Boolean(r.ativo),
-      companyName: empresa.companyId ? ctx.names.get(empresa.companyId) ?? null : null,
-      tipoContrato: r.tipo_contrato,
-      salario: r.salario === null ? null : Number(r.salario),
-      dataAdmissao: r.data_admissao,
-      dataDesligamento: r.data_desligamento,
-      desligadoDetectadoEm: r.desligado_detectado_em,
-    }];
-  });
 }

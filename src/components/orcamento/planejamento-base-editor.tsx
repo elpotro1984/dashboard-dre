@@ -31,6 +31,8 @@ interface Props {
   baseSalva: boolean;
   contextoAdmin: string;
   grupos: PlanejamentoGrupoOption[];
+  /** A empresa usa grupos? Desligada, a coluna de grupo nem aparece. */
+  usaGrupos: boolean;
   isAdmin: boolean;
   onMudou: () => void;
 }
@@ -58,6 +60,7 @@ export function PlanejamentoBaseEditor({
   baseSalva,
   contextoAdmin,
   grupos,
+  usaGrupos,
   isAdmin,
   onMudou,
 }: Props) {
@@ -336,6 +339,10 @@ export function PlanejamentoBaseEditor({
                     </span>
                     {isAdmin && (
                       <div className="flex shrink-0 items-center gap-0.5">
+                        {/* Com a chave desligada o seletor seria um controle
+                            morto (vazio e desabilitado): o catálogo existe, mas
+                            esta empresa não usa grupo. */}
+                        {usaGrupos && (
                         <select
                           value={linha.grupoId ?? ""}
                           onChange={(e) =>
@@ -358,6 +365,7 @@ export function PlanejamentoBaseEditor({
                             </option>
                           ))}
                         </select>
+                        )}
                         <button
                           onClick={() => {
                             setEditandoId(linha.id);

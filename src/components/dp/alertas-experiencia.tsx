@@ -4,9 +4,9 @@ import { formatDayBR } from "@/lib/ctrl/datetime";
 import type { DpAlertaExperienciaComEmpresa } from "@/lib/dp/alertas";
 
 /**
- * Lista de experiência vencendo — mesmo conteúdo na Visão geral do DP e na tela
- * inicial. O 1º período pede "prorrogar ou efetivar"; a prorrogação, "efetivar
- * ou desligar": a linha diz qual das duas decisões está chegando.
+ * Lista de experiência vencendo, na tela inicial (para quem tem o DP). O 1º
+ * período pede "prorrogar ou efetivar"; a prorrogação, "efetivar ou desligar":
+ * a linha diz qual das duas decisões está chegando.
  */
 export function DpListaAlertasExperiencia({ alertas }: { alertas: DpAlertaExperienciaComEmpresa[] }) {
   return (

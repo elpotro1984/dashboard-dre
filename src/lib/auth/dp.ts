@@ -41,13 +41,10 @@ export const DP_ROLE_ANALISTA: DpRole = "analista";
 export const DP_PATH = "/dp";
 
 /** Chaves e rotas dos itens do DP no menu lateral. */
-export const DP_NAV_KEY_OVERVIEW = "dp-overview";
 export const DP_NAV_KEY_COLABORADORES = "dp-colaboradores";
 export const DP_COLABORADORES_PATH = "/dp/colaboradores";
 export const DP_NAV_KEY_EMPRESAS = "dp-empresas";
 export const DP_EMPRESAS_PATH = "/dp/empresas";
-export const DP_NAV_KEY_INDICADORES = "dp-indicadores";
-export const DP_INDICADORES_PATH = "/dp/indicadores";
 export const DP_NAV_KEY_CARGOS = "dp-cargos";
 export const DP_CARGOS_PATH = "/dp/cargos";
 export const DP_NAV_KEY_SIMULACOES = "dp-simulacoes";
@@ -65,8 +62,6 @@ export const DP_NAV_KEY_DECIMO = "dp-decimo-terceiro";
 export const DP_NAV_KEY_IMPOSTOS = "dp-impostos";
 export const DP_IMPOSTOS_PATH = "/dp/impostos";
 export const DP_DECIMO_PATH = "/dp/decimo-terceiro";
-export const DP_NAV_KEY_FOLHA_GRUPO = "dp-folha-grupo";
-export const DP_FOLHA_GRUPO_PATH = "/dp/folha-grupo";
 /** Custo com colaborador — só do admin com a Visão Estratégica (ver podeVerCustoColaborador). */
 export const DP_NAV_KEY_CUSTO = "dp-custo-colaborador";
 export const DP_CUSTO_PATH = "/dp/custo-colaborador";

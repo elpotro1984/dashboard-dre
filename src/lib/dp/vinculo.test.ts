@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { alertasExperiencia, periodosExperiencia, proximoVencimentoExperiencia, resolverCentroCusto, resolverLinha } from "@/lib/dp/vinculo";
+import { alertasExperiencia, periodosExperiencia, resolverCentroCusto, resolverLinha } from "@/lib/dp/vinculo";
 
 test("linha: exceção vence o cargo; sem os dois, nada", () => {
   assert.deepEqual(resolverLinha({ excecaoLinhaId: "x", linhaDoCargoId: "c" }), { linhaId: "x", origem: "excecao" });
@@ -47,19 +47,4 @@ test("alertas: só de hoje até 15 dias; desligado não entra; ordem pelo mais u
     "2026-10-02",
   );
   assert.deepEqual(r.map((x) => [x.id, x.periodo, x.diasRestantes]), [["b", 1, 0], ["a", 1, 14], ["e", 2, 14]]);
-});
-
-test("próximo vencimento: o primeiro DEPOIS da janela (o que a tela mostra quando ninguém vence nela)", () => {
-  const base = { tipoContrato: "CLT", admissao: "2026-09-01", duracao: "2 x 45 dias" };
-  const pessoas = [
-    { ...base, id: "a", nome: "Ana", ativo: true, experienciaFim: "2026-10-16" }, // 14 dias: dentro da janela
-    { ...base, id: "c", nome: "Caio", ativo: true, experienciaFim: "2026-10-30" }, // 28 dias
-    { ...base, id: "d", nome: "Duda", ativo: false, experienciaFim: "2026-10-20" }, // desligado
-    { ...base, id: "f", nome: "Fê", ativo: true, experienciaFim: "2026-09-10" }, // 2º período em 25/10: 23 dias
-  ];
-  assert.deepEqual(
-    (({ id, periodo, diasRestantes }) => [id, periodo, diasRestantes])(proximoVencimentoExperiencia(pessoas, "2026-10-02")!),
-    ["f", 2, 23],
-  );
-  assert.equal(proximoVencimentoExperiencia([{ ...base, id: "x", nome: "X", ativo: true, experienciaFim: "2026-08-01" }], "2026-10-02"), null);
 });

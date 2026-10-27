@@ -177,7 +177,12 @@ export function PlanejamentoMontagem({
       </div>
 
       {/* ── Grupos disponíveis ─────────────────────────────────────────────── */}
-      {detalhe.grupos.length > 0 ? (
+      {/* Empresa com a chave dos grupos DESLIGADA não mostra nem a faixa nem o
+          aviso: ali o aviso mandaria cadastrar grupos que o admin acabou de
+          desativar, e o gestor pediria a ele um cadastro que não deve existir.
+          Ligar/desligar é em Configuração da empresa › Grupos de despesa. */}
+      {detalhe.usaGrupos &&
+        (detalhe.grupos.length > 0 ? (
         <div className="flex flex-wrap items-center gap-1.5 rounded-lg border bg-muted/20 px-3 py-2">
           <span className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground">
             <Tags className="h-3.5 w-3.5" /> Grupos disponíveis:
@@ -222,7 +227,7 @@ export function PlanejamentoMontagem({
             )}
           </span>
         </div>
-      )}
+        ))}
 
       {/* ── Seletor de setor ───────────────────────────────────────────────── */}
       {detalhe.setores.length > 1 && (
@@ -273,6 +278,7 @@ export function PlanejamentoMontagem({
             baseSalva={detalhe.baseSalva}
             contextoAdmin={detalhe.contextoAdmin}
             grupos={detalhe.grupos}
+            usaGrupos={detalhe.usaGrupos}
             isAdmin={detalhe.isAdmin}
             onMudou={aposMudanca}
           />
@@ -299,6 +305,7 @@ export function PlanejamentoMontagem({
               year={year}
               despesas={detalhe.despesas}
               grupos={detalhe.grupos}
+              usaGrupos={detalhe.usaGrupos}
               podeEscrever={detalhe.podeEscrever}
               onMudou={aposMudanca}
             />

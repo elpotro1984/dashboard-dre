@@ -13,6 +13,7 @@ import {
 } from "@/lib/orcamento/auth";
 import { friendlyGrupoError, isSchemaMissing } from "@/lib/orcamento/errors";
 import { inserirEscoposFaltantes } from "@/lib/orcamento/grupo-escopo";
+import { gruposDespesaAtivo } from "@/lib/orcamento/grupos-ativo";
 import { isValidBudgetYear } from "@/lib/orcamento/years";
 import { orcaPorSetor } from "@/lib/orcamento/setor-gravacao";
 import { getCategoriasOrcamento } from "@/lib/orcamento/actions/categoria-metodo";
@@ -35,6 +36,31 @@ import { resolverGrupos } from "@/lib/orcamento/grupos-xlsx";
 // =============================================================================
 
 const PATH = "/orcamento";
+
+type Supabase = Awaited<ReturnType<typeof createClient>>;
+
+/** Recusa de quem tenta cadastrar grupo com a chave da empresa desligada. */
+const GRUPOS_INATIVOS =
+  "Esta empresa está com os grupos de despesa desativados. Ligue a chave na Configuração da empresa › Grupos de despesa antes de cadastrar.";
+
+/**
+ * A empresa aceita CADASTRO de grupo agora?
+ *
+ * A tela esconde a árvore quando a chave está desligada, mas esconder nunca é a
+ * única defesa: uma aba aberta antes de alguém desligar continua conseguindo
+ * postar, e o grupo entraria num cadastro que ninguém mais vê.
+ *
+ * `removerGrupoDoNo` de propósito NÃO passa por aqui — tirar algo tem de
+ * continuar possível depois de desligar, senão a chave prende o que já estava
+ * cadastrado.
+ */
+async function recusaSeInativo(
+  supabase: Supabase,
+  companyId: string,
+): Promise<{ error: string } | null> {
+  const ativo = await gruposDespesaAtivo(supabase, companyId);
+  return ativo ? null : { error: GRUPOS_INATIVOS };
+}
 
 export interface ArvoreGrupo {
   id: string;
@@ -64,6 +90,12 @@ export interface ArvoreSetor {
 }
 
 export interface GruposArvore {
+  /**
+   * A empresa usa grupos de despesa? Desligada (o padrão), o cadastro inteiro
+   * some da tela e a montagem não oferece o campo "grupo". Ver
+   * `src/lib/orcamento/grupos-ativo.ts`.
+   */
+  ativo: boolean;
   orcaPorSetor: boolean;
   setores: ArvoreSetor[];
   /** Catálogo da empresa, para reaproveitar um nome já existente num nó novo. */
@@ -96,6 +128,14 @@ export async function getGruposArvore(
   if (!podeVerEmpresa(user, companyId)) return { error: SEM_ACESSO };
 
   const supabase = createAdminClientIfAvailable() ?? (await createClient());
+
+  // Com a chave desligada a tela não desenha a árvore, então não se paga por
+  // ela: `getCategoriasOrcamento` + as duas consultas de catálogo/escopo
+  // existem só para alimentar o que ficaria escondido.
+  const ativo = await gruposDespesaAtivo(supabase, companyId);
+  if (!ativo) {
+    return { data: { ativo: false, orcaPorSetor: false, setores: [], catalogo: [], amplos: [] } };
+  }
 
   const cats = await getCategoriasOrcamento(companyId, year);
   if (cats.needsMigration) return { needsMigration: true };
@@ -170,7 +210,53 @@ export async function getGruposArvore(
     nos = [{ setorId: null, setorNome: "", categorias: categoriasDoSetor(null) }];
   }
 
-  return { data: { orcaPorSetor: porSetor, setores: nos, catalogo, amplos } };
+  return { data: { ativo: true, orcaPorSetor: porSetor, setores: nos, catalogo, amplos } };
+}
+
+/**
+ * Liga/desliga os grupos de despesa na empresa.
+ *
+ * Desligar **não apaga nada** — nem grupo, nem escopo, nem o `grupo_id` das
+ * despesas já gravadas. Por isso não é recusado nem pede confirmação: some a
+ * porta, o cadastro fica, e religar devolve tudo exatamente como estava. É a
+ * diferença para `guardMetodoDaEmpresa`, que RECUSA esconder um método com dado
+ * — lá o valor continuaria somando na Prévia sem tela por onde abri-lo; aqui o
+ * grupo é um subnível de exibição e nenhum número muda.
+ */
+export async function setGruposAtivo(
+  companyId: string,
+  value: boolean,
+): Promise<{ ok?: true; error?: string }> {
+  const admin = await getOrcamentoAdmin();
+  if (!admin) return { error: SEM_ACESSO_ADMIN };
+  if (!companyId) return { error: "Selecione uma empresa." };
+
+  const supabase = createAdminClientIfAvailable() ?? (await createClient());
+
+  // Existe linha = ativo. Ligar é INSERT (ignorando a corrida com outro admin
+  // que acabou de ligar), desligar é DELETE.
+  const { error } = value
+    ? await supabase
+        .from("orcamento_grupos_despesa_ativo")
+        .insert({ company_id: companyId, ativado_por: admin.userId })
+    : await supabase
+        .from("orcamento_grupos_despesa_ativo")
+        .delete()
+        .eq("company_id", companyId);
+
+  // 23505 ao ligar: já estava ligado. O estado desejado é o que a tela mostra.
+  if (error && !(value && error.code === "23505")) {
+    if (isSchemaMissing(error.message) || error.code === "42P01") {
+      return {
+        error:
+          "A chave dos grupos de despesa ainda não existe no banco: falta aplicar a migration 20261027130000.",
+      };
+    }
+    return { error: error.message };
+  }
+
+  revalidatePath(PATH);
+  return { ok: true };
 }
 
 /**
@@ -197,6 +283,8 @@ export async function adicionarGrupoNoNo(params: {
   if (!nome) return { error: "Informe o nome do grupo." };
 
   const supabase = createAdminClientIfAvailable() ?? (await createClient());
+  const inativo = await recusaSeInativo(supabase, companyId);
+  if (inativo) return inativo;
 
   const { data: existente, error: buscaErr } = await supabase
     .from("orcamento_grupos_despesa")
@@ -293,6 +381,9 @@ export async function replicarGruposDoNo(params: {
   if (destinoSetorIds.length === 0) return { ok: true, copiados: 0 };
 
   const supabase = createAdminClientIfAvailable() ?? (await createClient());
+  const inativo = await recusaSeInativo(supabase, companyId);
+  if (inativo) return inativo;
+
   let q = supabase
     .from("orcamento_grupo_escopo")
     .select("grupo_id")
@@ -420,6 +511,10 @@ export async function copiarGruposDeEmpresa(params: {
   if (!isValidBudgetYear(year)) return { error: "Ano do orçamento inválido." };
 
   const supabase = createAdminClientIfAvailable() ?? (await createClient());
+  // A trava é sobre o DESTINO: é nele que o cadastro entra. A origem pode estar
+  // desligada e ainda assim ser copiável — o cadastro dela existe.
+  const inativo = await recusaSeInativo(supabase, destinoCompanyId);
+  if (inativo) return inativo;
 
   // ── O que a origem tem, em NOMES (é o que atravessa a fronteira) ─────────
   const { data: origemRows, error: origemErr } = await supabase
