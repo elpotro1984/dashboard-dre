@@ -20,7 +20,11 @@ import {
   type ValorFixoItem,
   type ValorFixoContrato,
 } from "@/lib/orcamento/actions/valor-fixo";
-import { projetarValorFixoSerie, corrigirValorFixo } from "@/lib/orcamento/valor-fixo-calc";
+import {
+  projetarValorFixoSerie,
+  negociadoDigitado,
+  valorFixoCalculado,
+} from "@/lib/orcamento/valor-fixo-calc";
 import { formatBRL, numberToInput, parseBrNumber } from "@/lib/orcamento/format";
 import { formatIndice, type IndiceKey } from "@/lib/orcamento/indices";
 import { getSetores, type OrcamentoSetor } from "@/lib/orcamento/actions/setores";
@@ -55,12 +59,16 @@ interface LocalContrato {
   valorBase: number | null;
   indiceKey: IndiceKey | null;
   mesReajuste: number | null;
+  /** Valor fechado em negociação; null = segue o índice. */
+  valorNegociado: number | null;
 }
 
 function seedContratos(item: ValorFixoItem): LocalContrato[] {
   if (item.contratos.length === 0) {
     // Categoria sem nada salvo: uma linha vazia (como a tela de hoje).
-    return [{ key: "tmp-0", id: null, descricao: "", valorBase: null, indiceKey: null, mesReajuste: null }];
+    return [
+      { key: "tmp-0", id: null, descricao: "", valorBase: null, indiceKey: null, mesReajuste: null, valorNegociado: null },
+    ];
   }
   return item.contratos.map((c: ValorFixoContrato) => ({
     key: c.id,
@@ -69,13 +77,20 @@ function seedContratos(item: ValorFixoItem): LocalContrato[] {
     valorBase: c.valorBase,
     indiceKey: c.indiceKey,
     mesReajuste: c.mesReajuste,
+    valorNegociado: c.valorNegociado,
   }));
 }
 
 /** Série de 12 meses de um contrato, respeitando a unidade do índice. */
 function serieContrato(c: LocalContrato, indices: IndiceOption[]): number[] {
   const sel = indices.find((i) => i.key === c.indiceKey) ?? null;
-  return projetarValorFixoSerie(c.valorBase, sel?.value ?? null, c.mesReajuste, sel?.unit ?? "percent");
+  return projetarValorFixoSerie(
+    c.valorBase,
+    sel?.value ?? null,
+    c.mesReajuste,
+    sel?.unit ?? "percent",
+    c.valorNegociado,
+  );
 }
 
 /** Célula de moeda: "R$ 3.000,00" fora de foco; ao focar, valor cru. */
@@ -117,7 +132,8 @@ function CurrencyCell({
 }
 
 // ─── Linha de contrato ──────────────────────────────────────────────────────
-// Renderiza as 4 colunas de dado (valor, correção, mês, orçado) de UM contrato.
+// Renderiza as 5 colunas de dado (valor, correção, mês, valor do ano, orçado)
+// de UM contrato.
 // A 1ª coluna (categoria/descrição) vem de fora via `firstCell`, porque muda
 // conforme o modo (linha única x sub-linha de uma categoria com vários).
 
@@ -189,10 +205,45 @@ function ContratoRow({
   const indiceValue = indiceSel?.value ?? null;
   const indiceUnit = indiceSel?.unit ?? "percent";
   const indiceIndefinido = contrato.indiceKey != null && indiceValue == null;
-  const corrigido = corrigirValorFixo(contrato.valorBase, indiceValue, indiceUnit);
-  const serie = projetarValorFixoSerie(contrato.valorBase, indiceValue, contrato.mesReajuste, indiceUnit);
+  // O que o índice dá × o que vale de fato (o negociado, quando houver).
+  const calculado = valorFixoCalculado(contrato.valorBase, indiceValue, contrato.mesReajuste, indiceUnit);
+  const negociado = contrato.valorBase == null ? null : contrato.valorNegociado;
+  const efetivo = negociado ?? calculado;
+  const serie = projetarValorFixoSerie(
+    contrato.valorBase,
+    indiceValue,
+    contrato.mesReajuste,
+    indiceUnit,
+    negociado,
+  );
   const totalAno = serie.reduce((a, b) => a + b, 0);
   const faltaMes = contrato.valorBase != null && contrato.indiceKey != null && contrato.mesReajuste == null;
+
+  // Valor do ano — editável. Mostra o calculado pelo índice até alguém digitar
+  // outro (acordo fechado em negociação); aí passa a valer o negociado.
+  const [draftAno, setDraftAno] = useState(numberToInput(efetivo));
+  const dirtyAnoRef = useRef(false);
+
+  useEffect(() => {
+    setDraftAno(numberToInput(efetivo));
+    dirtyAnoRef.current = false;
+  }, [efetivo]);
+
+  function persistAno() {
+    if (!dirtyAnoRef.current) return;
+    dirtyAnoRef.current = false;
+    const parsed = parseBrNumber(draftAno);
+    if (parsed != null && (Number.isNaN(parsed) || parsed < 0)) {
+      setDraftAno(numberToInput(efetivo));
+      return;
+    }
+    const proximo = negociadoDigitado(parsed, calculado);
+    if (proximo === contrato.valorNegociado) {
+      setDraftAno(numberToInput(proximo ?? calculado));
+      return;
+    }
+    onField({ valorNegociado: proximo });
+  }
 
   return (
     <tr className="align-top">
@@ -272,6 +323,47 @@ function ContratoRow({
         )}
       </td>
 
+      {/* Valor do ano — calculado pelo índice, editável quando há acordo */}
+      <td className="px-3 py-2">
+        <CurrencyCell
+          value={draftAno}
+          onChange={(v) => {
+            dirtyAnoRef.current = true;
+            setDraftAno(v);
+          }}
+          onBlur={persistAno}
+          disabled={!podeEditar || contrato.valorBase == null}
+          className={cn(
+            CELL,
+            "w-32",
+            negociado != null && "border-sky-500/60 bg-sky-500/5",
+            !podeEditar && "cursor-not-allowed opacity-60",
+          )}
+        />
+        {contrato.valorBase != null && (
+          <div className="mt-1 text-[11px] text-muted-foreground">
+            {negociado != null ? (
+              <span className="flex flex-wrap items-center gap-x-1">
+                <span className="font-medium text-sky-700 dark:text-sky-400">negociado</span>
+                <span>· índice daria {formatBRL(calculado)}</span>
+                {podeEditar && (
+                  <button
+                    type="button"
+                    onClick={() => onField({ valorNegociado: null })}
+                    title="Descartar o valor negociado e voltar ao calculado pelo índice"
+                    className="font-medium text-primary hover:underline"
+                  >
+                    usar índice
+                  </button>
+                )}
+              </span>
+            ) : (
+              "calculado pelo índice"
+            )}
+          </div>
+        )}
+      </td>
+
       {/* Orçado do contrato (+ remover, quando há vários) */}
       <td className="px-3 py-2 text-right">
         <div className="flex items-start justify-end gap-2">
@@ -280,10 +372,11 @@ function ContratoRow({
             <div className="text-[11px] text-muted-foreground">
               {contrato.valorBase == null ? (
                 "sem valor base"
-              ) : contrato.mesReajuste == null || corrigido == null || corrigido === contrato.valorBase ? (
-                `${formatBRL(contrato.valorBase)}/mês`
+              ) : contrato.mesReajuste == null || efetivo == null || efetivo === contrato.valorBase ? (
+                // Sem mês, o negociado vale o ano todo (ver valor-fixo-calc).
+                `${formatBRL(efetivo ?? contrato.valorBase)}/mês`
               ) : (
-                `${formatBRL(contrato.valorBase)} → ${formatBRL(corrigido)} em ${MESES_LONGO[contrato.mesReajuste - 1].toLowerCase()}`
+                `${formatBRL(contrato.valorBase)} → ${formatBRL(efetivo)} em ${MESES_LONGO[contrato.mesReajuste - 1].toLowerCase()}`
               )}
             </div>
           </div>
@@ -405,6 +498,7 @@ function ValorFixoCategoryGroup({
           valorBase: contrato.valorBase,
           indiceKey: contrato.indiceKey,
           mesReajuste: contrato.mesReajuste,
+          valorNegociado: contrato.valorNegociado,
         },
         requireDescricao,
         setorId,
@@ -442,7 +536,7 @@ function ValorFixoCategoryGroup({
     const key = `tmp-${tmpSeq.current++}`;
     setContratos((prev) => [
       ...prev,
-      { key, id: null, descricao: "", valorBase: null, indiceKey: null, mesReajuste: null },
+      { key, id: null, descricao: "", valorBase: null, indiceKey: null, mesReajuste: null, valorNegociado: null },
     ]);
     setExpanded(false);
   }
@@ -535,7 +629,7 @@ function ValorFixoCategoryGroup({
 
   const detailRow = expanded && (
     <tr className="bg-muted/20">
-      <td colSpan={6} className="px-3 pb-3 pt-1">
+      <td colSpan={7} className="px-3 pb-3 pt-1">
         <div className="rounded-md border bg-background p-3">
           <p className="mb-2 text-xs font-medium text-muted-foreground">
             Orçamento mês a mês {budgetYear}
@@ -583,7 +677,9 @@ function ValorFixoCategoryGroup({
           budgetYear={budgetYear}
           showRemove={false}
           onField={(partial) => commit(c.key, partial, true)}
-          onCommitBase={(parsed) => commit(c.key, { valorBase: parsed }, true)}
+          onCommitBase={(parsed) =>
+            commit(c.key, parsed == null ? { valorBase: null, valorNegociado: null } : { valorBase: parsed }, true)
+          }
           onRemove={() => {}}
           decisao={c.id ? decisaoPorId.get(c.id) ?? null : null}
           companyId={companyId}
@@ -609,7 +705,7 @@ function ValorFixoCategoryGroup({
             <div className="pl-5">{addBtn}</div>
           </div>
         </td>
-        <td colSpan={4} className="px-3 py-2 text-xs text-muted-foreground">
+        <td colSpan={5} className="px-3 py-2 text-xs text-muted-foreground">
           {contratos.length} contratos nesta categoria — o orçado é a soma deles.
         </td>
         <td className="px-3 py-2 text-right">
@@ -649,7 +745,9 @@ function ValorFixoCategoryGroup({
             budgetYear={budgetYear}
             showRemove
             onField={(partial) => commit(c.key, partial, true)}
-            onCommitBase={(parsed) => commit(c.key, { valorBase: parsed }, true)}
+            onCommitBase={(parsed) =>
+            commit(c.key, parsed == null ? { valorBase: null, valorNegociado: null } : { valorBase: parsed }, true)
+          }
             podeEditar={podeEditar}
             onRemove={() => removeContrato(c)}
             decisao={c.id ? decisaoPorId.get(c.id) ?? null : null}
@@ -871,7 +969,8 @@ export function ValorFixoManager({
         <>
           <p className="text-sm text-muted-foreground">
             {items.length} categoria(s) orçada(s) por valor fixo. Informe o valor atual, o índice de
-            correção e o mês do reajuste. Se a categoria reúne mais de um contrato (fornecedores/valores
+            correção e o mês do reajuste — o sistema calcula o <span className="font-medium">Valor {year}</span>;
+            se o contrato foi negociado num valor fechado, edite-o ali. Se a categoria reúne mais de um contrato (fornecedores/valores
             diferentes), use <span className="font-medium">+ contrato</span> — o orçado da categoria é a
             soma deles.
           </p>
@@ -883,6 +982,9 @@ export function ValorFixoManager({
                   <th className="px-3 py-2.5 font-medium">Valor atual</th>
                   <th className="px-3 py-2.5 font-medium">Correção</th>
                   <th className="px-3 py-2.5 font-medium">Mês do reajuste</th>
+                  <th className="px-3 py-2.5 font-medium" title="Calculado pelo índice. Se o contrato foi negociado num valor fechado, digite-o aqui.">
+                    Valor {year}
+                  </th>
                   <th className="px-3 py-2.5 text-right font-medium">Orçado {year}</th>
                   <th className="px-3 py-2.5 text-right font-medium">Validação</th>
                 </tr>
@@ -913,7 +1015,7 @@ export function ValorFixoManager({
                 ))}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                    <td colSpan={7} className="px-4 py-8 text-center text-sm text-muted-foreground">
                       Nenhuma categoria encontrada para “{search}”.
                     </td>
                   </tr>

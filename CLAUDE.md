@@ -644,6 +644,16 @@ O que saiu, em cadeia a partir dela (o grafo foi fechado por varredura de `impor
 
 As **decisões** das seções de 01/10 e 02/10 (o agente de viagem, as faixas, a calibragem na web, a busca de preços) continuam escritas acima como HISTÓRICO do que foi tentado e por que saiu. O código delas não existe mais — se alguma voltar, volta do zero, com o que aqui está registrado.
 
+### Orçamento — VALOR NEGOCIADO no Valor fixo (27/10/2026)
+
+O índice é a regra, mas o contrato pode fechar num valor diferente em negociação (aluguel 1.500 × IGP-M 4,08% = 1.561,20, acordo em 1.550). A coluna **Valor {ano}** da tela mostra o calculado e é editável; o digitado vai para `orcamento_valor_fixo_categorias.valor_negociado` (migration `20261027150000`).
+
+- **O negociado SUBSTITUI o corrigido no mesmo degrau**: do mês do reajuste em diante; **sem mês, o ano todo**. Regra pura e testada em `valor-fixo-calc.ts` (`projetarValorFixoSerie(..., valorNegociado)`), usada pela tela e pela Prévia — portanto também pelo Finalizar/Budget.
+- **`NULL` = segue o índice; `0` é valor.** Digitar o próprio calculado (no centavo) ou apagar o campo volta ao índice (`negociadoDigitado`) — senão um clique distraído congelaria o valor e a mudança do índice deixaria de chegar ao contrato, calada. O botão "usar índice" faz o mesmo.
+- Negociado exige valor atual (validado na action); apagar o valor atual na tela descarta o negociado junto.
+- A Prévia diz "negociado R$ X" no detalhe do contrato em vez do índice: quem valida precisa ver que o número não é o do índice.
+- **Leitura e gravação degradam sem a migration**: o SELECT cai para as colunas antigas (42703 derrubaria a tela e a Prévia inteiras) e gravar sem negociado continua funcionando; só quem tenta negociar recebe o aviso de migration pendente.
+
 ### Orçamento — quais TELAS aparecem em cada empresa (01/10/2026)
 
 Configurações gerais › **Telas por empresa**: uma linha por empresa, uma coluna por método, marcado = aparece. Pedido: nem toda unidade orça viagem, e oferecer as caixas todas em todas polui o hub e convida a preencher o que não se aplica.

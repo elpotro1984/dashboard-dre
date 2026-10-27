@@ -244,6 +244,8 @@ interface ValorFixoSnapshotRow {
   valor_base: number | string | null;
   indice_key: string | null;
   mes_reajuste: number | string | null;
+  /** Valor fechado em negociação — substitui o corrigido. Ausente sem a migration. */
+  valor_negociado?: number | string | null;
   /** Rótulo do contrato — só preenchido quando a categoria tem 2+. */
   descricao: string | null;
 }
@@ -735,11 +737,19 @@ export async function getPreviaOrcamento(
 
     // VALOR FIXO — valor base + índice, com o degrau do mês de reajuste.
     if (vfCats.length > 0) {
-      const { data: vfRows, error: vfErr } = await supabase
-        .from("orcamento_valor_fixo_categorias")
-        .select("id, category_code, setor_id, valor_base, indice_key, mes_reajuste, descricao, updated_at")
-        .eq("company_id", companyId)
-        .eq("year", year);
+      // Com o valor negociado; sem a migration `20261027150000`, cai para a
+      // leitura antiga em vez de derrubar a Prévia inteira (42703).
+      const VF_COLS = "id, category_code, setor_id, valor_base, indice_key, mes_reajuste, descricao, updated_at";
+      const lerVf = (cols: string) =>
+        supabase
+          .from("orcamento_valor_fixo_categorias")
+          .select(cols)
+          .eq("company_id", companyId)
+          .eq("year", year);
+      let { data: vfRows, error: vfErr } = await lerVf(`${VF_COLS}, valor_negociado`);
+      if (vfErr && isSchemaMissing(vfErr.message)) {
+        ({ data: vfRows, error: vfErr } = await lerVf(VF_COLS));
+      }
       if (vfErr) {
         if (isSchemaMissing(vfErr.message)) return { needsMigration: true };
         return { error: vfErr.message };
@@ -749,7 +759,7 @@ export async function getPreviaOrcamento(
       // Cada contrato tem o seu setor: filtrar aqui recorta a categoria sem
       // perder os contratos dos outros setores na visão consolidada.
       const vfByCode = new Map<string, ValorFixoSnapshotRow[]>();
-      for (const r of (vfRows ?? []) as ValorFixoSnapshotRow[]) {
+      for (const r of (vfRows ?? []) as unknown as ValorFixoSnapshotRow[]) {
         if (filtroSetor && r.setor_id !== filtroSetor) continue;
         if (!vfByCode.has(r.category_code)) vfByCode.set(r.category_code, []);
         vfByCode.get(r.category_code)!.push(r);
@@ -766,11 +776,25 @@ export async function getPreviaOrcamento(
           const mes = snap.mes_reajuste == null ? null : Number(snap.mes_reajuste);
           // O salário mínimo corrige por valor absoluto (unit 'brl'); os demais, %.
           const unit = INDICE_UNIT.get(snap.indice_key ?? "") ?? "percent";
-          const serie = projetarValorFixoSerie(base, indicePercent(snap.indice_key ?? null), mes, unit);
+          const negociado = snap.valor_negociado == null ? null : Number(snap.valor_negociado);
+          const serie = projetarValorFixoSerie(
+            base,
+            indicePercent(snap.indice_key ?? null),
+            mes,
+            unit,
+            negociado,
+          );
           for (let m = 0; m < 12; m += 1) meses[m] += serie[m] ?? 0;
           const indiceNome = snap.indice_key
             ? INDICES.find((i) => i.key === snap.indice_key)?.label ?? snap.indice_key
             : null;
+          // Quem valida precisa ver que o número NÃO é o do índice.
+          const correcao =
+            negociado != null
+              ? `negociado ${formatBRLSimples(negociado)}${mes ? ` em ${MESES_CURTO[mes - 1]}` : ""}`
+              : indiceNome
+                ? `${indiceNome}${mes ? ` em ${MESES_CURTO[mes - 1]}` : ""}`
+                : "sem correção";
           itensVf.push({
             // Contrato único costuma vir sem descrição — cai no nome da categoria.
             nome: snap.descricao?.trim() || (cat.category_name ?? cat.category_code),
@@ -779,10 +803,7 @@ export async function getPreviaOrcamento(
             setorId: snap.setor_id ?? null,
             atualizadoEm: snap.updated_at ?? null,
             detalhe:
-              [
-                `base ${formatBRLSimples(base)}`,
-                indiceNome ? `${indiceNome}${mes ? ` em ${MESES_CURTO[mes - 1]}` : ""}` : "sem correção",
-              ].join(" · ") + etiquetaSetor(snap.setor_id),
+              [`base ${formatBRLSimples(base)}`, correcao].join(" · ") + etiquetaSetor(snap.setor_id),
             meses: serie.slice(0, 12),
             totalAno: serie.reduce((a, b) => a + b, 0),
           });
