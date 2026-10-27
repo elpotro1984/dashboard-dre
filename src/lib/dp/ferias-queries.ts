@@ -1,9 +1,9 @@
 import "server-only";
 
-import { feriasQueComecamNoMes, mesesDoPeriodo, valorCalculadoFerias, valorDasFerias, diasDeFerias } from "@/lib/dp/ferias";
+import { diasDeFerias, feriasQueComecamNoMes, mesesDoPeriodo, reciboDeFerias, valorDasFerias, type DpReciboFerias } from "@/lib/dp/ferias";
 import { grupoContratoFolha, type DpContratoFolha } from "@/lib/dp/folha/motor";
-import { rotuloCompetencia } from "@/lib/dp/folha/parametros";
-import { lerFeriasDasPessoas, listPessoasDaFolha } from "@/lib/dp/folha/queries";
+import { rotuloCompetencia, type DpFolhaParametros } from "@/lib/dp/folha/parametros";
+import { lerFeriasDasPessoas, listParametrosVigencias, listPessoasDaFolha, parametrosDaCompetencia } from "@/lib/dp/folha/queries";
 import type { createAdminClient } from "@/lib/supabase/admin";
 
 type AdminClient = ReturnType<typeof createAdminClient>;
@@ -17,9 +17,10 @@ export interface DpFeriasLinha {
   inicio: string;
   fim: string;
   dias: number;
-  calculado: { ferias: number; terco: number; total: number };
+  /** O recibo com as regras do salário: férias + 1/3 − INSS − IRRF. */
+  recibo: DpReciboFerias;
   valorManual: number | null;
-  /** O que vale: o manual, senão o calculado. */
+  /** O que vale: o manual, senão o líquido do recibo. */
   valor: number;
   observacao: string | null;
   /** A folha de um mês que o período toca está fechada: as férias não mudam (frase pronta), ou null. */
@@ -32,6 +33,8 @@ export interface DpPessoaFerias {
   nome: string;
   salario: number | null;
   contrato: DpContratoFolha;
+  semInss: boolean;
+  dependentesIr: number;
   periodos: Array<{ id: string; inicio: string; fim: string }>;
 }
 
@@ -39,6 +42,10 @@ export interface DpFeriasDoMes {
   competencia: string;
   linhas: DpFeriasLinha[];
   pessoas: DpPessoaFerias[];
+  /** Tabelas de INSS e IRRF da vigência do mês — o formulário calcula o recibo ao vivo com elas. */
+  parametros: Pick<DpFolhaParametros, "inss" | "irrf">;
+  /** Vigência dos Parâmetros da folha usada; null = padrão do sistema. */
+  vigencia: string | null;
   /** false = a tabela dp_ferias ainda não existe no banco. */
   instalado: boolean;
 }
@@ -49,16 +56,19 @@ export interface DpFeriasDoMes {
  * usa no mês.
  */
 export async function getFeriasDoMes(db: AdminClient, companyId: string, competencia: string): Promise<DpFeriasDoMes> {
-  const [{ pessoas }, { data: fech }] = await Promise.all([
+  const [{ pessoas }, { data: fech }, vigencias] = await Promise.all([
     listPessoasDaFolha(db, companyId, competencia),
     db.from("dp_folha_fechamentos").select("competencia").eq("company_id", companyId),
+    listParametrosVigencias(db),
   ]);
+  const { vigencia, parametros: todos } = parametrosDaCompetencia(vigencias, competencia);
+  const parametros = { inss: todos.inss, irrf: todos.irrf };
   const ativas = pessoas.filter((p) => !p.avulso || p.avulso.unificadoCom === null);
   const ferias = await lerFeriasDasPessoas(
     db,
     ativas.map((p) => p.solidesId),
   );
-  if (ferias === null) return { competencia, linhas: [], pessoas: [], instalado: false };
+  if (ferias === null) return { competencia, linhas: [], pessoas: [], parametros, vigencia, instalado: false };
   const fechadas = new Set((fech ?? []).map((r) => r.competencia as string));
 
   const linhas: DpFeriasLinha[] = [];
@@ -66,7 +76,10 @@ export async function getFeriasDoMes(db: AdminClient, companyId: string, compete
     const contrato = grupoContratoFolha(p.tipoContrato);
     for (const f of feriasQueComecamNoMes(ferias.get(p.solidesId) ?? [], competencia)) {
       const dias = diasDeFerias(f.inicio, f.fim);
-      const calculado = valorCalculadoFerias(p.salario, contrato, dias);
+      const recibo = reciboDeFerias(
+        { salario: p.salario, contrato, dias, semInss: p.cadastro.semInss, dependentesIr: p.cadastro.dependentesIr },
+        parametros,
+      );
       const fechado = mesesDoPeriodo(f.inicio, f.fim).find((m) => fechadas.has(m)) ?? null;
       linhas.push({
         id: f.id,
@@ -77,9 +90,9 @@ export async function getFeriasDoMes(db: AdminClient, companyId: string, compete
         inicio: f.inicio,
         fim: f.fim,
         dias,
-        calculado,
+        recibo,
         valorManual: f.valorManual,
-        valor: valorDasFerias(f.valorManual, calculado.total),
+        valor: valorDasFerias(f.valorManual, recibo.liquido),
         observacao: f.observacao,
         travada: fechado ? `A folha de ${rotuloCompetencia(fechado)} está fechada — reabra para mudar estas férias.` : null,
       });
@@ -96,9 +109,13 @@ export async function getFeriasDoMes(db: AdminClient, companyId: string, compete
         nome: p.nome,
         salario: p.salario,
         contrato: grupoContratoFolha(p.tipoContrato),
+        semInss: p.cadastro.semInss,
+        dependentesIr: p.cadastro.dependentesIr,
         periodos: (ferias.get(p.solidesId) ?? []).map((f) => ({ id: f.id, inicio: f.inicio, fim: f.fim })),
       }))
       .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
+    parametros,
+    vigencia,
     instalado: true,
   };
 }

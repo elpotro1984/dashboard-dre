@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 
-import { diasDeFerias, erroDasFerias, feriasQueComecamNoMes, mesesDoPeriodo, valorCalculadoFerias, valorDasFerias } from "@/lib/dp/ferias";
-import { CADASTRO_VAZIO, calcularFolhaPessoa, LANCAMENTO_PADRAO, type DpFolhaEntrada } from "@/lib/dp/folha/motor";
+import { diasDeFerias, erroDasFerias, feriasQueComecamNoMes, mesesDoPeriodo, reciboDeFerias, valorDasFerias } from "@/lib/dp/ferias";
+import { CADASTRO_VAZIO, calcularFolhaPessoa, calcularInss, calcularIrrf, LANCAMENTO_PADRAO, type DpFolhaEntrada } from "@/lib/dp/folha/motor";
 import { PARAMETROS_PADRAO as P } from "@/lib/dp/folha/parametros";
 
 test("dias de férias: do início ao término, inclusive; data inválida = 0", () => {
@@ -26,16 +26,39 @@ test("validação: datas, término depois do início, até 30 dias, sem sobrepos
   assert.equal(erroDasFerias({ inicio: "2026-10-11", fim: "2026-10-20" }, [{ inicio: "2026-10-01", fim: "2026-10-10" }]), null, "encostar não é sobrepor");
 });
 
-test("valor calculado = salário ÷ 30 × dias + 1/3; estágio sem o terço", () => {
-  assert.deepEqual(valorCalculadoFerias(3000, "clt", 30), { ferias: 3000, terco: 1000, total: 4000 });
-  assert.deepEqual(valorCalculadoFerias(3000, "clt", 10), { ferias: 1000, terco: 333.33, total: 1333.33 });
-  assert.deepEqual(valorCalculadoFerias(1500, "estagio", 15), { ferias: 750, terco: 0, total: 750 });
-  assert.deepEqual(valorCalculadoFerias(null, "clt", 10), { ferias: 0, terco: 0, total: 0 });
-  assert.equal(valorDasFerias(null, 1333.33), 1333.33);
-  assert.equal(valorDasFerias(1200, 1333.33), 1200, "o informado vence");
+const rec = (o: Partial<Parameters<typeof reciboDeFerias>[0]>) =>
+  reciboDeFerias({ salario: 3000, contrato: "clt", dias: 30, semInss: false, dependentesIr: 0, ...o }, P);
+
+test("recibo: férias + 1/3 − INSS − IRRF, com as tabelas do salário (o caso da tela de 27/10/2026)", () => {
+  const r = rec({ salario: 4069.72, dias: 15 });
+  assert.deepEqual([r.ferias, r.terco, r.bruto, r.inss, r.irrf, r.liquido], [2034.86, 678.29, 2713.15, 219.87, 0, 2493.28]);
+  assert.equal(valorDasFerias(null, r.liquido), 2493.28, "sem manual, vale o líquido");
+  assert.equal(valorDasFerias(2400, r.liquido), 2400, "o informado vence");
 });
 
-test("a conta é a MESMA do motor da folha (férias e 1/3 de um período dentro do mês)", () => {
+test("recibo: INSS e IRRF são os do motor da folha, à parte do salário do mês", () => {
+  for (const salario of [1800, 4870.55, 9500, 15000]) {
+    const r = rec({ salario, dias: 20, dependentesIr: 1 });
+    const inss = calcularInss(r.bruto, P.inss).valor;
+    assert.equal(r.inss, inss, `INSS ${salario}`);
+    assert.equal(r.irrf, calcularIrrf(r.bruto, inss, 1, P.irrf).valor, `IRRF ${salario}`);
+    assert.equal(r.liquido, Math.round((r.bruto - r.inss - r.irrf) * 100) / 100);
+  }
+  assert.ok(rec({ salario: 12000 }).irrf > rec({ salario: 12000, dependentesIr: 3 }).irrf, "dependente reduz o IRRF");
+});
+
+test("recibo: o recorte do salário por contrato", () => {
+  const est = rec({ contrato: "estagio", salario: 1500, dias: 15 });
+  assert.deepEqual([est.terco, est.inss], [0, 0], "estágio: sem o terço e sem INSS");
+  for (const contrato of ["prestador", "socio"] as const) {
+    const r = rec({ contrato, salario: 10000 });
+    assert.deepEqual([r.inss, r.irrf, r.liquido], [0, 0, r.bruto], contrato);
+  }
+  assert.equal(rec({ semInss: true }).inss, 0, "sem INSS do cadastro (diretor)");
+  assert.deepEqual([rec({ salario: null }).bruto, rec({ salario: null }).liquido], [0, 0]);
+});
+
+test("a conta é a MESMA do motor da folha (férias, 1/3 e o INSS do recibo de um período dentro do mês)", () => {
   for (const [salario, dias, contrato] of [[4870.55, 12, "clt"], [3000, 30, "clt"], [1999.9, 7, "aprendiz"], [1500, 15, "estagio"]] as const) {
     const e: DpFolhaEntrada = {
       solidesId: 1, nome: "A", setor: null, centroCusto: null, empresaId: "e1", contrato, salario,
@@ -44,8 +67,8 @@ test("a conta é a MESMA do motor da folha (férias e 1/3 de um período dentro 
       lancamento: { ...LANCAMENTO_PADRAO, ajustes: {} },
     };
     const folha = calcularFolhaPessoa(e, P, "2026-10");
-    const v = valorCalculadoFerias(salario, contrato, dias);
-    assert.deepEqual([v.ferias, v.terco], [folha.ferias, folha.tercoFerias], `${contrato} ${salario} × ${dias}`);
+    const r = rec({ salario, dias, contrato });
+    assert.deepEqual([r.ferias, r.terco, r.inss], [folha.ferias, folha.tercoFerias, folha.automatico.inssFerias], `${contrato} ${salario} × ${dias}`);
   }
 });
 

@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useToast } from "@/components/ui/toaster";
 import { formatDayBR } from "@/lib/ctrl/datetime";
 import { excluirFerias, salvarFerias } from "@/lib/dp/actions-ferias";
-import { diasDeFerias, erroDasFerias, valorCalculadoFerias } from "@/lib/dp/ferias";
+import { diasDeFerias, erroDasFerias, reciboDeFerias, type DpReciboFerias } from "@/lib/dp/ferias";
 import type { DpFeriasDoMes, DpFeriasLinha } from "@/lib/dp/ferias-queries";
 import { rotuloCompetencia, somarMeses } from "@/lib/dp/folha/parametros";
 
@@ -38,6 +38,17 @@ export function DpFeriasClient({ companyId, dados }: { companyId: string; dados:
       sortVal: (l) => (valor(l) ? norm(valor(l)!) : "￿"),
       cell: (l) => valor(l) ?? <span className="text-ink-muted">—</span>,
     });
+    const dinheiro = (key: string, label: string, valor: (l: DpFeriasLinha) => number): FilterColumn<DpFeriasLinha> => ({
+      key,
+      label,
+      kind: "number",
+      align: "right",
+      plain: (l) => brl(valor(l)),
+      sortVal: valor,
+      numeric: valor,
+      cell: (l) => brl(valor(l)),
+      className: "whitespace-nowrap",
+    });
     const data = (key: string, label: string, valor: (l: DpFeriasLinha) => string): FilterColumn<DpFeriasLinha> => ({
       key,
       label,
@@ -64,9 +75,12 @@ export function DpFeriasClient({ companyId, dados }: { companyId: string; dados:
       data("inicio", "Início", (l) => l.inicio),
       data("fim", "Término", (l) => l.fim),
       { key: "dias", label: "Dias", kind: "number", align: "right", plain: (l) => String(l.dias), sortVal: (l) => l.dias, numeric: (l) => l.dias },
+      dinheiro("bruto", "Férias + 1/3", (l) => l.recibo.bruto),
+      dinheiro("inss", "INSS", (l) => l.recibo.inss),
+      dinheiro("irrf", "IRRF", (l) => l.recibo.irrf),
       {
         key: "valor",
-        label: "Valor",
+        label: "Valor líquido",
         kind: "number",
         align: "right",
         plain: (l) => brl(l.valor),
@@ -78,7 +92,7 @@ export function DpFeriasClient({ companyId, dados }: { companyId: string; dados:
             {brl(l.valor)}
             {l.valorManual !== null ? (
               <span className="block text-[11px] text-ink-muted">
-                <span className="rounded bg-sky-500/10 px-1 text-sky-800 dark:text-sky-300">manual</span> calculado {brl(l.calculado.total)}
+                <span className="rounded bg-sky-500/10 px-1 text-sky-800 dark:text-sky-300">manual</span> calculado {brl(l.recibo.liquido)}
               </span>
             ) : null}
           </>
@@ -106,9 +120,11 @@ export function DpFeriasClient({ companyId, dados }: { companyId: string; dados:
         </button>
       </div>
       <p className="text-xs text-ink-muted">
-        Cada férias aparece no mês do início, com o valor inteiro (é quando o recibo é pago, até 2 dias antes). O valor é calculado como o
-        recibo — salário ÷ 30 × dias + 1/3 (estágio: sem o terço) — e pode ser trocado à mão. A Folha do mês tira daqui os dias de férias
-        de cada mês, inclusive quando as férias atravessam a virada.
+        Cada férias aparece no mês do início, com o valor inteiro (é quando o recibo é pago, até 2 dias antes). O valor é o líquido do
+        recibo, com as regras do salário: salário ÷ 30 × dias + 1/3 (estágio: sem o terço), menos INSS e IRRF pelas tabelas dos
+        Parâmetros da folha ({dados.vigencia ? `vigência de ${rotuloCompetencia(dados.vigencia)}` : "padrão do sistema"}), calculados à
+        parte do salário do mês, como no recibo. Pode ser trocado à mão. A Folha do mês tira daqui os dias de férias de cada mês,
+        inclusive quando as férias atravessam a virada.
       </p>
 
       {linhas.length === 0 ? (
@@ -125,7 +141,11 @@ export function DpFeriasClient({ companyId, dados }: { companyId: string; dados:
                 Total ({vis.length})
               </td>
               <td className="px-3 py-2 text-right font-medium tabular-nums text-ink-primary">{vis.reduce((s, l) => s + l.dias, 0)}</td>
-              <td className="whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums text-ink-primary">{brl(vis.reduce((s, l) => s + l.valor, 0))}</td>
+              {[(l: DpFeriasLinha) => l.recibo.bruto, (l: DpFeriasLinha) => l.recibo.inss, (l: DpFeriasLinha) => l.recibo.irrf, (l: DpFeriasLinha) => l.valor].map((v, i) => (
+                <td key={i} className="whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums text-ink-primary">
+                  {brl(vis.reduce((s, l) => s + v(l), 0))}
+                </td>
+              ))}
             </>
           )}
         />
@@ -163,7 +183,9 @@ function FeriasDialog({
   const travada = linha?.travada ?? null;
   const pessoa = dados.pessoas.find((p) => p.solidesId === solidesId) ?? null;
   const dias = diasDeFerias(inicio, fim);
-  const calculado = pessoa ? valorCalculadoFerias(pessoa.salario, pessoa.contrato, dias) : null;
+  const recibo = pessoa
+    ? reciboDeFerias({ salario: pessoa.salario, contrato: pessoa.contrato, dias, semInss: pessoa.semInss, dependentesIr: pessoa.dependentesIr }, dados.parametros)
+    : null;
   // Só depois das duas datas: antes disso o botão já fica desligado, e a frase em
   // vermelho parecia dizer que a escolha do colaborador tinha falhado.
   const erro = pessoa && inicio && fim ? erroDasFerias({ inicio, fim }, pessoa.periodos.filter((p) => p.id !== linha?.id)) : null;
@@ -278,26 +300,20 @@ function FeriasDialog({
             </div>
           </div>
 
-          <div className="space-y-1 text-xs">
+          <div className="space-y-1.5 text-xs">
             <span className="text-ink-muted">Valor</span>
-            {calculado && dias > 0 ? (
-              <p className="text-ink-secondary">
-                Calculado: <strong className="tabular-nums">{brl(calculado.total)}</strong>{" "}
-                <span className="text-ink-muted">
-                  (férias {brl(calculado.ferias)}
-                  {calculado.terco ? ` + 1/3 ${brl(calculado.terco)}` : " — estágio, sem o terço"})
-                </span>
-                {pessoa?.salario === null && <span className="text-amber-700 dark:text-amber-400"> · sem salário na Sólides</span>}
-              </p>
+            {recibo && dias > 0 ? (
+              <ReciboTabela recibo={recibo} dias={dias} semSalario={pessoa?.salario === null} />
             ) : (
               <p className="text-ink-muted">
                 {pessoa ? "Informe o início e o término para ver o valor calculado." : "Escolha o colaborador para ver o valor calculado."}
               </p>
             )}
-            <div className="max-w-[12rem]">
-              <NumCampoOpcional valor={valorManual} auto={calculado?.total ?? 0} onChange={setValorManual} ariaLabel="Valor manual" />
-            </div>
-            <p className="text-[11px] text-ink-muted">Em branco = vale o calculado. Digite para usar outro valor (ex.: o da contabilidade).</p>
+            <label className="block max-w-[14rem] space-y-1">
+              <span className="text-ink-muted">Valor líquido manual</span>
+              <NumCampoOpcional valor={valorManual} auto={recibo?.liquido ?? 0} onChange={setValorManual} ariaLabel="Valor líquido manual" />
+            </label>
+            <p className="text-[11px] text-ink-muted">Em branco = vale o líquido calculado. Digite para usar outro valor (ex.: o da contabilidade).</p>
           </div>
 
           <label className="block space-y-1 text-xs">
@@ -341,5 +357,34 @@ function FeriasDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** A conta do recibo: férias, 1/3, bruto, INSS, IRRF e o líquido — com a memória do INSS e do IRRF. */
+function ReciboTabela({ recibo, dias, semSalario }: { recibo: DpReciboFerias; dias: number; semSalario: boolean }) {
+  const linha = (rotulo: string, valor: number, opts: { sinal?: string; forte?: boolean; titulo?: string } = {}) => (
+    <tr className={opts.forte ? "border-t border-border font-semibold text-ink-primary" : ""} title={opts.titulo}>
+      <td className="w-4 py-0.5 pr-1 text-ink-muted">{opts.sinal ?? ""}</td>
+      <td className="py-0.5 pr-3">{rotulo}</td>
+      <td className="py-0.5 text-right tabular-nums">{brl(valor)}</td>
+    </tr>
+  );
+  return (
+    <div className="space-y-1">
+      <table className="w-full max-w-sm text-sm text-ink-secondary">
+        <tbody>
+          {linha(`Férias (salário ÷ 30 × ${dias} dia${dias === 1 ? "" : "s"})`, recibo.ferias)}
+          {recibo.terco > 0 && linha("1/3 de férias", recibo.terco, { sinal: "+" })}
+          {linha("Bruto", recibo.bruto, { sinal: "=", forte: true })}
+          {linha("INSS", recibo.inss, { sinal: "−", titulo: recibo.memoria.inss })}
+          {linha("IRRF", recibo.irrf, { sinal: "−", titulo: recibo.memoria.irrf })}
+          {linha("Líquido a pagar", recibo.liquido, { sinal: "=", forte: true })}
+        </tbody>
+      </table>
+      <p className="text-[11px] text-ink-muted">
+        INSS: {recibo.memoria.inss} IRRF: {recibo.memoria.irrf}
+        {semSalario && <span className="text-amber-700 dark:text-amber-400"> Sem salário na Sólides — considerado zero.</span>}
+      </p>
+    </div>
   );
 }
