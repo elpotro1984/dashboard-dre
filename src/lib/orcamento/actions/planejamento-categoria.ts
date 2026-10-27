@@ -1206,6 +1206,12 @@ export interface PreviaSetorResumo {
    * sempre a maior linha do orçamento.
    */
   pessoalIndisponivel: string | null;
+  /**
+   * `orcar_por_setor` da empresa × ano. Desligado, não existe setor para
+   * prever: a faixa somaria a empresa inteira sob o título "Prévia do setor",
+   * e as telas não a mostram.
+   */
+  orcaPorSetor: boolean;
 }
 
 /**
@@ -1229,6 +1235,23 @@ export async function getPreviaSetor(
 ): Promise<{ data?: PreviaSetorResumo; error?: string; needsMigration?: boolean }> {
   if (!companyId) return { error: "Empresa inválida." };
   if (!isValidBudgetYear(year)) return { error: "Ano do orçamento inválido." };
+
+  // Empresa sem "Orçar por setor": nada a calcular — a tela não mostra a faixa,
+  // e montar a Prévia da empresa inteira só para descartá-la é a parte cara.
+  const supabase = createAdminClientIfAvailable() ?? (await createClient());
+  if (!(await orcaPorSetor(supabase, companyId, year))) {
+    return {
+      data: {
+        categorias: [],
+        total: 0,
+        totalAprovado: 0,
+        contagem: contarEstados([]),
+        podeValidar: false,
+        pessoalIndisponivel: null,
+        orcaPorSetor: false,
+      },
+    };
+  }
 
   const res = await getPreviaOrcamento(companyId, year, setorId ?? SETOR_TODOS);
   if (res.needsMigration) return { needsMigration: true };
@@ -1317,6 +1340,7 @@ export async function getPreviaSetor(
       contagem: contarEstados(paraContar.map((i) => i.estado)),
       podeValidar: res.data.resumo.podeValidar,
       pessoalIndisponivel: res.data.resumo.pessoalIndisponivel,
+      orcaPorSetor: true,
     },
   };
 }

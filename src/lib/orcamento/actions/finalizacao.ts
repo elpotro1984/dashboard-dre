@@ -219,7 +219,7 @@ export async function finalizarFatia(params: {
     return {
       error:
         "Nada foi aprovado pela diretoria nesta categoria — só o aprovado vai para o Budget. " +
-        "Aprove os itens na prévia do setor antes de finalizar.",
+        "Aprove os itens (na linha de cada um) antes de finalizar.",
     };
   }
 

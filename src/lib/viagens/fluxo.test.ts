@@ -431,7 +431,7 @@ test("a linha diz POR QUE o botao da diretoria nao esta ali, e qual e o passo", 
 
   const cotada = porQueSemDecisao("cotada")!;
   assert.match(cotada, /Seguir para a diretoria/);
-  assert.match(cotada, /prévia do setor/, "diz tambem que ate la nao entra na previa");
+  assert.match(cotada, /prévia/, "diz tambem que ate la nao entra na previa");
 
   for (const e of ["rascunho", "aguardando_cotacao", "em_cotacao"] as EstadoViagem[]) {
     assert.ok(porQueSemDecisao(e), `${e} ficou sem explicacao`);

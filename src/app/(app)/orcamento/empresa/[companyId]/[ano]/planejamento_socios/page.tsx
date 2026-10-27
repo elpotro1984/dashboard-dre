@@ -25,9 +25,8 @@ export default async function WorkspacePlanejamentoPage({
       <div>
         <h2 className="text-xl font-bold tracking-tight">Planejamento dos gestores</h2>
         <p className="text-sm text-muted-foreground">
-          Escolha os setores e a categoria que quer orçar. Dentro de cada categoria, uma entrevista
-          guiada por IA ajuda a montar as despesas do ano — e a prévia do setor vai se preenchendo
-          enquanto você conversa.
+          Escolha a categoria que quer orçar. Dentro de cada categoria, uma entrevista guiada por IA
+          ajuda a montar as despesas do ano, que vão entrando no orçamento enquanto você conversa.
         </p>
       </div>
       <PlanejamentoLista companyId={params.companyId} year={Number(params.ano)} />
