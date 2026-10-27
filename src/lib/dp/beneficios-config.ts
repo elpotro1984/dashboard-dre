@@ -10,15 +10,15 @@
 //   transporte       desconta 6% do salário? + tipos de bilhete (nome, valor)
 //   gasolina         faixas de km (de, até, valor)
 //   carona           faixas de km (de, até, valor)
-//   home_office      faixas de dias presenciais na semana (de, até, valor)
+//   home_office      valor por nº de dias presenciais na semana ("1 dia — R$ 20")
 //   sesi             modalidades (nome, valor)
 //   salario_familia  cota e limite de remuneração (+ vigência e fonte da tabela)
 //   assiduidade      um valor
 //
 // Cada bloco tem o PRÓPRIO reajuste em %, aplicado só depois de confirmado: o
 // percentual multiplica todo valor em dinheiro do bloco (faixa, bilhete,
-// modalidade, cota e limite), arredondado ao centavo. Faixa de km e de dias não
-// é dinheiro e não muda.
+// modalidade, cota e limite), arredondado ao centavo. Faixa de km e nº de dias
+// não são dinheiro e não mudam.
 // ============================================================================
 
 export const BLOCOS_BENEFICIO = [
@@ -50,11 +50,18 @@ export interface DpItemNomeValor {
   valor: number;
 }
 
-/** Faixa de km ou de dias: de `de` até `ate` (null = "em diante"). */
+/** Faixa de km: de `de` até `ate` (null = "em diante"). */
 export interface DpFaixaBeneficio {
   id: string;
   de: number;
   ate: number | null;
+  valor: number;
+}
+
+/** Home office: quantos dias presenciais na semana e o valor (27/10/2026: por dia, não em faixa). */
+export interface DpDiaValor {
+  id: string;
+  dias: number;
   valor: number;
 }
 
@@ -65,7 +72,7 @@ export interface DpBeneficiosDados {
   transporte: { descontar6: boolean; bilhetes: DpItemNomeValor[] };
   gasolina: { faixas: DpFaixaBeneficio[] };
   carona: { faixas: DpFaixaBeneficio[] };
-  home_office: { faixas: DpFaixaBeneficio[] };
+  home_office: { porDias: DpDiaValor[] };
   sesi: { modalidades: DpItemNomeValor[] };
   salario_familia: { cota: number | null; limite: number | null; vigencia: string | null; fonte: string | null };
   assiduidade: { valor: number | null };
@@ -77,19 +84,25 @@ export const BENEFICIOS_VAZIOS: DpBeneficiosDados = {
   transporte: { descontar6: true, bilhetes: [] },
   gasolina: { faixas: [] },
   carona: { faixas: [] },
-  home_office: { faixas: [] },
+  home_office: { porDias: [] },
   sesi: { modalidades: [] },
   salario_familia: { cota: null, limite: null, vigencia: null, fonte: null },
   assiduidade: { valor: null },
 };
 
-type BlocoFaixa = "gasolina" | "carona" | "home_office";
+type BlocoFaixa = "gasolina" | "carona";
 export const FAIXA_UNIDADE: Record<BlocoFaixa, { unidade: string; singular: string; inteiro: boolean; max: number }> = {
   gasolina: { unidade: "km", singular: "km", inteiro: false, max: 100_000 },
   carona: { unidade: "km", singular: "km", inteiro: false, max: 100_000 },
-  // Dias presenciais NA SEMANA: de 0 (todo remoto) a 7.
-  home_office: { unidade: "dias", singular: "dia", inteiro: true, max: 7 },
 };
+
+/** Dias presenciais NA SEMANA: de 0 (todo remoto) a 7. */
+export const MAX_DIAS_HOME_OFFICE = 7;
+
+/** "0 dias", "1 dia", "3 dias". */
+export function rotuloDias(dias: number): string {
+  return `${dias} ${dias === 1 ? "dia" : "dias"}`;
+}
 
 export const MAX_ITENS_BLOCO = 30;
 const VALOR_MAXIMO = 1_000_000;
@@ -173,6 +186,24 @@ function faixas(bloco: BlocoFaixa, v: unknown): DpFaixaBeneficio[] {
   return ordenadas;
 }
 
+/** Uma linha por nº de dias, sem repetir; em ordem crescente. */
+function porDias(v: unknown): DpDiaValor[] {
+  const oQue = ROTULO_BLOCO.home_office;
+  const vistos = new Set<string>();
+  const usados = new Set<number>();
+  return lista(v, oQue)
+    .map((x, i) => {
+      const dias = numero(x.dias, `${oQue} — linha ${i + 1}, dias`)!;
+      if (!Number.isInteger(dias) || dias > MAX_DIAS_HOME_OFFICE) {
+        throw new Recusa(`${oQue} — linha ${i + 1}: dias presenciais é um número inteiro de 0 a ${MAX_DIAS_HOME_OFFICE}.`);
+      }
+      if (usados.has(dias)) throw new Recusa(`${oQue}: "${rotuloDias(dias)}" aparece duas vezes.`);
+      usados.add(dias);
+      return { id: idDe(x.id, i, vistos), dias, valor: numero(x.valor, `${oQue} — ${rotuloDias(dias)}`)! };
+    })
+    .sort((a, b) => a.dias - b.dias);
+}
+
 /**
  * Normaliza e valida o bloco. Lança Recusa com a frase para a tela — e é a MESMA
  * função que lê o banco (`lerBloco`), para o que foi gravado sair igual.
@@ -192,8 +223,15 @@ function normalizar<B extends DpBlocoBeneficio>(bloco: B, raw: unknown): DpBenef
       break;
     case "gasolina":
     case "carona":
-    case "home_office":
       out = { faixas: faixas(bloco, o.faixas) };
+      break;
+    case "home_office":
+      // O formato de faixas (até 27/10/2026, nenhum salvo) é lido pelo início de cada faixa.
+      out = {
+        porDias: porDias(
+          o.porDias ?? (Array.isArray(o.faixas) ? (o.faixas as Array<Record<string, unknown>>).map((f) => ({ id: f.id, dias: f.de, valor: f.valor })) : []),
+        ),
+      };
       break;
     case "sesi":
       out = { modalidades: itensNomeValor(o.modalidades, ROTULO_BLOCO.sesi, "à modalidade") };
@@ -235,7 +273,7 @@ export function lerBloco<B extends DpBlocoBeneficio>(bloco: B, raw: unknown): Dp
 
 // ── Faixas ─────────────────────────────────────────────────────────────────
 
-/** "de 0 a 10 km", "acima de 20 km", "de 3 a 5 dias", "1 dia". */
+/** "de 0 a 10 km", "acima de 20 km". */
 export function rotuloFaixa(bloco: BlocoFaixa, f: { de: number; ate: number | null }): string {
   const u = FAIXA_UNIDADE[bloco];
   const un = (v: number) => (u.inteiro && v === 1 ? u.singular : u.unidade);
@@ -271,8 +309,9 @@ export function valoresDoBloco<B extends DpBlocoBeneficio>(bloco: B, dados: DpBe
     }
     case "gasolina":
     case "carona":
-    case "home_office":
       return (d as DpBeneficiosDados["gasolina"]).faixas.map((f) => ({ rotulo: rotuloFaixa(bloco as BlocoFaixa, f), valor: f.valor }));
+    case "home_office":
+      return (d as DpBeneficiosDados["home_office"]).porDias.map((x) => ({ rotulo: rotuloDias(x.dias), valor: x.valor }));
     case "salario_familia": {
       const s = d as DpBeneficiosDados["salario_familia"];
       return [
@@ -306,8 +345,10 @@ export function reajustarBloco<B extends DpBlocoBeneficio>(bloco: B, dados: DpBe
       break;
     case "gasolina":
     case "carona":
-    case "home_office":
       out = { ...d, faixas: (d.faixas as DpFaixaBeneficio[]).map((f) => ({ ...f, valor: rj(f.valor) })) };
+      break;
+    case "home_office":
+      out = { ...d, porDias: (d.porDias as DpDiaValor[]).map((x) => ({ ...x, valor: rj(x.valor) })) };
       break;
     case "salario_familia":
       out = { ...d, cota: rjNulo(d.cota as number | null), limite: rjNulo(d.limite as number | null) };

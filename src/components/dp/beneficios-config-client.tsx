@@ -12,14 +12,17 @@ import {
   BLOCOS_BENEFICIO,
   erroDoPercentual,
   FAIXA_UNIDADE,
+  MAX_DIAS_HOME_OFFICE,
   MAX_ITENS_BLOCO,
   reajustarBloco,
+  rotuloDias,
   rotuloFaixa,
   ROTULO_BLOCO,
   validarBloco,
   valoresDoBloco,
   type DpBeneficiosDados,
   type DpBlocoBeneficio,
+  type DpDiaValor,
   type DpFaixaBeneficio,
   type DpItemNomeValor,
 } from "@/lib/dp/beneficios-config";
@@ -35,7 +38,7 @@ const DESCRICAO: Record<DpBlocoBeneficio, string> = {
   transporte: "Se a empresa desconta os 6% do salário e os tipos de bilhete, com o valor de cada um por dia.",
   gasolina: "O valor mensal do auxílio por faixa de distância (km).",
   carona: "O valor mensal do auxílio carona por faixa de distância (km).",
-  home_office: "O valor mensal do auxílio por faixa de dias PRESENCIAIS na semana (0 = todo remoto).",
+  home_office: "O valor do auxílio para cada quantidade de dias PRESENCIAIS na semana — ex.: 1 dia, R$ 20 (0 = todo remoto).",
   sesi: "As modalidades do Clube SESI que a empresa oferece e o valor mensal de cada uma.",
   salario_familia: "Obrigação legal: a cota por filho e o limite de remuneração da portaria do ano. Dá para buscar a tabela atualizada na web.",
   assiduidade: "O valor do prêmio de assiduidade.",
@@ -255,10 +258,13 @@ function Editor({
       );
     }
     case "gasolina":
-    case "carona":
-    case "home_office": {
+    case "carona": {
       const d = dados as DpBeneficiosDados["gasolina"];
       return <ListaFaixas bloco={bloco} faixas={d.faixas} onChange={(faixas) => onChange({ faixas })} />;
+    }
+    case "home_office": {
+      const d = dados as DpBeneficiosDados["home_office"];
+      return <ListaDias itens={d.porDias} onChange={(porDias) => onChange({ porDias })} />;
     }
     case "sesi": {
       const d = dados as DpBeneficiosDados["sesi"];
@@ -394,7 +400,7 @@ function ListaFaixas({
   faixas,
   onChange,
 }: {
-  bloco: "gasolina" | "carona" | "home_office";
+  bloco: "gasolina" | "carona";
   faixas: DpFaixaBeneficio[];
   onChange: (f: DpFaixaBeneficio[]) => void;
 }) {
@@ -459,6 +465,61 @@ function ListaFaixas({
         </button>
       )}
       <p className="text-xs text-ink-muted">“Até” em branco = a faixa vale dali em diante (só a última).</p>
+    </div>
+  );
+}
+
+/** Home office: uma linha por nº de dias presenciais na semana ("1 dia — R$ 20"). */
+function ListaDias({ itens, onChange }: { itens: DpDiaValor[]; onChange: (i: DpDiaValor[]) => void }) {
+  const trocar = (id: string, p: Partial<DpDiaValor>) => onChange(itens.map((x) => (x.id === id ? { ...x, ...p } : x)));
+  const livre = Array.from({ length: MAX_DIAS_HOME_OFFICE + 1 }, (_, d) => d).find((d) => !itens.some((x) => x.dias === d));
+  return (
+    <div className="space-y-1.5">
+      {itens.length === 0 ? (
+        <p className="text-sm text-ink-muted">Nenhum valor cadastrado.</p>
+      ) : (
+        <table className="w-full max-w-md text-sm">
+          <thead className="text-left text-xs text-ink-muted">
+            <tr>
+              <th className="w-44 pb-1 pr-2 font-medium">Dias presenciais na semana</th>
+              <th className="w-40 pb-1 pr-2 font-medium">Valor (R$)</th>
+              <th className="w-8" />
+            </tr>
+          </thead>
+          <tbody>
+            {itens.map((x) => (
+              <tr key={x.id}>
+                <td className="py-1 pr-2">
+                  <select value={x.dias} onChange={(e) => trocar(x.id, { dias: Number(e.target.value) })} className={inputCls} aria-label="Dias presenciais na semana">
+                    {Array.from({ length: MAX_DIAS_HOME_OFFICE + 1 }, (_, d) => d).map((d) => (
+                      <option key={d} value={d} disabled={d !== x.dias && itens.some((o) => o.dias === d)}>
+                        {rotuloDias(d)}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td className="py-1 pr-2">
+                  <NumCampo valor={x.valor} onChange={(valor) => trocar(x.id, { valor })} ariaLabel={`Valor para ${rotuloDias(x.dias)}`} />
+                </td>
+                <td className="py-1">
+                  <button type="button" onClick={() => onChange(itens.filter((o) => o.id !== x.id))} className="rounded p-1 text-ink-muted hover:text-red-600" aria-label={`Remover ${rotuloDias(x.dias)}`}>
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {livre !== undefined && (
+        <button
+          type="button"
+          onClick={() => onChange([...itens, { id: novoId(), dias: livre, valor: 0 }])}
+          className="inline-flex items-center gap-1 rounded-md border border-dashed border-input px-2.5 py-1 text-xs text-ink-muted hover:text-ink-primary"
+        >
+          <Plus className="h-3.5 w-3.5" /> Adicionar
+        </button>
+      )}
     </div>
   );
 }

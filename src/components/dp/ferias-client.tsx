@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, Loader2, Lock, Plus, Trash2 } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Loader2, Lock, Plus, Trash2 } from "lucide-react";
 
 import { FilterTable, type FilterColumn } from "@/components/data-table/filter-table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -164,12 +164,13 @@ function FeriasDialog({
   const pessoa = dados.pessoas.find((p) => p.solidesId === solidesId) ?? null;
   const dias = diasDeFerias(inicio, fim);
   const calculado = pessoa ? valorCalculadoFerias(pessoa.salario, pessoa.contrato, dias) : null;
-  const erro =
-    !pessoa ? null : erroDasFerias({ inicio, fim }, pessoa.periodos.filter((p) => p.id !== linha?.id));
+  // Só depois das duas datas: antes disso o botão já fica desligado, e a frase em
+  // vermelho parecia dizer que a escolha do colaborador tinha falhado.
+  const erro = pessoa && inicio && fim ? erroDasFerias({ inicio, fim }, pessoa.periodos.filter((p) => p.id !== linha?.id)) : null;
   const opcoes = useMemo(() => {
     const q = norm(busca.trim());
-    return dados.pessoas.filter((p) => !q || norm(p.nome).includes(q) || p.solidesId === solidesId);
-  }, [dados.pessoas, busca, solidesId]);
+    return dados.pessoas.filter((p) => !q || norm(p.nome).includes(q));
+  }, [dados.pessoas, busca]);
 
   const salvar = () =>
     start(async () => {
@@ -221,29 +222,46 @@ function FeriasDialog({
         </DialogHeader>
 
         <fieldset disabled={Boolean(travada) || pending} className="space-y-3">
-          <label className="block space-y-1 text-xs">
+          <div className="space-y-1 text-xs">
             <span className="text-ink-muted">Colaborador</span>
             {linha ? (
               <p className="text-sm font-medium text-ink-primary">{linha.nome}</p>
+            ) : pessoa ? (
+              // Escolhido: a lista fecha e o nome fica à vista — sem dúvida de que pegou.
+              <div className="flex items-center justify-between gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2">
+                <span className="flex items-center gap-1.5 text-sm font-medium text-ink-primary">
+                  <Check className="h-4 w-4 text-emerald-600" /> {pessoa.nome}
+                </span>
+                <button type="button" onClick={() => setSolidesId(null)} className="text-xs text-ink-muted underline hover:text-ink-primary">
+                  Trocar
+                </button>
+              </div>
             ) : (
-              <>
-                <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar colaborador" className={inputCls} />
-                <select
-                  value={solidesId ?? ""}
-                  onChange={(e) => setSolidesId(e.target.value ? Number(e.target.value) : null)}
-                  className={inputCls}
-                  size={Math.min(6, Math.max(2, opcoes.length))}
-                  aria-label="Colaborador"
-                >
-                  {opcoes.map((p) => (
-                    <option key={p.solidesId} value={p.solidesId}>
-                      {p.nome}
-                    </option>
-                  ))}
-                </select>
-              </>
+              <div className="space-y-1">
+                <input autoFocus value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar pelo nome" className={inputCls} aria-label="Buscar colaborador" />
+                <div className="max-h-48 overflow-y-auto rounded-md border border-input">
+                  {opcoes.length === 0 ? (
+                    <p className="px-3 py-2 text-sm text-ink-muted">Nenhum colaborador com esse nome.</p>
+                  ) : (
+                    opcoes.map((p) => (
+                      <button
+                        key={p.solidesId}
+                        type="button"
+                        onClick={() => {
+                          setSolidesId(p.solidesId);
+                          setBusca("");
+                        }}
+                        className="block w-full px-3 py-1.5 text-left text-sm hover:bg-muted"
+                      >
+                        {p.nome}
+                      </button>
+                    ))
+                  )}
+                </div>
+                <p className="text-[11px] text-ink-muted">Clique no nome para escolher.</p>
+              </div>
             )}
-          </label>
+          </div>
 
           <div className="grid grid-cols-3 gap-3">
             <label className="block space-y-1 text-xs">
@@ -272,7 +290,9 @@ function FeriasDialog({
                 {pessoa?.salario === null && <span className="text-amber-700 dark:text-amber-400"> · sem salário na Sólides</span>}
               </p>
             ) : (
-              <p className="text-ink-muted">Escolha o colaborador e as datas para ver o valor calculado.</p>
+              <p className="text-ink-muted">
+                {pessoa ? "Informe o início e o término para ver o valor calculado." : "Escolha o colaborador para ver o valor calculado."}
+              </p>
             )}
             <div className="max-w-[12rem]">
               <NumCampoOpcional valor={valorManual} auto={calculado?.total ?? 0} onChange={setValorManual} ariaLabel="Valor manual" />

@@ -39,7 +39,7 @@ test("vale-transporte: desconto de 6% ligado por padrão (é a regra da lei); bi
   assert.deepEqual(vt, { descontar6: false, bilhetes: [{ id: "b", nome: "Bilhete BH", valor: 21 }] });
 });
 
-test("faixas de km e de dias: em ordem, sem sobreposição, só a última 'em diante'", () => {
+test("faixas de km: em ordem, sem sobreposição, só a última 'em diante'", () => {
   const g = ok(
     validarBloco("gasolina", {
       faixas: [
@@ -53,18 +53,23 @@ test("faixas de km e de dias: em ordem, sem sobreposição, só a última 'em di
   assert.match(erro(validarBloco("carona", { faixas: [{ de: 0, ate: 10, valor: 1 }, { de: 10, ate: 20, valor: 2 }] })) ?? "", /se sobrepõem/);
   assert.match(erro(validarBloco("carona", { faixas: [{ de: 0, ate: null, valor: 1 }, { de: 10, ate: 20, valor: 2 }] })) ?? "", /só a última/);
   assert.match(erro(validarBloco("gasolina", { faixas: [{ de: 10, ate: 5, valor: 1 }] })) ?? "", /fim é menor/);
-  // Dias presenciais: inteiros de 0 a 7.
-  assert.match(erro(validarBloco("home_office", { faixas: [{ de: 0, ate: 1.5, valor: 1 }] })) ?? "", /inteiro/);
-  assert.match(erro(validarBloco("home_office", { faixas: [{ de: 0, ate: 8, valor: 1 }] })) ?? "", /no máximo 7/);
-  assert.ok(ok(validarBloco("home_office", { faixas: [{ de: 0, ate: 0, valor: 200 }, { de: 1, ate: 2, valor: 100 }] })));
+});
+
+test("home office: valor POR Nº DE DIAS presenciais (1 dia — R$ 20), não em faixa", () => {
+  const ho = ok(validarBloco("home_office", { porDias: [{ id: "b", dias: 2, valor: 40 }, { id: "a", dias: 1, valor: 20 }] }));
+  assert.deepEqual(ho.porDias, [{ id: "a", dias: 1, valor: 20 }, { id: "b", dias: 2, valor: 40 }], "em ordem de dias");
+  assert.match(erro(validarBloco("home_office", { porDias: [{ dias: 1, valor: 20 }, { dias: 1, valor: 30 }] })) ?? "", /"1 dia" aparece duas vezes/);
+  assert.match(erro(validarBloco("home_office", { porDias: [{ dias: 1.5, valor: 20 }] })) ?? "", /inteiro de 0 a 7/);
+  assert.match(erro(validarBloco("home_office", { porDias: [{ dias: 8, valor: 20 }] })) ?? "", /inteiro de 0 a 7/);
+  assert.ok(ok(validarBloco("home_office", { porDias: [{ dias: 0, valor: 100 }] })), "0 dias = todo remoto");
+  // O formato de faixas de antes (nenhum salvo) é lido pelo início de cada faixa.
+  assert.deepEqual(lerBloco("home_office", { faixas: [{ id: "f", de: 3, ate: 4, valor: 60 }] }).porDias, [{ id: "f", dias: 3, valor: 60 }]);
 });
 
 test("rótulo da faixa", () => {
   assert.equal(rotuloFaixa("gasolina", { de: 0, ate: 10 }), "de 0 a 10 km");
   assert.equal(rotuloFaixa("gasolina", { de: 20.01, ate: null }), "acima de 20,01 km");
-  assert.equal(rotuloFaixa("home_office", { de: 1, ate: 1 }), "1 dia");
-  assert.equal(rotuloFaixa("home_office", { de: 0, ate: 0 }), "0 dias");
-  assert.equal(rotuloFaixa("home_office", { de: 3, ate: null }), "3 dias ou mais");
+  assert.equal(rotuloFaixa("carona", { de: 5, ate: 5 }), "5 km");
 });
 
 test("salário-família e assiduidade: valores opcionais (vazio = não cadastrado)", () => {
@@ -93,7 +98,8 @@ test("reajuste: maior que zero e até 100%", () => {
 
 test("prévia: os valores em dinheiro de cada bloco, com rótulo", () => {
   assert.deepEqual(valoresDoBloco("sesi", { modalidades: [{ id: "m", nome: "Família", valor: 90 }] }), [{ rotulo: "Família", valor: 90 }]);
-  assert.deepEqual(valoresDoBloco("home_office", { faixas: [{ id: "f", de: 0, ate: 0, valor: 200 }] }), [{ rotulo: "0 dias", valor: 200 }]);
+  assert.deepEqual(valoresDoBloco("home_office", { porDias: [{ id: "f", dias: 1, valor: 20 }] }), [{ rotulo: "1 dia", valor: 20 }]);
+  assert.deepEqual(reajustarBloco("home_office", { porDias: [{ id: "f", dias: 1, valor: 20 }] }, 10).porDias, [{ id: "f", dias: 1, valor: 22 }]);
   assert.deepEqual(valoresDoBloco("salario_familia", { cota: 67.54, limite: null, vigencia: null, fonte: null }), [{ rotulo: "Cota por filho", valor: 67.54 }]);
   assert.deepEqual(valoresDoBloco("assiduidade", { valor: null }), [], "sem valor, nada a reajustar");
 });
