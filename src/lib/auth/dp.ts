@@ -54,6 +54,7 @@ export const DP_CONFIG_PATH = "/dp/configuracoes";
 /** Configurações da EMPRESA ativa — de todos do DP. */
 export const DP_CENTROS_PATH = "/dp/configuracoes/centros-custo";
 export const DP_ENCARGOS_PATH = "/dp/configuracoes/encargos";
+export const DP_BENEFICIOS_PATH = "/dp/configuracoes/beneficios";
 /** Configurações do GRUPO — só do gestor (ver isDpGestorPath). */
 export const DP_PARAMETROS_FOLHA_PATH = "/dp/configuracoes/parametros";
 export const DP_NAV_KEY_FOLHA = "dp-folha";

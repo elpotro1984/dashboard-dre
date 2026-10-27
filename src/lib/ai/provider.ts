@@ -35,7 +35,8 @@ export type AiModule =
   | "contratos"
   | "ocr"
   | "viagens"
-  | "orcamento";
+  | "orcamento"
+  | "dp";
 
 export const AI_MODULE_LABELS: Record<AiModule, string> = {
   bi: "Business Intelligence",
@@ -46,6 +47,7 @@ export const AI_MODULE_LABELS: Record<AiModule, string> = {
   ocr: "Leitura de Documentos (OCR)",
   viagens: "Viagens",
   orcamento: "Orçamento",
+  dp: "Departamento Pessoal",
 };
 
 export const AI_PROVIDER_LABELS: Record<AiProviderName, string> = {
