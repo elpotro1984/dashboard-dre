@@ -205,6 +205,16 @@ test("prompt: a abertura apresenta a base e o contexto do admin, não só total 
   assert.match(p, /R\$\s?100,00 do realizado não estão em/);
 });
 
+test("realizadoContexto: com o ano em curso, o total inclui o mês aberto e a média não", () => {
+  // Viva Barbacena, Consultoria (27/10/2026): jan–set fechados somam 459,16 e
+  // outubro, em curso, 1.463,72. O total que a IA anuncia é o do ano: 1.922,88.
+  const meses: (number | null)[] = [null, null, null, 459.16, null, null, null, null, null, 1463.72, null, null];
+  const txt = realizadoContexto({ meses, total: 459.16, mesesConsiderados: 9, media: 459.16 / 9 });
+  assert.match(txt, /total R\$\s?1\.922,88/);
+  assert.match(txt, /9 meses fechados, jan–set/);
+  assert.match(txt, /R\$\s?1\.463,72 do total são de outubro/);
+});
+
 // ─── Os dois modos ───────────────────────────────────────────────────────────
 
 test("prompt: modo entrevista ensina o cartão e o [[FECHAR]]", () => {

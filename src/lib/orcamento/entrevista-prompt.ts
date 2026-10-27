@@ -241,13 +241,41 @@ export function materialidade(totais: number[]): ItemMaterialidade[] {
 
 const OUTLIER_FATOR = 1.5;
 
+/**
+ * Total gasto no ano, com TODOS os meses que têm lançamento — o mesmo número da
+ * tela (`totalGastoAno`). `MediaRealizado.total` NÃO serve aqui: ele é o
+ * numerador da média e só soma os meses FECHADOS. Com o ano-base ainda em
+ * curso, a IA dizia "R$ 459,16 em 2026" e listava outubro com R$ 1.463,72 no
+ * mês a mês logo abaixo (Viva Barbacena, Consultoria, 27/10/2026).
+ */
+export function totalDoAno(r: MediaRealizado): number {
+  const soma = r.meses.reduce<number>((a, v) => a + (v ?? 0), 0);
+  return Math.round(Math.abs(soma) * 100) / 100;
+}
+
 /** Total, média, mês a mês e os meses fora da curva (> 1,5× a média). */
 export function realizadoContexto(r: MediaRealizado | undefined): string {
   if (!r) return "sem dados do ano anterior.";
   const comValor = r.meses.filter((v): v is number => v != null && v !== 0);
-  if (comValor.length === 0 && !(r.total > 0)) return "sem gasto registrado no ano anterior.";
-  const media = r.media == null ? "n/d" : formatBRL(r.media);
-  const linhas = [`total ${formatBRL(r.total)} · média mensal ${media}`];
+  const total = totalDoAno(r);
+  if (comValor.length === 0 && !(total > 0)) return "sem gasto registrado no ano anterior.";
+  const fechados = r.mesesConsiderados;
+  const media =
+    r.media == null
+      ? "n/d"
+      : fechados > 0 && fechados < 12
+        ? `${formatBRL(r.media)} (média dos ${fechados} meses fechados, jan–${MESES_CURTO[fechados - 1]})`
+        : formatBRL(r.media);
+  const linhas = [`total ${formatBRL(total)} · média mensal ${media}`];
+  if (fechados < 12) {
+    const emAberto = r.meses.slice(fechados).reduce<number>((a, v) => a + (v ?? 0), 0);
+    if (emAberto !== 0) {
+      linhas.push(
+        `o ano ainda não fechou: ${formatBRL(Math.abs(emAberto))} do total são de ` +
+          `${MESES_NOME[fechados]} em diante (mês em curso), fora da média — o total INCLUI esse valor`,
+      );
+    }
+  }
   linhas.push(
     "mês a mês: " +
       r.meses.map((v, i) => `${MESES_CURTO[i]} ${v == null ? "—" : formatBRL(v)}`).join("; "),
@@ -487,8 +515,8 @@ export function buildSystemPrompt(opts: BuildSystemPromptInput): string {
   // Barbacena, Capacitação e Treinamentos, 27/10/2026).
   const baseTotal = opts.base.reduce((a, b) => a + b.valorAno, 0);
   const naoDetalhado =
-    !opts.setorNome && opts.realizado && opts.realizado.total - baseTotal >= 1
-      ? opts.realizado.total - baseTotal
+    !opts.setorNome && opts.realizado && totalDoAno(opts.realizado) - baseTotal >= 1
+      ? totalDoAno(opts.realizado) - baseTotal
       : 0;
   const bloco0: string[] = [
     "BLOCO 0 — ABERTURA (sua primeira mensagem, sempre). Ela entrega ao gestor a BASE DE",
