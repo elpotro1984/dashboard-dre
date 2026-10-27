@@ -171,6 +171,11 @@ export const CONFIG_SECOES: readonly ConfigSecao[] = [
     desc: "INSS, RAT×FAP, terceiros e FGTS sobre a folha.",
   },
   {
+    slug: "dp-colaboradores",
+    label: "Colaboradores do DP",
+    desc: "Puxar o quadro de pessoal do Departamento Pessoal para esta empresa.",
+  },
+  {
     slug: "viagem-tipos",
     label: "Tipos de viagem",
     desc: "De-para tipo de viagem → categoria da DRE. É o único cadastro que a viagem precisa.",

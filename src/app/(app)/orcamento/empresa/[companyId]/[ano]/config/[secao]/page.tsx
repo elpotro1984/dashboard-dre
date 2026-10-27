@@ -11,6 +11,7 @@ import { PlanoCargosManager } from "@/components/orcamento/plano-cargos-manager"
 import { EmpresaEncargosManager } from "@/components/orcamento/empresa-encargos-manager";
 import { EncargosManager } from "@/components/orcamento/encargos-manager";
 import { ViagemTiposManager } from "@/components/orcamento/viagem-tipos-manager";
+import { DpSyncManager } from "@/components/orcamento/dp-sync-manager";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +51,11 @@ export default async function OrcamentoConfigSecaoPage({
     body = <GruposArvoreManager key={key} fixedCompanyId={companyId} fixedYear={year} />;
   } else if (secao === "viagem-tipos") {
     body = <ViagemTiposManager key={key} companyId={companyId} year={year} />;
+  } else if (secao === "dp-colaboradores") {
+    // Não paga `getCompaniesBudgetConfig`: o manager lê os dois lados da
+    // integração por conta, e o guard dele é mais estrito que o desta tela —
+    // exige o módulo DP ALÉM de ser admin do Orçamento.
+    body = <DpSyncManager key={key} companyId={companyId} year={year} />;
   } else if (secao === "encargos") {
     const { items, error, needsMigration } = await getEncargosCompanies(year);
     body = needsMigration ? (

@@ -32,6 +32,11 @@ import {
   beneficiosAoEscolherCargo,
   beneficiosQueMudam,
 } from "@/lib/orcamento/cargo-beneficios";
+import {
+  listaDaMovimentacao,
+  opcoesDeCargo,
+  rotuloOpcaoDeCargo,
+} from "@/lib/orcamento/cargo-opcoes";
 import { formatBRL, numberToInput, parseBrNumber } from "@/lib/orcamento/format";
 import {
   SETOR_TODOS,
@@ -162,6 +167,7 @@ const EMPTY_SETUP: PessoalSetup = {
   regimeApuracao: REGIME_APURACAO_PADRAO,
   setores: [],
   cargoOptions: [],
+  cargoOptionsDp: [],
   beneficiosSeparados: [],
   empresas: [],
   usarEmpresaEncargos: false,
@@ -363,6 +369,11 @@ export function DespesasPessoalManager({
   // Cargos oferecidos: os do setor selecionado (quando orça por setor) ou os sem
   // setor (plano único). No consolidado, todos, já que as linhas vêm de setores
   // diferentes.
+  // A lista do DP vai INTEIRA, sem passar pelo filtro por setor abaixo: o
+  // `setor` da tabela salarial do DP é texto de outro cadastro, não um id de
+  // `orcamento_setores`. Filtrada por `setorId === setorAtual` ela sairia
+  // sempre vazia (as opções do DP têm `setorId: null`), e o campo de
+  // movimentação ficaria sem nenhuma opção numa empresa que orça por setor.
   const cargoOptionsForSetor = !setup.orcarPorSetor
     ? setup.cargoOptions.filter((o) => o.setorId == null)
     : todosSetores
@@ -631,6 +642,7 @@ export function DespesasPessoalManager({
                               podeValidar={podeValidar}
                               year={year}
                               cargoOptions={cargoOptionsForSetor}
+                            cargoOptionsDp={setup.cargoOptionsDp}
                               empresas={setup.empresas}
                               mostrarEmpresa={setup.usarEmpresaEncargos}
                               onError={(msg) => setFeedback({ ok: false, msg })}
@@ -653,6 +665,7 @@ export function DespesasPessoalManager({
                             podeValidar={podeValidar}
                             year={year}
                             cargoOptions={cargoOptionsForSetor}
+                            cargoOptionsDp={setup.cargoOptionsDp}
                             empresas={setup.empresas}
                             mostrarEmpresa={setup.usarEmpresaEncargos}
                             onError={(msg) => setFeedback({ ok: false, msg })}
@@ -849,6 +862,7 @@ interface RowProps {
   /** Quem vê decide? Mostra os botões ✓ / ✗ / comentário na linha. */
   podeValidar: boolean;
   cargoOptions: CargoOption[];
+  cargoOptionsDp: CargoOption[];
   empresas: EmpresaEncargosOption[];
   mostrarEmpresa: boolean;
   onError: (msg: string) => void;
@@ -872,6 +886,7 @@ function ColaboradorRow({
   podeValidar,
   year,
   cargoOptions,
+  cargoOptionsDp,
   empresas,
   mostrarEmpresa,
   onError,
@@ -915,7 +930,15 @@ function ColaboradorRow({
     void persist(draftRef.current);
   }
 
-  const cargoValue = (v: string) => (cargoOptions.some((o) => o.label === v) ? v : "");
+  // De qual lista cada campo escolhe, e por que o valor gravado entra junto:
+  // ver `cargo-opcoes.ts`. Um `cargoValue` local que filtrava o valor contra a
+  // lista vivia aqui e ESCONDIA da tela o cargo que está no banco — o sync do
+  // DP grava nomes que não estão no Plano de Cargos, e o campo aparecia vazio
+  // com o dado intacto.
+  const movLista = listaDaMovimentacao(cargoOptionsDp, cargoOptions);
+  const opcoesAtual = opcoesDeCargo(cargoOptions, draft.cargoAtual);
+  const opcoesMov1 = opcoesDeCargo(movLista, draft.mov1Cargo);
+  const opcoesMov2 = opcoesDeCargo(movLista, draft.mov2Cargo);
 
   /**
    * Escolher o cargo traz do plano o salário E os benefícios do nível.
@@ -940,7 +963,7 @@ function ColaboradorRow({
   }
 
   function movCargoChange(field: "mov1" | "mov2", label: string) {
-    const opt = cargoOptions.find((o) => o.label === label);
+    const opt = movLista.find((o) => o.label === label);
     commit(
       field === "mov1"
         ? { mov1Cargo: label, mov1Salario: opt ? numberToInput(opt.salario) : draftRef.current.mov1Salario }
@@ -1070,14 +1093,14 @@ function ColaboradorRow({
           />
         ) : (
           <select
-            value={cargoValue(draft.cargoAtual)}
+            value={draft.cargoAtual}
             onChange={(e) => void cargoAtualChange(e.target.value)}
             className={cn(CELL, "min-w-[11rem]")}
           >
             <option value="">— cargo —</option>
-            {cargoOptions.map((o) => (
+            {opcoesAtual.map((o) => (
               <option key={o.label} value={o.label}>
-                {o.label}
+                {rotuloOpcaoDeCargo(o)}
               </option>
             ))}
           </select>
@@ -1125,15 +1148,15 @@ function ColaboradorRow({
       </td>
       <td className="border-r bg-sky-500/[0.04] px-1.5 py-1">
         <select
-          value={cargoValue(draft.mov1Cargo)}
+          value={draft.mov1Cargo}
           onChange={(e) => movCargoChange("mov1", e.target.value)}
           disabled={!mov1IsMov}
           className={cn(CELL, "min-w-[11rem]")}
         >
           <option value="">— cargo —</option>
-          {cargoOptions.map((o) => (
+          {opcoesMov1.map((o) => (
             <option key={o.label} value={o.label}>
-              {o.label}
+              {rotuloOpcaoDeCargo(o)}
             </option>
           ))}
         </select>
@@ -1180,15 +1203,15 @@ function ColaboradorRow({
       </td>
       <td className="border-r bg-violet-500/[0.06] px-1.5 py-1">
         <select
-          value={cargoValue(draft.mov2Cargo)}
+          value={draft.mov2Cargo}
           onChange={(e) => movCargoChange("mov2", e.target.value)}
           disabled={!mov2IsMov}
           className={cn(CELL, "min-w-[11rem]")}
         >
           <option value="">— cargo —</option>
-          {cargoOptions.map((o) => (
+          {opcoesMov2.map((o) => (
             <option key={o.label} value={o.label}>
-              {o.label}
+              {rotuloOpcaoDeCargo(o)}
             </option>
           ))}
         </select>

@@ -150,8 +150,16 @@ function TabelaSalarial({
       <CardContent className="space-y-3">
         {/* Barra de ações */}
         <div className="flex flex-wrap items-center gap-2">
-          <a href={`/api/dp/tabela-salarial/modelo?companyId=${companyId}`} className={botaoCls}>
-            <Download className="h-4 w-4" /> Baixar modelo
+          <a
+            href={`/api/dp/tabela-salarial/plano?companyId=${companyId}`}
+            className={botaoCls}
+            title={
+              tabela.length > 0
+                ? "O plano como está na tela, com todas as colunas (.xlsx). Ajustado no Excel, volta por Importar planilha."
+                : "Sem plano ainda: baixa os cargos da Sólides desta empresa para você completar com os salários."
+            }
+          >
+            <Download className="h-4 w-4" /> Baixar plano
           </a>
           <button type="button" className={botaoCls} disabled={pending} onClick={() => fileRef.current?.click()}>
             <Upload className="h-4 w-4" /> Importar planilha
@@ -517,7 +525,7 @@ function ApagarTudo({ companyId, companyName, tabela }: { companyId: string; com
             )}
             <p className="text-ink-muted">
               Se quiser guardar uma cópia antes,{" "}
-              <a href={`/api/dp/tabela-salarial/modelo?companyId=${companyId}`} className="font-medium text-ink-primary underline">
+              <a href={`/api/dp/tabela-salarial/plano?companyId=${companyId}`} className="font-medium text-ink-primary underline">
                 baixe a tabela atual
               </a>
               . O histórico de reajustes é mantido.

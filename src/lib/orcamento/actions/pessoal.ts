@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 
+import { lerLinhasDoDp } from "@/lib/orcamento/dp-fonte";
+
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClientIfAvailable } from "@/lib/supabase/admin";
 import { registrarAlteracao } from "@/lib/orcamento/actions/trilha";
@@ -35,6 +37,7 @@ import {
   type VinculoKey,
 } from "@/lib/orcamento/vinculos";
 import { BENEFICIOS, type BeneficioKey, type Beneficios } from "@/lib/orcamento/beneficios";
+import { beneficiosVazios } from "@/lib/orcamento/cargo-beneficios";
 import {
   isRegimeApuracao,
   REGIME_APURACAO_PADRAO,
@@ -129,6 +132,17 @@ export interface SetorOption {
 
 export interface PessoalSetup {
   orcarPorSetor: boolean;
+  /**
+   * Cargos da TABELA SALARIAL DO DP, para o campo de MOVIMENTAÇÃO (decisão de
+   * 27/10/2026). Vazio quando o Departamento Pessoal não tem tabela para esta
+   * empresa — aí a movimentação cai no Plano de Cargos, como antes.
+   *
+   * O cargo ATUAL e os benefícios continuam vindo do Plano de Cargos: a tabela
+   * do DP não tem benefício, e um seletor único com as duas origens faria o
+   * mesmo cargo aparecer duas vezes com salários diferentes, um trazendo o
+   * pacote do nível e o outro não.
+   */
+  cargoOptionsDp: CargoOption[];
   /** Caixa x competência — distribui o 13º na prévia do orçamento. */
   regimeApuracao: RegimeApuracao;
   setores: SetorOption[];
@@ -236,6 +250,7 @@ export async function getPessoalSetup(companyId: string, year: number): Promise<
         regimeApuracao: REGIME_APURACAO_PADRAO,
         setores: [],
         cargoOptions: [],
+        cargoOptionsDp: [],
         beneficiosSeparados: [],
         empresas: [],
         usarEmpresaEncargos: false,
@@ -346,12 +361,28 @@ export async function getPessoalSetup(companyId: string, year: number): Promise<
     regimeTributario: (c.regime_tributario as string | null) ?? null,
   }));
 
+  // Cargos do DP para a MOVIMENTAÇÃO. Lido com a autorização do ORÇAMENTO (ver
+  // `lerLinhasDoDp`): é uma tabela cargo → salário da empresa, da mesma
+  // natureza do Plano de Cargos que esta tela já mostra ao gestor. O salário de
+  // cada PESSOA continua passando só pelo guard duplo do sync.
+  //
+  // Benefício vai VAZIO: a tabela do DP não tem nenhum, e `beneficiosVazios()`
+  // é "o cadastro não diz" — que PRESERVA o que estiver na aba Benefícios, em
+  // vez de zerar o pacote de quem muda de cargo (ver `cargo-beneficios.ts`).
+  const cargoOptionsDp: CargoOption[] = (await lerLinhasDoDp(companyId)).map((l) => ({
+    label: l.setor ? `${l.setor} · ${l.nome}` : l.nome,
+    salario: l.salario,
+    setorId: null,
+    beneficios: beneficiosVazios(),
+  }));
+
   return {
     setup: {
       orcarPorSetor,
       regimeApuracao,
       setores,
       cargoOptions,
+      cargoOptionsDp,
       beneficiosSeparados,
       empresas,
       usarEmpresaEncargos,
