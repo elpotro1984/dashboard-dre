@@ -150,7 +150,9 @@ export function linhaCadastro(c: DpFolhaCadastro) {
     sem_inss: c.semInss,
     setor_folha: c.setorFolha,
     recorrentes: c.recorrentes,
-    ferias: c.ferias,
+    // `ferias` NÃO é gravado aqui desde 27/10/2026: as férias moram no controle
+    // de férias (`dp_ferias`, tela Pagamento de férias), e a folha as lê de lá.
+    // Regravar o campo antigo a cada Salvar criaria uma segunda cópia que ninguém lê.
   };
 }
 

@@ -563,6 +563,8 @@ export async function excluirAvulso(input: { companyId: string; pessoaId: number
     if (error) throw error;
     await admin.from("dp_folha_cadastro").delete().eq("solides_id", input.pessoaId);
     await admin.from("dp_folha_promocoes").delete().eq("solides_id", input.pessoaId).eq("company_id", input.companyId);
+    // As férias do controle são da pessoa: sem ela, não têm a quem pertencer.
+    await admin.from("dp_ferias").delete().eq("solides_id", input.pessoaId);
     revalidar();
     return { ok: true, data: undefined };
   } catch (error) {
@@ -637,6 +639,8 @@ export async function unificarAvulso(input: { companyId: string; pessoaId: numbe
     }
     await admin.from("dp_folha_rescisoes").update({ solides_id: input.solidesId }).eq("solides_id", input.pessoaId).eq("company_id", input.companyId);
     await moverPromocoesDoAvulso(admin, input.companyId, input.pessoaId, input.solidesId);
+    // As férias do controle seguem a pessoa (a folha as lê pelo id dela).
+    await admin.from("dp_ferias").update({ solides_id: input.solidesId, updated_by: user.id, updated_at: agora }).eq("solides_id", input.pessoaId);
     const { error } = await admin
       .from("dp_folha_avulsos")
       .update({ unificado_com: input.solidesId, updated_by: user.id, updated_at: agora })

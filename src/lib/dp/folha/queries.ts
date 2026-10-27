@@ -20,6 +20,7 @@ import {
   type DpFolhaResultado,
 } from "@/lib/dp/folha/motor";
 import { lerParametros, PARAMETROS_PADRAO, rotuloCompetencia, somarMeses, vigenciaPara, type DpFolhaParametros } from "@/lib/dp/folha/parametros";
+import type { DpFeriasLancada } from "@/lib/dp/ferias";
 import { DpNaoInstaladoError, listDpRegras } from "@/lib/dp/queries";
 import type { DpDependente } from "@/lib/dp/solides/parse";
 import type { createAdminClient } from "@/lib/supabase/admin";
@@ -365,6 +366,36 @@ export async function getFolhaEmpresa(
 }
 
 /**
+ * As férias de cada pessoa, do CONTROLE DE FÉRIAS (`dp_ferias`, tela Pagamento
+ * de férias) — a fonte das férias da folha desde 27/10/2026. `null` = tabela
+ * ainda não instalada: a folha cai no campo antigo do cadastro
+ * (`dp_folha_cadastro.ferias`, vazio em produção quando o controle nasceu).
+ */
+export async function lerFeriasDasPessoas(db: AdminClient, solidesIds: number[]): Promise<Map<number, DpFeriasLancada[]> | null> {
+  if (solidesIds.length === 0) return new Map();
+  const { data, error } = await db
+    .from("dp_ferias")
+    .select("id, solides_id, inicio, fim, valor_manual, observacao")
+    .in("solides_id", solidesIds)
+    .order("inicio");
+  if (error?.code === "PGRST205" || error?.code === "42P01") return null;
+  check(error, "dp_ferias");
+  const porPessoa = new Map<number, DpFeriasLancada[]>();
+  for (const r of data ?? []) {
+    const f: DpFeriasLancada = {
+      id: r.id as string,
+      solidesId: Number(r.solides_id),
+      inicio: r.inicio as string,
+      fim: r.fim as string,
+      valorManual: r.valor_manual === null ? null : Number(r.valor_manual),
+      observacao: (r.observacao as string | null) ?? null,
+    };
+    porPessoa.set(f.solidesId, [...(porPessoa.get(f.solidesId) ?? []), f]);
+  }
+  return porPessoa;
+}
+
+/**
  * As PESSOAS da folha da empresa no mês, com cadastro e lançamento: os ativos
  * dela (pela regra de empresa do DP), o desligado no mês ou com lançamento
  * naquela competência, e os avulsos. É a população da folha do mês — e do 13º,
@@ -423,6 +454,14 @@ export async function listPessoasDaFolha(
     : { data: [], error: null };
   check(cadRes.error, "dp_folha_cadastro");
   const cadPorSolides = new Map((cadRes.data ?? []).map((r) => [Number(r.solides_id), r]));
+  // As férias vêm do CONTROLE DE FÉRIAS (Pagamento de férias), não do cadastro.
+  const feriasPorPessoa = await lerFeriasDasPessoas(db, solidesIds);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cadastroDe = (cad: any, id: number): DpFolhaCadastro => {
+    const c = cad ? toCadastro(cad) : { ...CADASTRO_VAZIO, planoDependentes: [] };
+    if (!feriasPorPessoa) return c;
+    return { ...c, ferias: (feriasPorPessoa.get(id) ?? []).map((f) => ({ id: f.id, inicio: f.inicio, fim: f.fim })) };
+  };
   // Centro de custo pela MESMA regra da tela de cargos (exceção da pessoa ?? padrão da linha).
   const enqPorColab = new Map((pagina?.enquadramento ?? []).map((r) => [r.colaboradorId, r]));
   const centros = (pagina?.centros ?? []).map((c) => ({ id: c.id, rotulo: rotuloCentro(c) }));
@@ -462,7 +501,7 @@ export async function listPessoasDaFolha(
       dependentesSolides: Array.isArray(r.dependentes) ? (r.dependentes as DpDependente[]) : [],
       temCadastro: Boolean(cad),
       temLancamento: Boolean(lan),
-      cadastro: cad ? toCadastro(cad) : { ...CADASTRO_VAZIO, planoDependentes: [] },
+      cadastro: cadastroDe(cad, Number(r.solides_id)),
       lancamento: lan ? toLancamento(lan) : { ...LANCAMENTO_PADRAO, ajustes: {} },
       observacaoMes: (lan?.observacao as string | null) ?? null,
     };
@@ -500,7 +539,7 @@ export async function listPessoasDaFolha(
       dependentesSolides: [],
       temCadastro: Boolean(cad),
       temLancamento: Boolean(lan),
-      cadastro: cad ? toCadastro(cad) : { ...CADASTRO_VAZIO, planoDependentes: [] },
+      cadastro: cadastroDe(cad, a.pessoaId),
       lancamento: lan ? toLancamento(lan) : { ...LANCAMENTO_PADRAO, ajustes: {} },
       observacaoMes: (lan?.observacao as string | null) ?? null,
     });

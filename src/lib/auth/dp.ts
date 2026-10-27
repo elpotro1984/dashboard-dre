@@ -62,6 +62,8 @@ export const DP_FOLHA_PATH = "/dp/folha";
 export const DP_NAV_KEY_DECIMO = "dp-decimo-terceiro";
 export const DP_NAV_KEY_IMPOSTOS = "dp-impostos";
 export const DP_IMPOSTOS_PATH = "/dp/impostos";
+export const DP_NAV_KEY_FERIAS = "dp-ferias";
+export const DP_FERIAS_PATH = "/dp/ferias";
 export const DP_DECIMO_PATH = "/dp/decimo-terceiro";
 /** Custo com colaborador — só do admin com a Visão Estratégica (ver podeVerCustoColaborador). */
 export const DP_NAV_KEY_CUSTO = "dp-custo-colaborador";
