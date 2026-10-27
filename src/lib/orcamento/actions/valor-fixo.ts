@@ -42,6 +42,11 @@ export interface ValorFixoContrato {
   /** Mês (1..12) em que o reajuste passa a valer. null = sem reajuste no ano. */
   mesReajuste: number | null;
   /**
+   * Valor mensal fechado em negociação — substitui o corrigido pelo índice
+   * (ver valor-fixo-calc). null = segue o índice.
+   */
+  valorNegociado: number | null;
+  /**
    * Decisão da diretoria sobre ESTE contrato — o alvo é o próprio `id`, o
    * mesmo que a Prévia usa. A decisão é por contrato, não por categoria: uma
    * categoria pode ter vários, e aprovar a categoria inteira aprovaria de
@@ -68,6 +73,7 @@ export interface ValorFixoContratoInput {
   valorBase: number | null;
   indiceKey: IndiceKey | null;
   mesReajuste: number | null;
+  valorNegociado: number | null;
 }
 
 /** Índice de correção disponível, com o valor do ano do orçamento. */
@@ -156,6 +162,27 @@ interface ContratoRow {
   valor_base: number | string | null;
   indice_key: string | null;
   mes_reajuste: number | string | null;
+  valor_negociado?: number | string | null;
+  updated_at?: string | null;
+}
+
+const CONTRATO_COLS = "id, category_code, descricao, valor_base, indice_key, mes_reajuste, updated_at";
+
+/**
+ * Contratos salvos, com o valor negociado. Cai para a leitura sem a coluna
+ * enquanto a migration `20261027150000` não roda: sem isso o SELECT inteiro
+ * falha (42703) e a tela de valor fixo some por causa de um campo acessório.
+ */
+async function lerContratosValorFixo(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  build: (cols: string) => PromiseLike<{ data: any[] | null; error: { message: string } | null }>,
+): Promise<{ rows: ContratoRow[]; error?: { message: string } }> {
+  const com = await build(`${CONTRATO_COLS}, valor_negociado`);
+  if (!com.error) return { rows: (com.data ?? []) as ContratoRow[] };
+  if (!isSchemaMissing(com.error.message)) return { rows: [], error: com.error };
+  const sem = await build(CONTRATO_COLS);
+  if (sem.error) return { rows: [], error: sem.error };
+  return { rows: (sem.data ?? []) as ContratoRow[] };
 }
 
 // ─── Leitura ────────────────────────────────────────────────────────────────
@@ -201,19 +228,19 @@ export async function getValorFixoCategorias(
 
   // Contratos salvos (N por categoria). Ordena por created_at/id para a lista
   // ficar estável entre recargas.
-  let savedQuery = supabase
-    .from("orcamento_valor_fixo_categorias")
-    .select("id, category_code, descricao, valor_base, indice_key, mes_reajuste, updated_at")
-    .eq("company_id", companyId)
-    .eq("year", year);
   // "Todos os setores" não filtra — o literal iria para uma coluna uuid.
   const especificoLeitura = setorEspecifico(setorId);
-  if (especificoLeitura) savedQuery = savedQuery.eq("setor_id", especificoLeitura);
-  // Construtor restrito ("Gerente"): mesmo em "Todos os setores", só os dele.
-  if (auth.setores !== null) savedQuery = savedQuery.in("setor_id", auth.setores);
-  const { data: saved, error: savedError } = await savedQuery
-    .order("created_at", { ascending: true })
-    .order("id", { ascending: true });
+  const { rows: saved, error: savedError } = await lerContratosValorFixo((cols) => {
+    let savedQuery = supabase
+      .from("orcamento_valor_fixo_categorias")
+      .select(cols)
+      .eq("company_id", companyId)
+      .eq("year", year);
+    if (especificoLeitura) savedQuery = savedQuery.eq("setor_id", especificoLeitura);
+    // Construtor restrito ("Gerente"): mesmo em "Todos os setores", só os dele.
+    if (auth.setores !== null) savedQuery = savedQuery.in("setor_id", auth.setores);
+    return savedQuery.order("created_at", { ascending: true }).order("id", { ascending: true });
+  });
   if (savedError) {
     if (isSchemaMissing(savedError.message)) return { needsMigration: true };
     return { error: savedError.message };
@@ -237,9 +264,10 @@ export async function getValorFixoCategorias(
       valorBase: raw.valor_base == null ? null : Number(raw.valor_base),
       indiceKey: isIndiceKey(raw.indice_key) ? (raw.indice_key as IndiceKey) : null,
       mesReajuste: raw.mes_reajuste == null ? null : Number(raw.mes_reajuste),
+      valorNegociado: raw.valor_negociado == null ? null : Number(raw.valor_negociado),
       ...estadoDaLinha(
         decisoes.get(raw.id),
-        (raw as unknown as { updated_at?: string | null }).updated_at ?? null,
+        raw.updated_at ?? null,
         auth.user.papel,
         aprovacaoDiretor,
       ),
@@ -283,7 +311,34 @@ function validarContrato(
   ) {
     return "Mês de reajuste inválido.";
   }
+  if (
+    contrato.valorNegociado != null &&
+    (!Number.isFinite(contrato.valorNegociado) || contrato.valorNegociado < 0)
+  ) {
+    return "Valor negociado inválido.";
+  }
+  if (contrato.valorNegociado != null && contrato.valorBase == null) {
+    return "Informe o valor atual antes do valor negociado.";
+  }
   return null;
+}
+
+/**
+ * Grava (insert/update) tentando com a coluna do valor negociado; enquanto a
+ * migration `20261027150000` não roda, a gravação SEM negociado segue
+ * funcionando — só quem tenta negociar recebe o aviso da migration.
+ */
+async function gravarComNegociado<T>(
+  patch: Record<string, unknown>,
+  run: (p: Record<string, unknown>) => PromiseLike<{ data: T; error: { message: string } | null }>,
+): Promise<{ data: T; error: { message: string } | null }> {
+  const res = await run(patch);
+  if (!res.error || !isSchemaMissing(res.error.message) || patch.valor_negociado != null) {
+    return res;
+  }
+  const semNegociado = { ...patch };
+  delete semNegociado.valor_negociado;
+  return run(semNegociado);
 }
 
 /**
@@ -337,6 +392,7 @@ export async function saveValorFixoContrato(
     valor_base: contrato.valorBase,
     indice_key: contrato.indiceKey,
     mes_reajuste: contrato.mesReajuste,
+    valor_negociado: contrato.valorNegociado,
     updated_by: admin.userId,
   };
 
@@ -367,11 +423,13 @@ export async function saveValorFixoContrato(
       papel: auth.user.papel,
     });
     if (travado) return { error: travado };
-    const { error } = await supabase
-      .from("orcamento_valor_fixo_categorias")
-      .update({ ...patch, category_name: categoryName })
-      .eq("id", contrato.id)
-      .eq("company_id", companyId);
+    const { error } = await gravarComNegociado(patch, (p) =>
+      supabase
+        .from("orcamento_valor_fixo_categorias")
+        .update({ ...p, category_name: categoryName })
+        .eq("id", contrato.id!)
+        .eq("company_id", companyId),
+    );
     if (error) {
       if (isSchemaMissing(error.message)) return { needsMigration: true };
       return { error: error.message };
@@ -406,18 +464,20 @@ export async function saveValorFixoContrato(
   const alvo = await setorParaGravar(supabase, companyId, year, setorId, admin.userId);
   if (alvo.error) return { error: alvo.error };
   if (!podeEscreverNoSetor(auth.setores, alvo.id)) return { error: SEM_ACESSO_SETOR };
-  const { data, error } = await supabase
-    .from("orcamento_valor_fixo_categorias")
-    .insert({
-      company_id: companyId,
-      year,
-      category_code: categoryCode,
-      category_name: categoryName,
-      setor_id: alvo.id,
-      ...patch,
-    })
-    .select("id")
-    .single();
+  const { data, error } = await gravarComNegociado(patch, (p) =>
+    supabase
+      .from("orcamento_valor_fixo_categorias")
+      .insert({
+        company_id: companyId,
+        year,
+        category_code: categoryCode,
+        category_name: categoryName,
+        setor_id: alvo.id,
+        ...p,
+      })
+      .select("id")
+      .single(),
+  );
   if (error) {
     if (isSchemaMissing(error.message)) return { needsMigration: true };
     return { error: error.message };

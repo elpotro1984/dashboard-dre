@@ -11,6 +11,12 @@
 //  - brl (Salário mínimo) → o valor corrigido É o próprio salário mínimo
 //    cadastrado para o ano, independentemente do valor base.
 //    Ex.: base 1.412, SM 2027 = 1.630, reajuste em janeiro → 1.630 nos 12 meses.
+//
+// VALOR NEGOCIADO (27/10/2026): o índice é a regra, mas o contrato pode ser
+// renegociado para um valor fechado. Ex.: aluguel 1.500 × IGP-M 4,08% =
+// 1.561,20, mas o acordo fechou em 1.550 → é 1.550 que vai para o orçamento.
+// O negociado SUBSTITUI o corrigido, no mesmo degrau (do mês do reajuste em
+// diante; sem mês, o ano todo — um acordo sem data vale para o ano).
 
 import { projetarMedia } from "@/lib/orcamento/media-calc";
 import type { IndiceUnit } from "@/lib/orcamento/indices";
@@ -42,10 +48,47 @@ export function projetarValorFixoSerie(
   indiceValor: number | null,
   mesReajuste: number | null,
   unit: IndiceUnit = "percent",
+  /** Valor fechado em negociação — substitui o corrigido. null = vale o índice. */
+  valorNegociado: number | null = null,
 ): number[] {
   if (valorBase == null) return Array<number>(12).fill(0);
+  if (valorNegociado != null) {
+    const m = mesReajuste == null ? 1 : Math.min(12, Math.max(1, mesReajuste));
+    return Array.from({ length: 12 }, (_, i) => (i + 1 >= m ? valorNegociado : valorBase));
+  }
   if (mesReajuste == null) return Array<number>(12).fill(valorBase);
   const corrigido = corrigirValorFixo(valorBase, indiceValor, unit) ?? valorBase;
   const m = Math.min(12, Math.max(1, mesReajuste));
   return Array.from({ length: 12 }, (_, i) => (i + 1 >= m ? corrigido : valorBase));
+}
+
+/**
+ * Valor mensal que o ÍNDICE produz depois do reajuste (ou o próprio base, sem
+ * reajuste no ano). É o número que a tela mostra na coluna editável
+ * "Valor {ano}" enquanto ninguém negociou outro.
+ */
+export function valorFixoCalculado(
+  valorBase: number | null,
+  indiceValor: number | null,
+  mesReajuste: number | null,
+  unit: IndiceUnit = "percent",
+): number | null {
+  if (valorBase == null) return null;
+  if (mesReajuste == null) return valorBase;
+  return corrigirValorFixo(valorBase, indiceValor, unit) ?? valorBase;
+}
+
+/**
+ * O que o usuário digitou na coluna do valor do ano vira NEGOCIADO só quando
+ * difere do calculado (no centavo). Digitar o próprio calculado, ou apagar o
+ * campo, volta a seguir o índice — senão um clique distraído congelaria o
+ * valor e a mudança do índice deixaria de chegar ao contrato, calada.
+ */
+export function negociadoDigitado(
+  digitado: number | null,
+  calculado: number | null,
+): number | null {
+  if (digitado == null) return null;
+  if (calculado != null && Math.round(digitado * 100) === Math.round(calculado * 100)) return null;
+  return digitado;
 }
