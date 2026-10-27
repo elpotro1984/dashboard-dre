@@ -68,8 +68,36 @@ export interface OrcamentoUser {
  * usuário já carregado — para a página não ter de repetir `user?.papel`
  * espalhado pelas telas. `null` (fora do módulo) nunca decide.
  */
-export function podeValidarOrcamento(user: OrcamentoUser | null | undefined): boolean {
-  return user != null && podeDecidir(user.papel);
+export function podeValidarOrcamento(
+  user: OrcamentoUser | null | undefined,
+  aprovacaoDiretor = true,
+): boolean {
+  return user != null && podeDecidir(user.papel, aprovacaoDiretor);
+}
+
+/**
+ * A empresa × ano tem APROVAÇÃO DO DIRETOR (`orcamento_company_config.
+ * aprovacao_diretor`)? Desligada, o gestor que monta o orçamento é quem aprova
+ * — ver `podeDecidir`.
+ *
+ * Sem linha de config, coluna ausente (migration pendente) ou erro: `true`, que
+ * é o comportamento de antes da chave. Falhar para o lado do diretor é o seguro
+ * — o contrário daria ao gestor o poder de aprovar o próprio orçamento por
+ * causa de uma falha de leitura.
+ */
+export async function aprovacaoDoDiretor(
+  supabase: SupabaseClient,
+  companyId: string,
+  year: number,
+): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("orcamento_company_config")
+    .select("aprovacao_diretor")
+    .eq("company_id", companyId)
+    .eq("year", year)
+    .maybeSingle();
+  if (error || !data) return true;
+  return (data as { aprovacao_diretor?: boolean | null }).aprovacao_diretor !== false;
 }
 
 /** Mensagem única de negativa — as actions devolvem `{ error }`, não exceção. */

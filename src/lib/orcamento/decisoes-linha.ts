@@ -88,11 +88,13 @@ export function estadoDaLinha(
   decisao: DecisaoLinha | null | undefined,
   atualizadoEm: string | null | undefined,
   papel: string,
+  /** `aprovacao_diretor` da empresa × ano — ver `podeDecidir`. */
+  aprovacaoDiretor = true,
 ): EstadoDaLinha {
   const estado = estadoDoItem(decisao ?? null, atualizadoEm ?? null);
   return {
     estado,
     comentario: decisao?.comentario ?? null,
-    travado: !podeDecidir(papel) && !gestorPodeEditar(estado),
+    travado: !podeDecidir(papel, aprovacaoDiretor) && !gestorPodeEditar(estado),
   };
 }

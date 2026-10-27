@@ -57,6 +57,15 @@ test("quem decide é a diretoria e o admin", () => {
   assert.equal(podeDecidir("construtor_amplo"), false);
 });
 
+test("sem aprovação do diretor, o gestor que monta é quem aprova", () => {
+  assert.equal(podeDecidir("construtor", false), true);
+  assert.equal(podeDecidir("construtor_amplo", false), true);
+  assert.equal(podeDecidir("validador", false), true);
+  assert.equal(podeDecidir("admin", false), true);
+  // Ligada (o padrão), nada muda para o gestor.
+  assert.equal(podeDecidir("construtor", true), false);
+});
+
 // ─── Vencimento por edição ───────────────────────────────────────────────────
 
 test("item alterado DEPOIS da decisão a vence", () => {

@@ -8,6 +8,7 @@ import {
   SEM_ACESSO,
   SEM_ACESSO_ADMIN,
   SEM_ACESSO_SETOR,
+  aprovacaoDoDiretor,
   autorizarEscrita,
   autorizarLeitura,
   podeEscreverNoSetor,
@@ -266,6 +267,7 @@ export async function getGradeViagens(
 
   const porSetor = await orcaPorSetor(supabase, companyId, year);
   const escrita = await setoresDeEscrita(supabase, auth.user, companyId, year);
+  const aprovacaoDiretor = await aprovacaoDoDiretor(supabase, companyId, year);
   const isAdmin = auth.user.isAdmin;
 
   let setores: GradeSetup["setores"] = [];
@@ -352,9 +354,16 @@ export async function getGradeViagens(
       decisoes.get(id),
       (r.updated_at as string | null) ?? null,
       auth.user.papel,
+      aprovacaoDiretor,
     );
     const valores = valoresDaRow(r);
     const noSetor = podeEscreverNoSetor(escrita, sId);
+    // Sem aprovação do diretor, o gestor decide — só no que ele monta (mesma
+    // regra de `decidirItem`, que recusaria o clique fora disso).
+    const decideAqui =
+      podeValidarOrcamento(auth.user) ||
+      (podeValidarOrcamento(auth.user, aprovacaoDiretor) &&
+        (porSetor ? noSetor : escrita === null || escrita.length > 0));
     const finalizado = fechadas.has(`${texto(r.category_code)}|${sId ?? "-"}`);
 
     // O gestor edita por escopo de SETOR + estado + decisão; o admin, pelo estado.
@@ -417,7 +426,7 @@ export async function getGradeViagens(
 
       podeEditarBasico: (gestorEdita || adminEdita) && !finalizado,
       podeLancarValores: isAdmin && podeLancarValores(estado) && !finalizado,
-      podeDecidir: podeValidarOrcamento(auth.user) && estado === "em_aprovacao",
+      podeDecidir: decideAqui && estado === "em_aprovacao",
       acoes: finalizado
         ? []
         : acoesDisponiveis(estado, isAdmin ? "admin" : "gestor").filter(() => isAdmin || noSetor),
@@ -439,7 +448,7 @@ export async function getGradeViagens(
     })),
     origemPadrao: origemMaisUsada(linhas),
     podeEditar: escrita === null || escrita.length > 0,
-    podeValidar: podeValidarOrcamento(auth.user),
+    podeValidar: podeValidarOrcamento(auth.user, aprovacaoDiretor),
     isAdmin,
   };
 }

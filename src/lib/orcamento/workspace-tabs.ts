@@ -141,6 +141,11 @@ export const CONFIG_SECOES: readonly ConfigSecao[] = [
     desc: "Detalhar o orçamento por setor ou só por categoria.",
   },
   {
+    slug: "aprovacao-diretor",
+    label: "Aprovação do diretor",
+    desc: "Quem aprova o orçamento: a diretoria ou o próprio gestor que o monta.",
+  },
+  {
     slug: "setores",
     label: "Setores",
     desc: "Cadastro dos setores de orçamento desta empresa.",

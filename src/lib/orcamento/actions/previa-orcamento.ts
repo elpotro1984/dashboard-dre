@@ -2,7 +2,16 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClientIfAvailable } from "@/lib/supabase/admin";
-import { getOrcamentoUser, podeVerEmpresa, SEM_ACESSO } from "@/lib/orcamento/auth";
+import {
+  aprovacaoDoDiretor,
+  getOrcamentoUser,
+  podeEscreverNoSetor,
+  podeVerEmpresa,
+  SEM_ACESSO,
+  setoresDeEscrita,
+  type OrcamentoUser,
+} from "@/lib/orcamento/auth";
+import { orcaPorSetor } from "@/lib/orcamento/setor-gravacao";
 import { isSchemaMissing } from "@/lib/orcamento/errors";
 import { isValidBudgetYear } from "@/lib/orcamento/years";
 import { SETOR_TODOS, setorEspecifico } from "@/lib/orcamento/setor-filtro";
@@ -273,6 +282,31 @@ function pushMeses(acc: Map<string, number[]>, key: string, meses: number[]) {
 }
 function somar(meses: number[]): number {
   return meses.reduce((a, b) => a + b, 0);
+}
+
+/**
+ * Os botões ✓/✗/💬 aparecem para quem decide NESTE recorte.
+ *
+ * Diretoria e admin, sempre. Com a aprovação do diretor desligada na empresa,
+ * o gestor também — mas só na prévia de um setor em que ele escreve (ou em
+ * qualquer uma, se a empresa não orça por setor). É a mesma regra de
+ * `decidirItem`; sem ela o Gerente Sócio, que lê a empresa inteira, veria os
+ * botões no setor de outro gestor e tomaria recusa a cada clique.
+ */
+async function podeValidarNaPrevia(
+  supabase: Parameters<typeof orcaPorSetor>[0],
+  user: OrcamentoUser,
+  companyId: string,
+  year: number,
+  filtroSetor: string | null,
+): Promise<boolean> {
+  if (podeDecidir(user.papel)) return true;
+  if (!podeDecidir(user.papel, await aprovacaoDoDiretor(supabase, companyId, year))) return false;
+  const escrita = await setoresDeEscrita(supabase, user, companyId, year);
+  if (!(await orcaPorSetor(supabase, companyId, year))) {
+    return escrita === null || escrita.length > 0;
+  }
+  return filtroSetor !== null && podeEscreverNoSetor(escrita, filtroSetor);
 }
 
 export async function getPreviaOrcamento(
@@ -1157,7 +1191,7 @@ export async function getPreviaOrcamento(
         totalDespesa,
         totalDespesaAprovada,
         itensPendentes,
-        podeValidar: podeDecidir(user.papel),
+        podeValidar: await podeValidarNaPrevia(supabase, user, companyId, year, filtroSetor),
         totalReceita,
       },
     },

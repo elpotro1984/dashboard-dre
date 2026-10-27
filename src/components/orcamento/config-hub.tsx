@@ -4,6 +4,7 @@ import {
   Building2,
   Tags,
   Landmark,
+  ShieldCheck,
   SlidersHorizontal,
   Users,
   Workflow,
@@ -15,6 +16,7 @@ import { CONFIG_SECOES, workspaceConfigSecaoHref } from "@/lib/orcamento/workspa
 // Ícone por seção (rótulo/descrição vêm de CONFIG_SECOES, fonte única).
 const SECAO_ICON: Record<string, LucideIcon> = {
   "orcar-por-setor": SlidersHorizontal,
+  "aprovacao-diretor": ShieldCheck,
   setores: Building2,
   "categoria-metodo": Workflow,
   "grupos-despesa": Tags,

@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClientIfAvailable } from "@/lib/supabase/admin";
 import {
   autorizarEscrita,
+  aprovacaoDoDiretor,
   autorizarLeitura,
   getOrcamentoUser,
   podeEscreverNoSetor,
@@ -170,6 +171,7 @@ function linhaDespesa(
   r: Record<string, unknown>,
   decisao: { status: ValidacaoStatus; comentario: string | null; decididoEm: string } | null,
   papel: string,
+  aprovacaoDiretor: boolean,
 ): PlanejamentoDespesaLinha {
   const grupo = r.orcamento_grupos_despesa as { name?: string } | null | undefined;
   const valor = Number(r.valor) || 0;
@@ -194,7 +196,7 @@ function linhaDespesa(
     cancelado: r.cancelado === true,
     canceladoMotivo: (r.cancelado_motivo as string | null) ?? null,
     // Quem decide nunca se trava: é ele quem mexe no que já foi decidido.
-    travado: !podeDecidir(papel) && !gestorPodeEditar(estado),
+    travado: !podeDecidir(papel, aprovacaoDiretor) && !gestorPodeEditar(estado),
     estado,
     comentario: decisao?.comentario ?? null,
   };
@@ -338,6 +340,7 @@ export async function getPlanejamentoMontagem(
   }
 
   const porSetor = await orcaPorSetor(supabase, companyId, year);
+  const aprovacaoDiretor = await aprovacaoDoDiretor(supabase, companyId, year);
   const setores = await setoresDaCategoria(
     supabase,
     companyId,
@@ -486,7 +489,12 @@ export async function getPlanejamentoMontagem(
       justificativa: (entrevRow?.justificativa as string | null) ?? "",
       despesas: (despRows ?? []).map((r) => {
         const row = r as Record<string, unknown>;
-        return linhaDespesa(row, decisoes.get(row.id as string) ?? null, auth.user.papel);
+        return linhaDespesa(
+          row,
+          decisoes.get(row.id as string) ?? null,
+          auth.user.papel,
+          aprovacaoDiretor,
+        );
       }),
       realizadoAnterior:
         totalAnterior > 0 || combinado.media != null

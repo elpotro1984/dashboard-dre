@@ -125,9 +125,19 @@ export function motivoDaTrava(estado: ValidacaoEstado): string | null {
     : "Item reprovado pela diretoria. Só um diretor ou o administrador pode alterá-lo.";
 }
 
-/** Quem decide. Admin entra junto: é ele quem opera o módulo. */
-export function podeDecidir(papel: string): boolean {
-  return papel === "validador" || papel === "admin";
+/**
+ * Quem decide. Admin entra junto: é ele quem opera o módulo.
+ *
+ * `aprovacaoDiretor` é a chave da empresa × ano (`orcamento_company_config.
+ * aprovacao_diretor`). Desligada, a empresa não tem a figura do diretor e o
+ * próprio GESTOR que monta o orçamento aprova — por isso os dois papéis de
+ * construtor passam a decidir. O recorte por setor (o gestor só decide nos
+ * setores dele) não é desta função, que não conhece setor: é de quem grava
+ * (`decidirItem`). O padrão `true` é o comportamento de antes da chave.
+ */
+export function podeDecidir(papel: string, aprovacaoDiretor = true): boolean {
+  if (papel === "validador" || papel === "admin") return true;
+  return !aprovacaoDiretor && (papel === "construtor" || papel === "construtor_amplo");
 }
 
 // ─── Contadores (os números do card de cada método) ──────────────────────────
