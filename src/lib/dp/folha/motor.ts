@@ -332,6 +332,13 @@ export interface DpFolhaResultado extends DpFolhaValores {
    * incide sobre o salário-maternidade). Folha fechada antes deste campo não o tem.
    */
   bases?: { inss: number; irrf: number; fgts: number; patronal: number; aliquotaFgts: number };
+  /**
+   * A parte do plano de saúde que a EMPRESA paga — o Ambulatorial do titular,
+   * pela regra da planilha; `planoSaude` é o que sobra, descontado do
+   * colaborador. Custo, não desconto: não entra em soma nenhuma da folha (é o
+   * Custo com colaborador que o lê). Folha fechada antes deste campo não o tem.
+   */
+  planoEmpresa?: number;
 }
 
 // ── utilitários ────────────────────────────────────────────────────────────
@@ -632,6 +639,7 @@ export function calcularFolhaPessoa(e: DpFolhaEntrada, p: DpFolhaParametros, com
 
   // Plano de saúde: titular + dependentes no plano, menos o que a empresa paga.
   let planoSaude = 0;
+  let planoEmpresa = 0;
   if (c.planoSaude !== "nenhum") {
     const tipo = c.planoSaude;
     if (afastado) {
@@ -656,6 +664,7 @@ export function calcularFolhaPessoa(e: DpFolhaEntrada, p: DpFolhaParametros, com
         }
         const empresa = p.empresaPagaAmbulatorialTitular ? precoPlano(p, "ambulatorial", idadeTit) : 0;
         planoSaude = r2(Math.max(0, total - empresa));
+        planoEmpresa = r2(Math.min(total, empresa));
         memoria.planoSaude =
           `${ROTULO_PLANO[tipo]}: ${partes.join(" + ")} = ${brl(r2(total))}` +
           (empresa ? ` − ${brl(r2(empresa))} (Ambulatorial do titular, pago pela empresa).` : ".");
@@ -762,6 +771,7 @@ export function calcularFolhaPessoa(e: DpFolhaEntrada, p: DpFolhaParametros, com
       patronal: ehClt && !afastado && !licenca ? r2(salarioMes + totalFerias) : 0,
       aliquotaFgts: pctFgts,
     },
+    planoEmpresa,
   };
 }
 

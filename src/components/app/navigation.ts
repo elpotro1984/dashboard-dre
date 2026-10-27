@@ -10,6 +10,7 @@ import {
   CheckSquare,
   ClipboardCheck,
   Cog,
+  Coins,
   DollarSign,
   FileCheck,
   Files,
@@ -46,10 +47,12 @@ import {
   DP_CARGOS_PATH,
   DP_COLABORADORES_PATH,
   DP_CONFIG_PATH,
+  DP_CUSTO_PATH,
   DP_INDICADORES_PATH,
   DP_NAV_KEY_CARGOS,
   DP_NAV_KEY_COLABORADORES,
   DP_NAV_KEY_CONFIG,
+  DP_NAV_KEY_CUSTO,
   DP_NAV_KEY_INDICADORES,
   DP_NAV_KEY_OVERVIEW,
   DP_NAV_KEY_SIMULACOES,
@@ -287,6 +290,11 @@ export interface NavItem {
   /** Item só do GESTOR do DP (Configurações): o analista não vê. */
   dpGestorOnly?: boolean;
   /**
+   * Item só do ADMIN que tem o DP na Visão Estratégica (Custo com colaborador)
+   * — as duas condições, ver podeVerCustoColaborador.
+   */
+  dpAdminEstrategica?: boolean;
+  /**
    * Item visível a QUALQUER usuário logado (ex.: Chamados/Suporte). Ignora
    * dreRoles/ctrlRoles e as whitelists de franqueado/CSC.
    */
@@ -439,6 +447,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { key: DP_NAV_KEY_DECIMO, title: "13º salário", icon: Calendar, scope: "global", href: DP_DECIMO_PATH, dpAccess: true },
       { key: DP_NAV_KEY_COLABORADORES, title: "Colaboradores", icon: Users, scope: "global", href: DP_COLABORADORES_PATH, dpAccess: true },
       { key: DP_NAV_KEY_CARGOS, title: "Cargos e salários", icon: Sliders, scope: "global", href: DP_CARGOS_PATH, dpAccess: true },
+      { key: DP_NAV_KEY_CUSTO, title: "Custo com colaborador", icon: Coins, scope: "global", href: DP_CUSTO_PATH, dpAccess: true, dpAdminEstrategica: true },
       { key: DP_NAV_KEY_SIMULACOES, title: "Simulações", icon: Calculator, scope: "global", href: DP_SIMULACOES_PATH, dpAccess: true },
       // Centros de custo, encargos e (para o gestor) as configurações do grupo — ver /dp/configuracoes.
       { key: DP_NAV_KEY_CONFIG, title: "Configurações", icon: Cog, scope: "global", href: DP_CONFIG_PATH, dpAccess: true },

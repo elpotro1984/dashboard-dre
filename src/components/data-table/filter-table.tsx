@@ -17,7 +17,7 @@
 // Genérico de propósito: a primeira tela é o Caixa Geral, mas nada aqui conhece
 // saldo ou empresa.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, Check, Filter, Search, X } from "lucide-react";
 
 import { AnchoredPopover } from "@/components/common/anchored-popover";
@@ -76,6 +76,11 @@ interface Props<T> {
   emptyMessage?: string;
   /** Destaca a linha (ex.: saldo desatualizado). */
   rowClassName?: (row: T) => string | undefined;
+  /**
+   * Conteúdo aberto logo abaixo da linha (memória de cálculo, editor…), numa
+   * célula que ocupa a largura inteira. `null` = linha fechada.
+   */
+  expandedRow?: (row: T) => ReactNode;
   /**
    * Estado com que a tabela abre (filtros, faixas, ordenação). Aparece como
    * chips e sai em um clique, como qualquer outro — a tela nunca esconde
@@ -165,6 +170,7 @@ export function FilterTable<T>({
   footer,
   emptyMessage = "Nenhum resultado.",
   rowClassName,
+  expandedRow,
   initialState,
   stateVersion = 0,
   onStateChange,
@@ -432,34 +438,43 @@ export function FilterTable<T>({
               visible.map((row) => {
                 const key = rowKey(row);
                 const isSelected = selectedSet.has(key);
+                const aberto = expandedRow?.(row) ?? null;
                 return (
-                  <tr
-                    key={key}
-                    onClick={selectable ? () => toggleRow(key) : undefined}
-                    className={`border-b border-border/60 transition-colors last:border-0 ${
-                      isSelected ? "bg-viva-50/60" : "hover:bg-surface-2/60"
-                    } ${selectable ? "cursor-pointer" : ""} ${rowClassName?.(row) ?? ""}`}
-                  >
-                    {selectable && (
-                      <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
-                        <CheckBox
-                          checked={isSelected}
-                          onChange={() => toggleRow(key)}
-                          label="Selecionar conta"
-                        />
-                      </td>
+                  <Fragment key={key}>
+                    <tr
+                      onClick={selectable ? () => toggleRow(key) : undefined}
+                      className={`border-b border-border/60 transition-colors last:border-0 ${
+                        isSelected ? "bg-viva-50/60" : "hover:bg-surface-2/60"
+                      } ${selectable ? "cursor-pointer" : ""} ${rowClassName?.(row) ?? ""}`}
+                    >
+                      {selectable && (
+                        <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                          <CheckBox
+                            checked={isSelected}
+                            onChange={() => toggleRow(key)}
+                            label="Selecionar conta"
+                          />
+                        </td>
+                      )}
+                      {columns.map((col) => (
+                        <td
+                          key={col.key}
+                          className={`px-3 py-2 ${
+                            col.align === "right" ? "text-right tabular-nums" : "text-left"
+                          } ${col.className ?? ""}`}
+                        >
+                          {col.cell ? col.cell(row) : col.plain(row)}
+                        </td>
+                      ))}
+                    </tr>
+                    {aberto !== null && (
+                      <tr className="border-b border-border/60 bg-surface-2/40">
+                        <td colSpan={colSpan} className="px-3 py-3">
+                          {aberto}
+                        </td>
+                      </tr>
                     )}
-                    {columns.map((col) => (
-                      <td
-                        key={col.key}
-                        className={`px-3 py-2 ${
-                          col.align === "right" ? "text-right tabular-nums" : "text-left"
-                        } ${col.className ?? ""}`}
-                      >
-                        {col.cell ? col.cell(row) : col.plain(row)}
-                      </td>
-                    ))}
-                  </tr>
+                  </Fragment>
                 );
               })
             )}

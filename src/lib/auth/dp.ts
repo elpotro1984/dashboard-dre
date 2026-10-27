@@ -66,6 +66,9 @@ export const DP_IMPOSTOS_PATH = "/dp/impostos";
 export const DP_DECIMO_PATH = "/dp/decimo-terceiro";
 export const DP_NAV_KEY_FOLHA_GRUPO = "dp-folha-grupo";
 export const DP_FOLHA_GRUPO_PATH = "/dp/folha-grupo";
+/** Custo com colaborador — só do admin com a Visão Estratégica (ver podeVerCustoColaborador). */
+export const DP_NAV_KEY_CUSTO = "dp-custo-colaborador";
+export const DP_CUSTO_PATH = "/dp/custo-colaborador";
 
 /**
  * Papel efetivo no DP a partir das linhas de `user_module_roles`, ou null.
@@ -105,4 +108,18 @@ export function isDpPath(pathname: string): boolean {
 export function isDpGestorPath(pathname: string): boolean {
   const em = (base: string) => pathname === base || pathname.startsWith(`${base}/`);
   return em(DP_PARAMETROS_FOLHA_PATH) || em(DP_EMPRESAS_PATH);
+}
+
+/**
+ * "Custo com colaborador" (27/10/2026): só quem é ADMIN e tem o DP na Visão
+ * Estratégica (`gestor`). As duas condições, não uma: a Visão Estratégica sozinha
+ * é dada a gente do DP que não é admin, e ser admin não dá o DP (só o Lucas o
+ * concede). Mesma regra no menu, no middleware e na página.
+ */
+export function podeVerCustoColaborador(isAdmin: boolean, role: DpRole | null): boolean {
+  return isAdmin && role === DP_ROLE_GESTOR;
+}
+
+export function isDpCustoPath(pathname: string): boolean {
+  return pathname === DP_CUSTO_PATH || pathname.startsWith(`${DP_CUSTO_PATH}/`);
 }

@@ -36,6 +36,7 @@ export interface DpLinhaImposto {
   solidesId: number;
   nome: string;
   setor: string | null;
+  centroCusto: string | null;
   base: number;
   valor: number;
   /** O que o sistema calcularia; difere de `valor` quando há ajuste manual. */
@@ -50,6 +51,7 @@ export interface DpPatronalPessoa {
   solidesId: number;
   nome: string;
   setor: string | null;
+  centroCusto: string | null;
   base: number;
   inssPatronal: number;
   rat: number;
@@ -87,6 +89,7 @@ export function linhasDoImposto(linhas: DpFolhaResultado[], imposto: Exclude<DpI
         solidesId: r.solidesId,
         nome: r.nome,
         setor: r.setor,
+        centroCusto: r.centroCusto ?? null,
         base,
         valor,
         calculado: ajuste ?? valor,
@@ -111,6 +114,7 @@ export function patronalPorPessoa(linhas: DpFolhaResultado[], e: EncargoValues):
         solidesId: r.solidesId,
         nome: r.nome,
         setor: r.setor,
+        centroCusto: r.centroCusto ?? null,
         base,
         inssPatronal,
         rat,

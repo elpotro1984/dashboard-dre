@@ -1,10 +1,11 @@
 "use client";
 
-import { Fragment, useMemo, useState, useTransition } from "react";
+import { useCallback, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Lock, LockOpen, Pencil, Search } from "lucide-react";
 
+import { FilterTable, type FilterColumn, type FilterTableSnapshot } from "@/components/data-table/filter-table";
 import { Card, CardContent } from "@/components/ui/card";
 import { useToast } from "@/components/ui/toaster";
 import { DP_ENCARGOS_PATH } from "@/lib/auth/dp";
@@ -18,6 +19,7 @@ import {
   type DpAlvoImposto,
   type DpImposto,
   type DpLinhaImposto,
+  type DpPatronalPessoa,
 } from "@/lib/dp/folha/impostos";
 import type { DpFolhaLancamento, DpFolhaResultado } from "@/lib/dp/folha/motor";
 import { rotuloCompetencia, somarMeses, type DpFolhaParametros } from "@/lib/dp/folha/parametros";
@@ -56,6 +58,9 @@ export interface DpImpostosDados {
 export function DpImpostosClient({ dados, gestor }: { dados: DpImpostosDados; gestor: boolean }) {
   const [aba, setAba] = useState<Aba>("resumo");
   const [busca, setBusca] = useState("");
+  // Filtro de Colaborador, Setor e Centro de custo: escolhido numa aba, vale ao trocar para outra.
+  const [filtro, setFiltro] = useState<FilterTableSnapshot | undefined>(undefined);
+  const guardarFiltro = useCallback((s: FilterTableSnapshot) => setFiltro(soComuns(s)), []);
   const { competencia, linhas, encargos } = dados;
   const editavel = dados.fechamento === null;
   const resumo = useMemo(() => resumirImpostos(linhas, encargos), [linhas, encargos]);
@@ -111,7 +116,12 @@ export function DpImpostosClient({ dados, gestor }: { dados: DpImpostosDados; ge
       {aba !== "resumo" && (
         <div className="relative w-full max-w-xs">
           <Search className="pointer-events-none absolute left-2 top-2 h-4 w-4 text-ink-muted" />
-          <input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar nome ou setor" className="w-full rounded-md border border-input bg-background py-1.5 pl-8 pr-2 text-sm" />
+          <input
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar nome, setor ou centro de custo"
+            className="w-full rounded-md border border-input bg-background py-1.5 pl-8 pr-2 text-sm"
+          />
         </div>
       )}
 
@@ -120,9 +130,19 @@ export function DpImpostosClient({ dados, gestor }: { dados: DpImpostosDados; ge
           {aba === "resumo" ? (
             <Resumo resumo={resumo} encargos={encargos} />
           ) : aba === "patronal" ? (
-            <Patronal dados={dados} busca={busca} />
+            <Patronal dados={dados} busca={busca} filtro={filtro} onFiltro={guardarFiltro} />
           ) : (
-            <TabelaImposto dados={dados} imposto={aba} busca={busca} editavel={editavel} gestor={gestor} />
+            // `key`: cada imposto monta a sua tabela — faixa de valor e linha aberta não passam de uma aba para outra.
+            <TabelaImposto
+              key={aba}
+              dados={dados}
+              imposto={aba}
+              busca={busca}
+              editavel={editavel}
+              gestor={gestor}
+              filtro={filtro}
+              onFiltro={guardarFiltro}
+            />
           )}
         </CardContent>
       </Card>
@@ -266,104 +286,195 @@ function TabelaImposto({
   busca,
   editavel,
   gestor,
+  filtro,
+  onFiltro,
 }: {
   dados: DpImpostosDados;
   imposto: Exclude<DpImposto, "patronal">;
   busca: string;
   editavel: boolean;
   gestor: boolean;
+  filtro: FilterTableSnapshot | undefined;
+  onFiltro: (s: FilterTableSnapshot) => void;
 }) {
   const [aberta, setAberta] = useState<number | null>(null);
-  const linhas = useMemo(() => {
-    const q = norm(busca.trim());
-    return linhasDoImposto(dados.linhas, imposto).filter((l) => !q || norm(`${l.nome} ${l.setor ?? ""}`).includes(q));
-  }, [dados.linhas, imposto, busca]);
-  const total = linhas.reduce((s, l) => s + l.valor, 0);
-  const totalBase = linhas.reduce((s, l) => s + l.base, 0);
-  const comFerias = imposto === "inss" && linhas.some((l) => l.inssFerias > 0 || dados.lancamentos[l.solidesId]?.inssFerias != null);
-  const colunas = 5 + (comFerias ? 1 : 0);
+  const todas = useMemo(() => linhasDoImposto(dados.linhas, imposto), [dados.linhas, imposto]);
+  const linhas = useMemo(() => todas.filter((l) => buscaPassa(l, busca)), [todas, busca]);
+  // Sobre todas as linhas, não as filtradas: a coluna não aparece e some conforme o filtro.
+  const comFerias = imposto === "inss" && todas.some((l) => l.inssFerias > 0 || dados.lancamentos[l.solidesId]?.inssFerias != null);
+
+  const colunas = useMemo<FilterColumn<DpLinhaImposto>[]>(
+    () => [
+      colunaNome<DpLinhaImposto>(aberta, setAberta, (l) =>
+        l.ajustado ? <span className="ml-1 rounded bg-sky-500/10 px-1 text-[11px] text-sky-800 dark:text-sky-300">manual</span> : null,
+      ),
+      ...colunasDeLotacao<DpLinhaImposto>(),
+      colunaValor<DpLinhaImposto>("base", imposto === "salarioFamilia" ? "Salário" : "Base", (l) => l.base),
+      {
+        ...colunaValor<DpLinhaImposto>("valor", ROTULO_IMPOSTO[imposto], (l) => l.valor),
+        cell: (l) => (
+          <>
+            <span className="inline-flex items-center justify-end gap-1">
+              {editavel && (
+                <button
+                  type="button"
+                  className="rounded p-0.5 text-ink-muted hover:text-ink-primary"
+                  onClick={() => setAberta(l.solidesId)}
+                  title="Ajustar o valor"
+                  aria-label={`Ajustar ${ROTULO_IMPOSTO[imposto]} de ${l.nome}`}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {brl(l.valor)}
+            </span>
+            {l.ajustado && <span className="block text-[11px] text-ink-muted">calculado {brl(l.calculado)}</span>}
+          </>
+        ),
+      },
+      ...(comFerias ? [colunaValor<DpLinhaImposto>("ferias", "Já descontado nas férias", (l) => l.inssFerias)] : []),
+    ],
+    [aberta, imposto, editavel, comFerias],
+  );
 
   return (
     <>
       <TabelaUsada imposto={imposto} p={dados.parametros} gestor={gestor} />
-      {linhas.length === 0 ? (
+      {todas.length === 0 ? (
         <p className="text-sm text-ink-muted">Ninguém com {ROTULO_IMPOSTO[imposto]} neste mês.</p>
       ) : (
-        <table className="w-full min-w-[720px] text-sm">
-          <thead className="text-left text-ink-muted">
-            <tr className="border-b border-border">
-              <th className="py-2 pr-3 font-medium">Colaborador</th>
-              <th className="py-2 pr-3 font-medium">Setor</th>
-              <th className="py-2 pr-3 text-right font-medium">{imposto === "salarioFamilia" ? "Salário" : "Base"}</th>
-              <th className="py-2 pr-3 text-right font-medium">{ROTULO_IMPOSTO[imposto]}</th>
-              {comFerias && <th className="py-2 pr-3 text-right font-medium">Já descontado nas férias</th>}
-              <th className="w-24" />
-            </tr>
-          </thead>
-          <tbody>
-            {linhas.map((l) => (
-              <Fragment key={l.solidesId}>
-                <tr className="border-b border-border align-top hover:bg-muted/40">
-                  <td className="py-1.5 pr-3 text-ink-primary">
-                    <button type="button" className="inline-flex items-center gap-1 text-left hover:underline" onClick={() => setAberta(aberta === l.solidesId ? null : l.solidesId)}>
-                      {aberta === l.solidesId ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                      {l.nome}
-                    </button>
-                    {l.ajustado && <span className="ml-1 rounded bg-sky-500/10 px-1 text-[11px] text-sky-800 dark:text-sky-300">manual</span>}
-                  </td>
-                  <td className="py-1.5 pr-3 text-ink-muted">{l.setor ?? "—"}</td>
-                  <td className="py-1.5 pr-3 text-right tabular-nums">{brl0(l.base)}</td>
-                  <td className="py-1.5 pr-3 text-right tabular-nums">
-                    {brl(l.valor)}
-                    {l.ajustado && <span className="block text-[11px] text-ink-muted">calculado {brl(l.calculado)}</span>}
-                  </td>
-                  {comFerias && <td className="py-1.5 pr-3 text-right tabular-nums">{brl0(l.inssFerias)}</td>}
-                  <td className="py-1.5 text-right">
-                    {editavel && (
-                      <button type="button" className="inline-flex items-center gap-1 rounded p-1 text-xs text-ink-muted hover:text-ink-primary" onClick={() => setAberta(l.solidesId)}>
-                        <Pencil className="h-3.5 w-3.5" /> ajustar
-                      </button>
-                    )}
-                  </td>
-                </tr>
-                {aberta === l.solidesId && (
-                  <tr className="border-b border-border bg-muted/20">
-                    <td colSpan={colunas} className="space-y-3 px-3 py-3">
-                      <p className="text-xs text-ink-muted">
-                        <span className="font-medium text-ink-primary">Memória de cálculo: </span>
-                        {l.memoria || "Não incide para esta pessoa neste mês."}
-                      </p>
-                      {editavel && (
-                        <EditorValor
-                          key={`${imposto}-${l.solidesId}`}
-                          dados={dados}
-                          alvo={imposto}
-                          linha={l}
-                          motivoAtual={dados.lancamentos[l.solidesId]?.ajustes?.[imposto]?.motivo ?? ""}
-                        />
-                      )}
-                      {editavel && imposto === "inss" && (l.inssFerias > 0 || dados.lancamentos[l.solidesId]?.inssFerias != null) && (
-                        <EditorValor key={`ferias-${l.solidesId}`} dados={dados} alvo="inssFerias" linha={l} motivoAtual="" />
-                      )}
-                    </td>
-                  </tr>
+        <FilterTable
+          rows={linhas}
+          columns={colunas}
+          rowKey={(l) => String(l.solidesId)}
+          initialState={filtro}
+          onStateChange={onFiltro}
+          emptyMessage="Ninguém corresponde à busca ou aos filtros."
+          expandedRow={(l) =>
+            aberta !== l.solidesId ? null : (
+              <div className="space-y-3">
+                <p className="text-xs text-ink-muted">
+                  <span className="font-medium text-ink-primary">Memória de cálculo: </span>
+                  {l.memoria || "Não incide para esta pessoa neste mês."}
+                </p>
+                {editavel && (
+                  <EditorValor
+                    key={`${imposto}-${l.solidesId}`}
+                    dados={dados}
+                    alvo={imposto}
+                    linha={l}
+                    motivoAtual={dados.lancamentos[l.solidesId]?.ajustes?.[imposto]?.motivo ?? ""}
+                  />
                 )}
-              </Fragment>
-            ))}
-            <tr className="font-medium">
-              <td className="py-1.5 pr-3" colSpan={2}>
-                Total ({linhas.length})
-              </td>
-              <td className="py-1.5 pr-3 text-right tabular-nums">{brl(totalBase)}</td>
-              <td className="py-1.5 pr-3 text-right tabular-nums">{brl(total)}</td>
-              {comFerias && <td className="py-1.5 pr-3 text-right tabular-nums">{brl(linhas.reduce((s, l) => s + l.inssFerias, 0))}</td>}
-              <td />
-            </tr>
-          </tbody>
-        </table>
+                {editavel && imposto === "inss" && (l.inssFerias > 0 || dados.lancamentos[l.solidesId]?.inssFerias != null) && (
+                  <EditorValor key={`ferias-${l.solidesId}`} dados={dados} alvo="inssFerias" linha={l} motivoAtual="" />
+                )}
+              </div>
+            )
+          }
+          footer={(vis) => (
+            <>
+              <RodapeTotal n={vis.length} />
+              <RodapeSoma valor={somar(vis, (l) => l.base)} />
+              <RodapeSoma valor={somar(vis, (l) => l.valor)} />
+              {comFerias && <RodapeSoma valor={somar(vis, (l) => l.inssFerias)} />}
+            </>
+          )}
+        />
       )}
     </>
   );
+}
+
+// ── Colunas e rodapé comuns às abas ─────────────────────────────────────────
+
+type LinhaPessoa = { solidesId: number; nome: string; setor: string | null; centroCusto: string | null };
+
+/** Colunas que toda aba tem: o filtro delas acompanha a troca de aba. */
+const COLUNAS_COMUNS = new Set(["nome", "setor", "centro"]);
+
+/** Do estado de uma aba, só o que vale nas outras (valores e ordem das colunas comuns; faixas de valor são de cada imposto). */
+function soComuns(s: FilterTableSnapshot): FilterTableSnapshot {
+  return {
+    values: Object.fromEntries(Object.entries(s.values).filter(([k]) => COLUNAS_COMUNS.has(k))),
+    ranges: {},
+    sortKey: s.sortKey && COLUNAS_COMUNS.has(s.sortKey) ? s.sortKey : null,
+    sortDir: s.sortDir,
+  };
+}
+
+const SEM_SETOR = "Sem setor";
+const SEM_CENTRO = "Sem centro de custo";
+
+function buscaPassa(l: LinhaPessoa, busca: string): boolean {
+  const q = norm(busca.trim());
+  return !q || norm(`${l.nome} ${l.setor ?? ""} ${l.centroCusto ?? ""}`).includes(q);
+}
+
+function colunaNome<T extends LinhaPessoa>(
+  aberta: number | null,
+  setAberta: (id: number | null) => void,
+  marca: (l: T) => React.ReactNode = () => null,
+): FilterColumn<T> {
+  return {
+    key: "nome",
+    label: "Colaborador",
+    plain: (l) => l.nome,
+    sortVal: (l) => norm(l.nome),
+    cell: (l) => (
+      <>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 text-left text-ink-primary hover:underline"
+          onClick={() => setAberta(aberta === l.solidesId ? null : l.solidesId)}
+        >
+          {aberta === l.solidesId ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          {l.nome}
+        </button>
+        {marca(l)}
+      </>
+    ),
+  };
+}
+
+/** Setor e centro de custo; quem está sem aparece como "Sem …" no filtro e vai para o fim na ordenação. */
+function colunasDeLotacao<T extends LinhaPessoa>(): FilterColumn<T>[] {
+  const coluna = (key: string, label: string, valor: (l: T) => string | null, sem: string): FilterColumn<T> => ({
+    key,
+    label,
+    plain: (l) => valor(l) ?? sem,
+    sortVal: (l) => (valor(l) ? norm(valor(l)!) : "￿"),
+    cell: (l) => valor(l) ?? <span className="text-ink-muted">—</span>,
+  });
+  return [coluna("setor", "Setor", (l) => l.setor, SEM_SETOR), coluna("centro", "Centro de custo", (l) => l.centroCusto, SEM_CENTRO)];
+}
+
+function colunaValor<T>(key: string, label: string, valor: (l: T) => number): FilterColumn<T> {
+  return {
+    key,
+    label,
+    kind: "number",
+    align: "right",
+    plain: (l) => brl(valor(l)),
+    sortVal: valor,
+    numeric: valor,
+    cell: (l) => brl0(valor(l)),
+  };
+}
+
+const somar = <T,>(linhas: T[], valor: (l: T) => number) => linhas.reduce((s, l) => s + valor(l), 0);
+
+/** Ocupa Colaborador, Setor e Centro de custo. */
+function RodapeTotal({ n }: { n: number }) {
+  return (
+    <td colSpan={3} className="px-3 py-2 font-medium text-ink-primary">
+      Total ({n})
+    </td>
+  );
+}
+
+function RodapeSoma({ valor }: { valor: number }) {
+  return <td className="px-3 py-2 text-right font-medium tabular-nums text-ink-primary">{brl(valor)}</td>;
 }
 
 /**
@@ -430,14 +541,33 @@ function EditorValor({ dados, alvo, linha, motivoAtual }: { dados: DpImpostosDad
 
 // ── Encargos da empresa ─────────────────────────────────────────────────────
 
-function Patronal({ dados, busca }: { dados: DpImpostosDados; busca: string }) {
+function Patronal({
+  dados,
+  busca,
+  filtro,
+  onFiltro,
+}: {
+  dados: DpImpostosDados;
+  busca: string;
+  filtro: FilterTableSnapshot | undefined;
+  onFiltro: (s: FilterTableSnapshot) => void;
+}) {
   const [aberta, setAberta] = useState<number | null>(null);
   const e = dados.encargos;
-  const linhas = useMemo(() => {
-    const q = norm(busca.trim());
-    return patronalPorPessoa(dados.linhas, e).filter((l) => !q || norm(`${l.nome} ${l.setor ?? ""}`).includes(q));
-  }, [dados.linhas, e, busca]);
-  const soma = (k: "base" | "inssPatronal" | "rat" | "terceiros" | "total") => linhas.reduce((s, l) => s + l[k], 0);
+  const todas = useMemo(() => patronalPorPessoa(dados.linhas, e), [dados.linhas, e]);
+  const linhas = useMemo(() => todas.filter((l) => buscaPassa(l, busca)), [todas, busca]);
+  const colunas = useMemo<FilterColumn<DpPatronalPessoa>[]>(
+    () => [
+      colunaNome<DpPatronalPessoa>(aberta, setAberta),
+      ...colunasDeLotacao<DpPatronalPessoa>(),
+      { ...colunaValor<DpPatronalPessoa>("base", "Base", (l) => l.base), cell: (l) => brl(l.base) },
+      colunaValor<DpPatronalPessoa>("inssPatronal", "INSS patronal", (l) => l.inssPatronal),
+      colunaValor<DpPatronalPessoa>("rat", "RAT × FAP", (l) => l.rat),
+      colunaValor<DpPatronalPessoa>("terceiros", "Terceiros", (l) => l.terceiros),
+      { ...colunaValor<DpPatronalPessoa>("total", "Total", (l) => l.total), cell: (l) => brl(l.total) },
+    ],
+    [aberta],
+  );
   const origem =
     dados.origemEncargos.tipo === "cadastro"
       ? `cadastro de encargos da empresa (ano ${dados.origemEncargos.ano})`
@@ -459,56 +589,35 @@ function Patronal({ dados, busca }: { dados: DpImpostosDados; busca: string }) {
           .
         </p>
       </div>
-      {linhas.length === 0 ? (
+      {todas.length === 0 ? (
         <p className="text-sm text-ink-muted">Ninguém com encargo da empresa neste mês.</p>
       ) : (
-        <table className="w-full min-w-[720px] text-sm">
-          <thead className="text-left text-ink-muted">
-            <tr className="border-b border-border">
-              <th className="py-2 pr-3 font-medium">Colaborador</th>
-              <th className="py-2 pr-3 text-right font-medium">Base</th>
-              <th className="py-2 pr-3 text-right font-medium">INSS patronal</th>
-              <th className="py-2 pr-3 text-right font-medium">RAT × FAP</th>
-              <th className="py-2 pr-3 text-right font-medium">Terceiros</th>
-              <th className="py-2 text-right font-medium">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {linhas.map((l) => (
-              <Fragment key={l.solidesId}>
-                <tr className="border-b border-border hover:bg-muted/40">
-                  <td className="py-1.5 pr-3 text-ink-primary">
-                    <button type="button" className="inline-flex items-center gap-1 text-left hover:underline" onClick={() => setAberta(aberta === l.solidesId ? null : l.solidesId)}>
-                      {aberta === l.solidesId ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                      {l.nome}
-                    </button>
-                  </td>
-                  <td className="py-1.5 pr-3 text-right tabular-nums">{brl(l.base)}</td>
-                  <td className="py-1.5 pr-3 text-right tabular-nums">{brl0(l.inssPatronal)}</td>
-                  <td className="py-1.5 pr-3 text-right tabular-nums">{brl0(l.rat)}</td>
-                  <td className="py-1.5 pr-3 text-right tabular-nums">{brl0(l.terceiros)}</td>
-                  <td className="py-1.5 text-right tabular-nums">{brl(l.total)}</td>
-                </tr>
-                {aberta === l.solidesId && (
-                  <tr className="border-b border-border bg-muted/20">
-                    <td colSpan={6} className="px-3 py-2 text-xs text-ink-muted">
-                      <span className="font-medium text-ink-primary">Memória de cálculo: </span>
-                      {l.memoria}
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
-            ))}
-            <tr className="font-medium">
-              <td className="py-1.5 pr-3">Total ({linhas.length})</td>
-              <td className="py-1.5 pr-3 text-right tabular-nums">{brl(soma("base"))}</td>
-              <td className="py-1.5 pr-3 text-right tabular-nums">{brl(soma("inssPatronal"))}</td>
-              <td className="py-1.5 pr-3 text-right tabular-nums">{brl(soma("rat"))}</td>
-              <td className="py-1.5 pr-3 text-right tabular-nums">{brl(soma("terceiros"))}</td>
-              <td className="py-1.5 text-right tabular-nums">{brl(soma("total"))}</td>
-            </tr>
-          </tbody>
-        </table>
+        <FilterTable
+          rows={linhas}
+          columns={colunas}
+          rowKey={(l) => String(l.solidesId)}
+          initialState={filtro}
+          onStateChange={onFiltro}
+          emptyMessage="Ninguém corresponde à busca ou aos filtros."
+          expandedRow={(l) =>
+            aberta !== l.solidesId ? null : (
+              <p className="text-xs text-ink-muted">
+                <span className="font-medium text-ink-primary">Memória de cálculo: </span>
+                {l.memoria}
+              </p>
+            )
+          }
+          footer={(vis) => (
+            <>
+              <RodapeTotal n={vis.length} />
+              <RodapeSoma valor={somar(vis, (l) => l.base)} />
+              <RodapeSoma valor={somar(vis, (l) => l.inssPatronal)} />
+              <RodapeSoma valor={somar(vis, (l) => l.rat)} />
+              <RodapeSoma valor={somar(vis, (l) => l.terceiros)} />
+              <RodapeSoma valor={somar(vis, (l) => l.total)} />
+            </>
+          )}
+        />
       )}
     </>
   );
