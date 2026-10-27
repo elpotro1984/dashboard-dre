@@ -642,7 +642,7 @@ export function DespesasPessoalManager({
                               podeValidar={podeValidar}
                               year={year}
                               cargoOptions={cargoOptionsForSetor}
-                            cargoOptionsDp={setup.cargoOptionsDp}
+                              cargoOptionsDp={setup.cargoOptionsDp}
                               empresas={setup.empresas}
                               mostrarEmpresa={setup.usarEmpresaEncargos}
                               onError={(msg) => setFeedback({ ok: false, msg })}

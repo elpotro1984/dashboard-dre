@@ -351,19 +351,18 @@ function TabelaFolha({
   const th = "py-2 pr-3 text-right font-medium";
   const td = "py-1.5 pr-3 text-right tabular-nums";
   return (
-    <table className="w-full min-w-[1100px] text-sm">
+    // Benefícios + VT, FGTS e Total geral saíram da tela em 27/10/2026 (pedido do
+    // dono do projeto); seguem no motor, na janela da pessoa, nos Totais e no Excel.
+    <table className="w-full min-w-[820px] text-sm">
       <thead className="text-left text-ink-muted">
         <tr className="border-b border-border">
           <th className="py-2 pr-3 font-medium">Colaborador</th>
-          <th className={th}>Salário do mês</th>
+          <th className={th}>Salário bruto</th>
           <th className={th}>Entradas</th>
           <th className={th}>Descontos</th>
           <th className={th}>Saldo</th>
           <th className={th}>Adiant.</th>
-          <th className={th}>5º dia útil</th>
-          <th className={th}>Benefícios + VT</th>
-          <th className={th}>FGTS</th>
-          <th className="py-2 text-right font-medium">Total geral</th>
+          <th className="py-2 text-right font-medium">Salário líquido</th>
         </tr>
       </thead>
       <tbody>
@@ -397,10 +396,7 @@ function TabelaFolha({
               <td className={td}>{brl0(l.totalDescontos)}</td>
               <td className={td}>{brl0(l.saldo)}</td>
               <td className={td}>{brl0(l.adiantamento)}</td>
-              <td className={`${td} font-medium`}>{brl0(l.quintoDiaUtil)}</td>
-              <td className={td}>{brl0(l.totalExtras)}</td>
-              <td className={td}>{brl0(l.fgts)}</td>
-              <td className="py-1.5 text-right font-medium tabular-nums">{brl0(l.totalGeral)}</td>
+              <td className="py-1.5 text-right font-medium tabular-nums">{brl0(l.quintoDiaUtil)}</td>
             </tr>
           );
         })}
@@ -411,10 +407,7 @@ function TabelaFolha({
           <td className={td}>{brl(total.totalDescontos)}</td>
           <td className={td}>{brl(total.saldo)}</td>
           <td className={td}>{brl(total.adiantamento)}</td>
-          <td className={td}>{brl(total.quintoDiaUtil)}</td>
-          <td className={td}>{brl(total.totalExtras)}</td>
-          <td className={td}>{brl(total.fgts)}</td>
-          <td className="py-2 text-right tabular-nums">{brl(total.totalGeral)}</td>
+          <td className="py-2 text-right tabular-nums">{brl(total.quintoDiaUtil)}</td>
         </tr>
       </tbody>
     </table>
