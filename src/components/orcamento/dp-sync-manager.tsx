@@ -39,6 +39,8 @@ export function DpSyncManager({ companyId, year }: { companyId: string; year: nu
   const [previa, setPrevia] = useState<DpSyncPrevia | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
+  /** O erro é de permissão? Vem do servidor, não deduzido do texto. */
+  const [semAcesso, setSemAcesso] = useState(false);
   const [ocupado, setOcupado] = useState(false);
   const [marcados, setMarcados] = useState<Set<string>>(new Set());
   const [resultado, setResultado] = useState<DpSyncResultado | null>(null);
@@ -49,6 +51,7 @@ export function DpSyncManager({ companyId, year }: { companyId: string; year: nu
     setCarregando(true);
     setErro(null);
     const res = await getDpSyncPrevia(companyId, year);
+    setSemAcesso(Boolean(res.semAcesso));
     if (res.error) {
       setErro(res.error);
       setPrevia(null);
@@ -138,11 +141,21 @@ export function DpSyncManager({ companyId, year }: { companyId: string; year: nu
     return (
       <div className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-4 text-sm">
         <p className="font-medium">{erro}</p>
-        <p className="mt-1 text-muted-foreground">
-          Esta sincronização exige as duas coisas: ser administrador do Orçamento e ter o módulo
-          Departamento Pessoal. É deliberado — é o que mantém o controle do DP sobre o momento em
-          que o salário real atravessa para o Orçamento.
-        </p>
+        {semAcesso ? (
+          <p className="mt-1 text-muted-foreground">
+            Esta sincronização exige as duas coisas: ser administrador do Orçamento e ter o módulo
+            Departamento Pessoal. É deliberado — é o que mantém o controle do DP sobre o momento em
+            que o salário real atravessa para o Orçamento.
+          </p>
+        ) : (
+          <button
+            type="button"
+            onClick={carregar}
+            className="mt-2 text-xs font-medium underline underline-offset-2"
+          >
+            Tentar de novo
+          </button>
+        )}
       </div>
     );
   }

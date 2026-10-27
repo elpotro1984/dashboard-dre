@@ -67,9 +67,13 @@ export interface DpSyncPrevia extends PreviaDpSync {
 export async function getDpSyncPrevia(
   companyId: string,
   year: number,
-): Promise<{ previa?: DpSyncPrevia; error?: string }> {
+): Promise<{ previa?: DpSyncPrevia; error?: string; semAcesso?: true }> {
+  // `semAcesso` existe para a tela não ADIVINHAR pelo texto do erro o que
+  // explicar. Sem ele, a caixa de erro explicava qualquer falha (migration
+  // pendente, banco fora) como falta de permissão, e mandava quem lê procurar
+  // problema de acesso quando o acesso estava certo.
   const auth = await autorizarSyncDp();
-  if (!auth.ok) return { error: auth.error };
+  if (!auth.ok) return { error: auth.error, semAcesso: true };
 
   const contexto = await lerContexto(companyId, year);
   if ("error" in contexto) return { error: contexto.error };
