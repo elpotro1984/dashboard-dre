@@ -157,7 +157,7 @@ export function porQueSemDecisao(estado: EstadoViagem): string | null {
     case "cotada":
       return (
         "Cotada. A aprovação da diretoria abre quando a Controladoria clicar em " +
-        "\u201cSeguir para a diretoria\u201d — até lá a viagem não entra na prévia do setor."
+        "\u201cSeguir para a diretoria\u201d — até lá a viagem não entra na prévia."
       );
     case "em_cotacao":
       return "Em cotação pela Controladoria. A diretoria decide depois de os valores entrarem.";

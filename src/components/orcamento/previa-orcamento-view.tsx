@@ -582,7 +582,7 @@ export function PreviaOrcamentoView({
             {resumo.itensPendentes === 1 ? "item" : "itens"} ainda sem o aval da diretoria — fora
             do número aprovado.{" "}
             {resumo.podeValidar
-              ? "Aprove item a item na prévia do setor, dentro de cada método."
+              ? "Aprove item a item na linha de cada um, dentro de cada método."
               : "Só o aprovado compõe o orçamento publicado."}
           </span>
         </div>

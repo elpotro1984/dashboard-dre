@@ -52,6 +52,7 @@ function resumoBase(): PreviaSetorResumo {
     contagem: { pendentes: 1, aprovados: 0, reprovados: 0, revisar: 0, total: 1 },
     podeValidar: true,
     pessoalIndisponivel: null,
+    orcaPorSetor: true,
   };
 }
 

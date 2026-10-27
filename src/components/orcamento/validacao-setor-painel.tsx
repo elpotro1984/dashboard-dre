@@ -82,6 +82,11 @@ export function ValidacaoSetorPainel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seq]);
 
+  // Empresa sem "Orçar por setor" não tem setor para prever: a faixa somaria a
+  // empresa inteira sob o título "Prévia do setor". Nada aparece até a primeira
+  // resposta, para a faixa não piscar "Calculando…" e sumir nessas empresas.
+  if (!resumo || !resumo.orcaPorSetor) return null;
+
   return (
     <PlanejamentoPreviaSetor
       resumo={resumo}
