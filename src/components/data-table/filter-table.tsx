@@ -46,6 +46,8 @@ export interface FilterColumn<T> {
   align?: "left" | "right";
   /** Classe extra no <th>/<td> (largura, whitespace…). */
   className?: string;
+  /** false = coluna sem filtro nem ordenação (ex.: botões de ação da linha). */
+  filterable?: boolean;
 }
 
 /**
@@ -385,43 +387,47 @@ export function FilterTable<T>({
                     col.align === "right" ? "text-right" : "text-left"
                   } ${col.className ?? ""}`}
                 >
-                  <HeaderCell
-                    column={col}
-                    sorted={sortKey === col.key ? sortDir : null}
-                    active={
-                      col.kind === "number"
-                        ? Boolean(ranges[col.key]?.min || ranges[col.key]?.max)
-                        : values[col.key] !== undefined
-                    }
-                    open={openKey === col.key}
-                    onToggleOpen={() => setOpenKey((k) => (k === col.key ? null : col.key))}
-                    onClose={() => setOpenKey(null)}
-                    onSort={(dir) => {
-                      setSortKey(col.key);
-                      setSortDir(dir);
-                    }}
-                    onHeaderClick={() => toggleSort(col.key)}
-                    options={
-                      col.kind === "number"
-                        ? []
-                        : distinctValues(rowsPassingExcept(col.key), col, values[col.key] ?? null)
-                    }
-                    selectedValues={values[col.key] ?? null}
-                    onValuesChange={(next) =>
-                      setValues((prev) => {
-                        const copy = { ...prev };
-                        // null = o popover pediu "sem filtro" (tudo marcado).
-                        if (next === null) delete copy[col.key];
-                        else copy[col.key] = next;
-                        return copy;
-                      })
-                    }
-                    range={ranges[col.key] ?? { min: "", max: "" }}
-                    onRangeChange={(next) =>
-                      setRanges((prev) => ({ ...prev, [col.key]: next }))
-                    }
-                    onClear={() => clearColumn(col.key)}
-                  />
+                  {col.filterable === false ? (
+                    <span>{col.label}</span>
+                  ) : (
+                    <HeaderCell
+                      column={col}
+                      sorted={sortKey === col.key ? sortDir : null}
+                      active={
+                        col.kind === "number"
+                          ? Boolean(ranges[col.key]?.min || ranges[col.key]?.max)
+                          : values[col.key] !== undefined
+                      }
+                      open={openKey === col.key}
+                      onToggleOpen={() => setOpenKey((k) => (k === col.key ? null : col.key))}
+                      onClose={() => setOpenKey(null)}
+                      onSort={(dir) => {
+                        setSortKey(col.key);
+                        setSortDir(dir);
+                      }}
+                      onHeaderClick={() => toggleSort(col.key)}
+                      options={
+                        col.kind === "number"
+                          ? []
+                          : distinctValues(rowsPassingExcept(col.key), col, values[col.key] ?? null)
+                      }
+                      selectedValues={values[col.key] ?? null}
+                      onValuesChange={(next) =>
+                        setValues((prev) => {
+                          const copy = { ...prev };
+                          // null = o popover pediu "sem filtro" (tudo marcado).
+                          if (next === null) delete copy[col.key];
+                          else copy[col.key] = next;
+                          return copy;
+                        })
+                      }
+                      range={ranges[col.key] ?? { min: "", max: "" }}
+                      onRangeChange={(next) =>
+                        setRanges((prev) => ({ ...prev, [col.key]: next }))
+                      }
+                      onClear={() => clearColumn(col.key)}
+                    />
+                  )}
                 </th>
               ))}
             </tr>

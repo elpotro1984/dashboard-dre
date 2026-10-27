@@ -10,6 +10,7 @@ import {
   lerBloco,
   mesmoBloco,
   reajustarBloco,
+  resumoDoBloco,
   rotuloFaixa,
   sanearSalarioFamilia,
   validarBloco,
@@ -130,4 +131,12 @@ test("o CHECK do banco conhece os mesmos blocos do código (bloco novo sem migra
     const lista = m[1].split(",").map((s: string) => s.trim().replace(/'/g, ""));
     assert.deepEqual(lista.sort(), [...BLOCOS_BENEFICIO].sort(), tabela);
   }
+});
+
+test("resumo do bloco (a prévia da cópia de outra empresa)", () => {
+  assert.equal(resumoDoBloco("alimentacao", { regra: "fixo", faixas: [{ id: "a", nome: "A", valor: 1 }] }), "1 faixa · valor fixo no mês");
+  assert.equal(resumoDoBloco("transporte", { descontar6: true, bilhetes: [] }), "desconta 6% · 0 bilhetes");
+  assert.equal(resumoDoBloco("home_office", { porDias: [{ id: "1", dias: 1, valor: 20 }, { id: "2", dias: 2, valor: 40 }] }), "2 linhas");
+  assert.equal(resumoDoBloco("salario_familia", { cota: 67.54, limite: null, vigencia: null, fonte: null }), "cota R$ 67,54");
+  assert.equal(resumoDoBloco("assiduidade", { valor: null }), "sem valor");
 });

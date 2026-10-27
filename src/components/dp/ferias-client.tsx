@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Check, ChevronLeft, ChevronRight, Loader2, Lock, Plus, Trash2 } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Loader2, Lock, Pencil, Plus, Trash2 } from "lucide-react";
 
 import { FilterTable, type FilterColumn } from "@/components/data-table/filter-table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -28,6 +28,7 @@ type Edicao = { linha: DpFeriasLinha | null } | null;
 export function DpFeriasClient({ companyId, dados }: { companyId: string; dados: DpFeriasDoMes }) {
   const { competencia, linhas } = dados;
   const [edicao, setEdicao] = useState<Edicao>(null);
+  const [excluindo, setExcluindo] = useState<DpFeriasLinha | null>(null);
   const hrefMes = (n: number) => `?competencia=${somarMeses(competencia, n)}`;
 
   const colunas = useMemo<FilterColumn<DpFeriasLinha>[]>(() => {
@@ -37,17 +38,6 @@ export function DpFeriasClient({ companyId, dados }: { companyId: string; dados:
       plain: (l) => valor(l) ?? sem,
       sortVal: (l) => (valor(l) ? norm(valor(l)!) : "￿"),
       cell: (l) => valor(l) ?? <span className="text-ink-muted">—</span>,
-    });
-    const dinheiro = (key: string, label: string, valor: (l: DpFeriasLinha) => number): FilterColumn<DpFeriasLinha> => ({
-      key,
-      label,
-      kind: "number",
-      align: "right",
-      plain: (l) => brl(valor(l)),
-      sortVal: valor,
-      numeric: valor,
-      cell: (l) => brl(valor(l)),
-      className: "whitespace-nowrap",
     });
     const data = (key: string, label: string, valor: (l: DpFeriasLinha) => string): FilterColumn<DpFeriasLinha> => ({
       key,
@@ -75,9 +65,6 @@ export function DpFeriasClient({ companyId, dados }: { companyId: string; dados:
       data("inicio", "Início", (l) => l.inicio),
       data("fim", "Término", (l) => l.fim),
       { key: "dias", label: "Dias", kind: "number", align: "right", plain: (l) => String(l.dias), sortVal: (l) => l.dias, numeric: (l) => l.dias },
-      dinheiro("bruto", "Férias + 1/3", (l) => l.recibo.bruto),
-      dinheiro("inss", "INSS", (l) => l.recibo.inss),
-      dinheiro("irrf", "IRRF", (l) => l.recibo.irrf),
       {
         key: "valor",
         label: "Valor líquido",
@@ -96,6 +83,53 @@ export function DpFeriasClient({ companyId, dados }: { companyId: string; dados:
               </span>
             ) : null}
           </>
+        ),
+      },
+      {
+        key: "obs",
+        label: "Observação",
+        plain: (l) => l.observacao ?? "",
+        sortVal: (l) => (l.observacao ? norm(l.observacao) : "￿"),
+        className: "max-w-[16rem]",
+        cell: (l) =>
+          l.observacao ? (
+            <span className="block truncate text-ink-secondary" title={l.observacao}>
+              {l.observacao}
+            </span>
+          ) : (
+            <span className="text-ink-muted">—</span>
+          ),
+      },
+      {
+        key: "acoes",
+        label: "Ações",
+        filterable: false,
+        align: "right",
+        plain: () => "",
+        sortVal: () => "",
+        className: "whitespace-nowrap",
+        cell: (l) => (
+          <span className="inline-flex gap-1">
+            <button
+              type="button"
+              onClick={() => setEdicao({ linha: l })}
+              title={l.travada ? "Ver (folha fechada)" : "Editar"}
+              aria-label={`Editar as férias de ${l.nome}`}
+              className="rounded p-1 text-ink-muted hover:bg-muted hover:text-ink-primary"
+            >
+              <Pencil className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setExcluindo(l)}
+              disabled={Boolean(l.travada)}
+              title={l.travada ?? "Excluir"}
+              aria-label={`Excluir as férias de ${l.nome}`}
+              className="rounded p-1 text-ink-muted hover:bg-muted hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-ink-muted"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </span>
         ),
       },
     ];
@@ -141,11 +175,9 @@ export function DpFeriasClient({ companyId, dados }: { companyId: string; dados:
                 Total ({vis.length})
               </td>
               <td className="px-3 py-2 text-right font-medium tabular-nums text-ink-primary">{vis.reduce((s, l) => s + l.dias, 0)}</td>
-              {[(l: DpFeriasLinha) => l.recibo.bruto, (l: DpFeriasLinha) => l.recibo.inss, (l: DpFeriasLinha) => l.recibo.irrf, (l: DpFeriasLinha) => l.valor].map((v, i) => (
-                <td key={i} className="whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums text-ink-primary">
-                  {brl(vis.reduce((s, l) => s + v(l), 0))}
-                </td>
-              ))}
+              <td className="whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums text-ink-primary">{brl(vis.reduce((s, l) => s + l.valor, 0))}</td>
+              <td />
+              <td />
             </>
           )}
         />
@@ -154,6 +186,7 @@ export function DpFeriasClient({ companyId, dados }: { companyId: string; dados:
       {edicao && (
         <FeriasDialog companyId={companyId} dados={dados} linha={edicao.linha} onClose={() => setEdicao(null)} />
       )}
+      {excluindo && <ExcluirDialog companyId={companyId} linha={excluindo} onClose={() => setExcluindo(null)} />}
     </div>
   );
 }
@@ -386,5 +419,50 @@ function ReciboTabela({ recibo, dias, semSalario }: { recibo: DpReciboFerias; di
         {semSalario && <span className="text-amber-700 dark:text-amber-400"> Sem salário na Sólides — considerado zero.</span>}
       </p>
     </div>
+  );
+}
+
+/** Confirmação de exclusão, direto da linha. A folha deixa de contar estes dias assim que confirmar. */
+function ExcluirDialog({ companyId, linha, onClose }: { companyId: string; linha: DpFeriasLinha; onClose: () => void }) {
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  const { showToast } = useToast();
+  const excluir = () =>
+    start(async () => {
+      const r = await excluirFerias({ companyId, id: linha.id });
+      if (!r.ok) {
+        showToast({ title: "Não excluído", description: r.error, variant: "destructive" });
+        return;
+      }
+      showToast({ title: "Férias excluídas", variant: "success" });
+      onClose();
+      router.refresh();
+    });
+  return (
+    <Dialog open onOpenChange={(v) => !v && !pending && onClose()}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Excluir estas férias?</DialogTitle>
+          <DialogDescription>
+            <strong>{linha.nome}</strong>: {formatDayBR(linha.inicio)} a {formatDayBR(linha.fim)} ({linha.dias} dia{linha.dias === 1 ? "" : "s"}),{" "}
+            {brl(linha.valor)}. A Folha do mês deixa de contar estes dias de férias.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter className="gap-2 sm:gap-0">
+          <button type="button" disabled={pending} onClick={onClose} className="rounded-md border border-input px-3 py-1.5 text-sm hover:bg-muted">
+            Cancelar
+          </button>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={excluir}
+            className="inline-flex items-center gap-1 rounded-md bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+          >
+            {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+            Excluir
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

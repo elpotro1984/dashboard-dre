@@ -1,13 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { Globe, Loader2, Plus, Trash2 } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Copy, Globe, Loader2, Plus, Trash2 } from "lucide-react";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toaster";
 import { formatDateTimeBR } from "@/lib/ctrl/datetime";
-import { aplicarReajusteBeneficio, buscarSalarioFamiliaAtualizado, salvarBlocoBeneficio } from "@/lib/dp/actions-beneficios";
+import {
+  aplicarReajusteBeneficio,
+  buscarSalarioFamiliaAtualizado,
+  copiarBeneficiosDeEmpresa,
+  origensDeCopiaBeneficios,
+  salvarBlocoBeneficio,
+  type DpOrigemBeneficios,
+} from "@/lib/dp/actions-beneficios";
 import {
   BLOCOS_BENEFICIO,
   erroDoPercentual,
@@ -15,6 +23,7 @@ import {
   MAX_DIAS_HOME_OFFICE,
   MAX_ITENS_BLOCO,
   reajustarBloco,
+  resumoDoBloco,
   rotuloDias,
   rotuloFaixa,
   ROTULO_BLOCO,
@@ -62,8 +71,21 @@ export function DpBeneficiosConfigClient({
   beneficios: DpBeneficiosEmpresa;
   podeEditar: boolean;
 }) {
+  const [copiando, setCopiando] = useState(false);
   return (
     <div className="space-y-4">
+      {podeEditar && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => setCopiando(true)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-input px-3 py-1.5 text-sm hover:bg-muted"
+          >
+            <Copy className="h-4 w-4" /> Copiar de outra empresa
+          </button>
+        </div>
+      )}
+      {copiando && <CopiarDialog companyId={companyId} beneficios={beneficios} onClose={() => setCopiando(false)} />}
       <p className="text-xs text-ink-muted">
         Por enquanto é só o cadastro: a folha do mês continua calculando pelos Parâmetros da folha. Estes valores vão alimentar a
         tela de gestão de benefícios.{" "}
@@ -71,7 +93,8 @@ export function DpBeneficiosConfigClient({
       </p>
       {BLOCOS_BENEFICIO.map((b) => (
         <BlocoCard
-          key={b}
+          // Remonta quando o bloco gravado muda (ex.: copiado de outra empresa): o card guarda o rascunho em estado local.
+          key={`${b}-${beneficios.blocos[b].atualizadoEm ?? "novo"}`}
           companyId={companyId}
           bloco={b}
           inicial={beneficios.blocos[b] as DpBlocoSalvo}
@@ -790,5 +813,164 @@ function Reajuste({
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+/**
+ * Copiar os benefícios de outra empresa: escolhe a empresa, vê o que ela tem em
+ * cada bloco e marca o que copiar. O bloco copiado SUBSTITUI o desta empresa —
+ * a lista avisa quais já existem aqui antes do clique.
+ */
+function CopiarDialog({ companyId, beneficios, onClose }: { companyId: string; beneficios: DpBeneficiosEmpresa; onClose: () => void }) {
+  const [origens, setOrigens] = useState<DpOrigemBeneficios[] | null>(null);
+  const [erroLista, setErroLista] = useState<string | null>(null);
+  const [origemId, setOrigemId] = useState<string | null>(null);
+  const [marcados, setMarcados] = useState<Set<DpBlocoBeneficio>>(new Set());
+  const [busca, setBusca] = useState("");
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  const { showToast } = useToast();
+
+  useEffect(() => {
+    let vivo = true;
+    origensDeCopiaBeneficios({ companyId }).then((r) => {
+      if (!vivo) return;
+      if (r.ok) setOrigens(r.origens);
+      else setErroLista(r.error);
+    });
+    return () => {
+      vivo = false;
+    };
+  }, [companyId]);
+
+  const origem = origens?.find((o) => o.id === origemId) ?? null;
+  const blocosDaOrigem = origem ? BLOCOS_BENEFICIO.filter((b) => origem.blocos[b] !== undefined) : [];
+  const q = busca.trim().toLowerCase();
+  const visiveis = (origens ?? []).filter((o) => !q || o.nome.toLowerCase().includes(q));
+
+  const escolher = (o: DpOrigemBeneficios) => {
+    setOrigemId(o.id);
+    setMarcados(new Set(BLOCOS_BENEFICIO.filter((b) => o.blocos[b] !== undefined)));
+  };
+  const alternar = (b: DpBlocoBeneficio) =>
+    setMarcados((m) => {
+      const n = new Set(m);
+      if (n.has(b)) n.delete(b);
+      else n.add(b);
+      return n;
+    });
+
+  const copiar = () =>
+    start(async () => {
+      if (!origem) return;
+      const r = await copiarBeneficiosDeEmpresa({ companyId, origemId: origem.id, blocos: Array.from(marcados) });
+      if (!r.ok) {
+        showToast({ title: "Não copiado", description: r.error, variant: "destructive" });
+        return;
+      }
+      showToast({ title: `${r.copiados} bloco${r.copiados === 1 ? "" : "s"} copiado${r.copiados === 1 ? "" : "s"} de ${origem.nome}`, variant: "success" });
+      onClose();
+      router.refresh();
+    });
+
+  const substituidos = Array.from(marcados).filter((b) => beneficios.blocos[b].salvo).length;
+
+  return (
+    <Dialog open onOpenChange={(v) => !v && !pending && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{origem ? `Copiar de ${origem.nome}` : "Copiar benefícios de outra empresa"}</DialogTitle>
+          <DialogDescription>
+            {origem
+              ? "Marque os blocos. O bloco copiado substitui o desta empresa; os não marcados ficam como estão. O histórico de reajustes não é copiado."
+              : "Escolha a empresa de onde copiar. Só aparecem as que você vê no DP e que têm benefícios salvos."}
+          </DialogDescription>
+        </DialogHeader>
+
+        {!origem ? (
+          origens === null ? (
+            erroLista ? (
+              <p className="text-sm text-red-700 dark:text-red-400">{erroLista}</p>
+            ) : (
+              <p className="flex items-center gap-2 text-sm text-ink-muted">
+                <Loader2 className="h-4 w-4 animate-spin" /> Carregando as empresas…
+              </p>
+            )
+          ) : origens.length === 0 ? (
+            <p className="text-sm text-ink-muted">Nenhuma outra empresa tem benefícios salvos ainda.</p>
+          ) : (
+            <div className="space-y-2">
+              {origens.length > 8 && <input autoFocus value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar empresa" className={inputCls} />}
+              <div className="max-h-[50vh] space-y-1.5 overflow-y-auto">
+                {visiveis.map((o) => {
+                  const n = BLOCOS_BENEFICIO.filter((b) => o.blocos[b] !== undefined).length;
+                  return (
+                    <button
+                      key={o.id}
+                      type="button"
+                      onClick={() => escolher(o)}
+                      className="flex w-full items-center justify-between gap-3 rounded-md border px-3 py-2 text-left hover:bg-muted"
+                    >
+                      <span className="font-medium text-ink-primary">{o.nome}</span>
+                      <span className="text-xs text-ink-muted">
+                        {n} bloco{n === 1 ? "" : "s"} salvo{n === 1 ? "" : "s"}
+                      </span>
+                    </button>
+                  );
+                })}
+                {visiveis.length === 0 && <p className="text-sm text-ink-muted">Nenhuma empresa com esse nome.</p>}
+              </div>
+            </div>
+          )
+        ) : (
+          <div className="max-h-[50vh] space-y-1.5 overflow-y-auto">
+            {blocosDaOrigem.map((b) => {
+              const aqui = beneficios.blocos[b];
+              return (
+                <label key={b} className="flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 hover:bg-muted/50">
+                  <input type="checkbox" checked={marcados.has(b)} onChange={() => alternar(b)} className="mt-1" />
+                  <span className="min-w-0 text-sm">
+                    <span className="block font-medium text-ink-primary">{ROTULO_BLOCO[b]}</span>
+                    <span className="block text-xs text-ink-muted">{resumoDoBloco(b, origem.blocos[b] as never)}</span>
+                    {aqui.salvo && marcados.has(b) && (
+                      <span className="block text-xs text-amber-800 dark:text-amber-300">
+                        Substitui o que está cadastrado aqui ({resumoDoBloco(b, aqui.dados as never)}).
+                      </span>
+                    )}
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        )}
+
+        <DialogFooter className="gap-2 sm:justify-between sm:gap-0">
+          <div>
+            {origem && (
+              <button type="button" disabled={pending} onClick={() => setOrigemId(null)} className="rounded-md border border-input px-3 py-1.5 text-sm hover:bg-muted">
+                Outra empresa
+              </button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button type="button" disabled={pending} onClick={onClose} className="rounded-md border border-input px-3 py-1.5 text-sm hover:bg-muted">
+              Cancelar
+            </button>
+            {origem && (
+              <button
+                type="button"
+                disabled={pending || marcados.size === 0}
+                onClick={copiar}
+                className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                {pending && <Loader2 className="h-4 w-4 animate-spin" />}
+                Copiar {marcados.size} bloco{marcados.size === 1 ? "" : "s"}
+                {substituidos > 0 ? ` (substitui ${substituidos})` : ""}
+              </button>
+            )}
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

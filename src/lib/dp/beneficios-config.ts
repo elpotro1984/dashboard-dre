@@ -365,6 +365,42 @@ export function mesmoBloco<B extends DpBlocoBeneficio>(bloco: B, a: unknown, b: 
   return JSON.stringify(lerBloco(bloco, a)) === JSON.stringify(lerBloco(bloco, b));
 }
 
+// ── Cópia de outra empresa ─────────────────────────────────────────────────
+
+const plural = (q: number, um: string, varios: string) => `${q} ${q === 1 ? um : varios}`;
+const reais = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+/** Uma linha que diz o que o bloco tem — a prévia da cópia mostra isto antes de gravar. */
+export function resumoDoBloco<B extends DpBlocoBeneficio>(bloco: B, dados: DpBeneficiosDados[B]): string {
+  const d = dados as DpBeneficiosDados[DpBlocoBeneficio];
+  switch (bloco) {
+    case "alimentacao": {
+      const a = d as DpBeneficiosDados["alimentacao"];
+      return `${plural(a.faixas.length, "faixa", "faixas")} · ${a.regra === "diario" ? "valor diário" : "valor fixo no mês"}`;
+    }
+    case "transporte": {
+      const t = d as DpBeneficiosDados["transporte"];
+      return `${t.descontar6 ? "desconta 6%" : "não desconta 6%"} · ${plural(t.bilhetes.length, "bilhete", "bilhetes")}`;
+    }
+    case "gasolina":
+    case "carona":
+      return plural((d as DpBeneficiosDados["gasolina"]).faixas.length, "faixa", "faixas");
+    case "home_office":
+      return plural((d as DpBeneficiosDados["home_office"]).porDias.length, "linha", "linhas");
+    case "sesi":
+      return plural((d as DpBeneficiosDados["sesi"]).modalidades.length, "modalidade", "modalidades");
+    case "salario_familia": {
+      const f = d as DpBeneficiosDados["salario_familia"];
+      return [f.cota !== null ? `cota ${reais(f.cota)}` : null, f.limite !== null ? `limite ${reais(f.limite)}` : null].filter(Boolean).join(" · ") || "sem valores";
+    }
+    case "assiduidade": {
+      const v = (d as DpBeneficiosDados["assiduidade"]).valor;
+      return v !== null ? reais(v) : "sem valor";
+    }
+  }
+  return "";
+}
+
 // ── Salário-família vindo da busca na web ──────────────────────────────────
 
 /**
