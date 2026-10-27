@@ -132,6 +132,16 @@ export interface ConfigSecao {
   slug: string;
   label: string;
   desc: string;
+  /**
+   * A seção depende do módulo Departamento Pessoal ALCANÇAR esta empresa.
+   *
+   * Quem administra o Orçamento costuma ver mais empresas do que o DP lhe
+   * libera (lá o recorte é `dp_user_empresas`), e a sincronização atravessa
+   * dado sigiloso — salário real, pessoa a pessoa. Oferecer o card numa empresa
+   * que o servidor vai recusar é o tipo de porta que esta tela se proíbe de
+   * desenhar.
+   */
+  requerDp?: true;
 }
 
 export const CONFIG_SECOES: readonly ConfigSecao[] = [
@@ -179,6 +189,7 @@ export const CONFIG_SECOES: readonly ConfigSecao[] = [
     slug: "dp-colaboradores",
     label: "Colaboradores do DP",
     desc: "Puxar o quadro de pessoal do Departamento Pessoal para esta empresa.",
+    requerDp: true,
   },
   {
     slug: "viagem-tipos",
@@ -189,6 +200,19 @@ export const CONFIG_SECOES: readonly ConfigSecao[] = [
 
 export function isConfigSecao(slug: string): boolean {
   return CONFIG_SECOES.some((s) => s.slug === slug);
+}
+
+/**
+ * As seções que o sub-hub desenha para ESTA empresa.
+ *
+ * Só esconde o que `requerDp` marca, e só quando o DP não alcança a empresa —
+ * nenhuma outra seção muda. Puro e testado porque a regra é de UI mas a
+ * consequência é de sigilo: a defesa é `autorizarSyncDp`, no servidor, e esta
+ * lista é o que evita oferecer o que ele vai recusar.
+ */
+export function configSecoesVisiveis(opts: { alcancaDp: boolean }): readonly ConfigSecao[] {
+  if (opts.alcancaDp) return CONFIG_SECOES;
+  return CONFIG_SECOES.filter((s) => !s.requerDp);
 }
 
 /** URL do sub-hub de Configuração da empresa. */

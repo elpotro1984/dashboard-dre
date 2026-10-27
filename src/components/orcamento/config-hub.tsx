@@ -11,7 +11,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { CONFIG_SECOES, workspaceConfigSecaoHref } from "@/lib/orcamento/workspace-tabs";
+import { configSecoesVisiveis, workspaceConfigSecaoHref } from "@/lib/orcamento/workspace-tabs";
 
 // Ícone por seção (rótulo/descrição vêm de CONFIG_SECOES, fonte única).
 const SECAO_ICON: Record<string, LucideIcon> = {
@@ -30,7 +30,21 @@ const SECAO_ICON: Record<string, LucideIcon> = {
  * EMPRESA. Espelha o hub de módulos, um nível abaixo. Os "Índices de correção"
  * (globais) NÃO entram aqui — vivem em Configurações gerais.
  */
-export function ConfigHub({ companyId, year }: { companyId: string; year: number }) {
+export function ConfigHub({
+  companyId,
+  year,
+  alcancaDp,
+}: {
+  companyId: string;
+  year: number;
+  /**
+   * O usuário alcança esta empresa no módulo Departamento Pessoal? Resolvido no
+   * SERVIDOR (`alcancaEmpresaNoDp`) — recalcular aqui faria a tela discordar da
+   * action, que é quem de fato recusa.
+   */
+  alcancaDp: boolean;
+}) {
+  const secoes = configSecoesVisiveis({ alcancaDp });
   return (
     <div className="space-y-4">
       <div>
@@ -42,7 +56,7 @@ export function ConfigHub({ companyId, year }: { companyId: string; year: number
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {CONFIG_SECOES.map((s) => {
+        {secoes.map((s) => {
           const Icon = SECAO_ICON[s.slug] ?? SlidersHorizontal;
           return (
             <Link

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { escolherEmpresaAtiva, escopoDeEmpresasDp, podeVerEmpresa, recortarPorEmpresa, type DpEscopo } from "@/lib/dp/escopo";
+import { escolherEmpresaAtiva, escopoDeEmpresasDp, podeVerEmpresa, precisaEscolherEmpresa, recortarPorEmpresa, type DpEscopo } from "@/lib/dp/escopo";
 
 const gestor: DpEscopo = { role: "gestor", empresas: null };
 const analista: DpEscopo = { role: "analista", empresas: ["a", "b"] };
@@ -50,4 +50,14 @@ test("escopo pelas empresas marcadas: admin sem nenhuma vê todas; com marcadas,
 test("leitura das marcadas que falhou é ZERO para todos — para o admin recortado, 'nenhuma marcada' viraria todas", () => {
   assert.deepEqual(escopoDeEmpresasDp(null, true), []);
   assert.deepEqual(escopoDeEmpresasDp(null, false), []);
+});
+
+test("escolha obrigatória da empresa: só com mais de uma, e uma vez por login (regra do Compras)", () => {
+  const duas = [{ id: "c1" }, { id: "c2" }];
+  const base = { empresas: duas, cookieId: "c1", confirmada: "login-1", chaveDoLogin: "login-1" };
+  assert.equal(precisaEscolherEmpresa(base), false, "escolheu neste login");
+  assert.equal(precisaEscolherEmpresa({ ...base, chaveDoLogin: "login-2" }), true, "novo login pergunta de novo");
+  assert.equal(precisaEscolherEmpresa({ ...base, confirmada: null }), true, "o cookie da última empresa, sozinho, não libera");
+  assert.equal(precisaEscolherEmpresa({ ...base, cookieId: "c9" }), true, "cookie de empresa fora da lista pergunta");
+  assert.equal(precisaEscolherEmpresa({ ...base, empresas: [{ id: "c1" }], confirmada: null }), false, "uma empresa só: nada a escolher");
 });

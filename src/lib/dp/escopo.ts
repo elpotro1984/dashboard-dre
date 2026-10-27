@@ -15,6 +15,7 @@
 // ============================================================================
 
 import type { DpRole } from "@/lib/auth/dp";
+import { needsOrgConfirmation } from "@/lib/ctrl/org-gate";
 
 export interface DpEscopo {
   role: DpRole;
@@ -66,4 +67,27 @@ export function escolherEmpresaAtiva(
   if (permitidas.length === 0) return null;
   if (doCookie && permitidas.some((e) => e.id === doCookie)) return doCookie;
   return permitidas.slice().sort((a, b) => b.ativos - a.ativos)[0].id;
+}
+
+/**
+ * A tela de escolha OBRIGATÓRIA da empresa (DpEmpresaGate) aparece para quem vê
+ * MAIS DE UMA empresa e ainda não escolheu NESTE login — a regra do Compras
+ * (needsOrgConfirmation). O cookie da última empresa, sozinho, não libera: ele
+ * sobrevive entre logins, e é isso que levava a trabalhar na empresa de ontem
+ * sem perceber. Cookie de empresa fora da lista também pergunta.
+ */
+export function precisaEscolherEmpresa(input: {
+  empresas: ReadonlyArray<{ id: string }>;
+  cookieId: string | null;
+  /** A chave de login gravada quando a empresa foi escolhida (cookie de sessão). */
+  confirmada: string | null;
+  /** A chave do login atual (session_id do Supabase Auth). */
+  chaveDoLogin: string;
+}): boolean {
+  return needsOrgConfirmation({
+    orgCount: input.empresas.length,
+    confirmedKey: input.confirmada,
+    currentKey: input.chaveDoLogin,
+    cookieSlugValid: input.empresas.some((e) => e.id === input.cookieId),
+  });
 }

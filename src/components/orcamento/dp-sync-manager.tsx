@@ -143,9 +143,10 @@ export function DpSyncManager({ companyId, year }: { companyId: string; year: nu
         <p className="font-medium">{erro}</p>
         {semAcesso ? (
           <p className="mt-1 text-muted-foreground">
-            Esta sincronização exige as duas coisas: ser administrador do Orçamento e ter o módulo
-            Departamento Pessoal. É deliberado — é o que mantém o controle do DP sobre o momento em
-            que o salário real atravessa para o Orçamento.
+            Esta sincronização exige ser administrador do Orçamento e alcançar esta empresa no
+            Departamento Pessoal — lá o acesso é concedido empresa a empresa. É deliberado: é o que
+            mantém o controle do DP sobre o momento em que o salário real atravessa para o
+            Orçamento.
           </p>
         ) : (
           <button

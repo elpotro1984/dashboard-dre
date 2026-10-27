@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useMemo, useState } from "react";
 
 import { CtrlOrgBanner } from "@/components/app/ctrl-org-switcher";
-import { DpEmpresaSwitcher } from "@/components/app/dp-empresa-switcher";
+import { DpEmpresaBanner } from "@/components/dp/dp-empresa-ativa";
 import { CtrlActiveOrgProvider } from "@/components/ctrl/ctrl-active-org";
 import { Logo, LogoFull } from "@/components/app/logo";
 import { NavLinks, visibleNavKeys } from "@/components/app/nav-links";
@@ -52,6 +52,8 @@ interface AppShellProps {
   /** Empresas do DP que a pessoa pode ver (só o layout do DP passa). */
   dpEmpresas?: { id: string; name: string; ativos: number }[];
   activeDpEmpresaId?: string | null;
+  /** O layout do DP está mostrando a escolha obrigatória da empresa: sem faixa. */
+  dpEmpresaSelectionPending?: boolean;
   /** Slug da empresa ativa do Compras. */
   activeCtrlOrgSlug?: string | null;
   /**
@@ -107,6 +109,7 @@ export function AppShell({
   ctrlOrgs,
   dpEmpresas,
   activeDpEmpresaId,
+  dpEmpresaSelectionPending,
   activeCtrlOrgSlug,
   ctrlOrgSelectionPending,
   contractsOnly,
@@ -310,9 +313,6 @@ export function AppShell({
                 linha de descrição abaixo dele). Repetir o nome na topbar
                 deixava o mesmo texto duas vezes no topo de toda página. */}
             <div className="ch-topbar__right">
-              {/* Empresa ativa do DP: só o layout do DP passa a lista. (A do
-                  Compras virou a faixa colorida abaixo da barra.) */}
-              <DpEmpresaSwitcher empresas={dpEmpresas ?? []} activeId={activeDpEmpresaId ?? null} />
               {/* Sino: módulo Compras (padrão) ou, para quem só valida
                   relatórios BI (perfil CSC, sem Compras), a própria tela de
                   Validação Relatório — onde a pendência é resolvida. */}
@@ -339,6 +339,10 @@ export function AppShell({
               aqui: ele reflete o cookie do último módulo aberto, não a rota. */}
           {!ctrlOrgSelectionPending && (
             <CtrlOrgBanner orgs={ctrlOrgs ?? []} activeSlug={activeCtrlOrgSlug ?? null} />
+          )}
+          {/* A do DP, no mesmo esquema: só o layout do DP passa `dpEmpresas`. */}
+          {!dpEmpresaSelectionPending && (
+            <DpEmpresaBanner empresas={dpEmpresas ?? []} activeId={activeDpEmpresaId ?? null} />
           )}
 
           <main className={isHome ? undefined : "p-5 md:p-7"}>

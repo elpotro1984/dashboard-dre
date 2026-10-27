@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { AppShell } from "@/components/app/app-shell";
+import { DpEmpresaGate } from "@/components/dp/dp-empresa-ativa";
 import { canAccessBiValidation } from "@/lib/auth/bi-validation";
 import { getSessionContext } from "@/lib/auth/session";
 import { resolveLayoutContext } from "@/lib/context/modules";
@@ -8,7 +9,7 @@ import { resolveUserSegments } from "@/lib/context/user-segments";
 import { hasCtrlFullView } from "@/lib/ctrl/full-view";
 import { getUnreadNotificationsCount } from "@/lib/ctrl/notifications";
 import { getDpUser } from "@/lib/dp/auth";
-import { getDpEmpresaAtiva } from "@/lib/dp/empresa-ativa";
+import { dpEscolhaDeEmpresa, getDpEmpresaAtiva } from "@/lib/dp/empresa-ativa";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
@@ -60,10 +61,18 @@ export default async function DpLayout({ children }: { children: React.ReactNode
     ? await getUnreadNotificationsCount(profile.id)
     : 0;
 
-  // Seletor de empresa do topo: só as empresas que esta pessoa pode ver. Falha
-  // na leitura (tabela ainda não instalada) some com o seletor, não com o módulo.
+  // Empresa ativa (a faixa do topo): só as empresas que esta pessoa pode ver.
+  // Falha na leitura (tabela ainda não instalada) some com a faixa, não com o módulo.
   const dpUser = await getDpUser();
   const dpEmpresas = dpUser ? await getDpEmpresaAtiva(createAdminClient(), dpUser).catch(() => null) : null;
+
+  // Escolha OBRIGATÓRIA da empresa a cada login, para quem vê mais de uma — o
+  // esquema do Compras. A página NÃO é renderizada antes da escolha. Erro ao
+  // ler a sessão não prende ninguém fora do módulo: segue sem a pergunta.
+  const escolha = dpEmpresas
+    ? await dpEscolhaDeEmpresa(supabase, ctx.user.id, dpEmpresas.empresas).catch(() => ({ pendente: false, ultimaId: null }))
+    : { pendente: false, ultimaId: null };
+  const content = escolha.pendente && dpEmpresas ? <DpEmpresaGate empresas={dpEmpresas.empresas} lastId={escolha.ultimaId} /> : children;
 
   return (
     <AppShell
@@ -81,6 +90,7 @@ export default async function DpLayout({ children }: { children: React.ReactNode
       dpRole={dpRole}
       dpEmpresas={dpEmpresas?.empresas ?? []}
       activeDpEmpresaId={dpEmpresas?.ativa?.id ?? null}
+      dpEmpresaSelectionPending={escolha.pendente}
       segments={segments}
       activeModule={activeModule}
       availableModules={availableModules}
@@ -91,7 +101,7 @@ export default async function DpLayout({ children }: { children: React.ReactNode
       userProfile={profile?.profile ?? null}
       tourSeen={profile?.tour_seen ?? false}
     >
-      {children}
+      {content}
     </AppShell>
   );
 }

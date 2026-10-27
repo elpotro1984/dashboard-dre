@@ -72,7 +72,7 @@ export async function getDpSyncPrevia(
   // explicar. Sem ele, a caixa de erro explicava qualquer falha (migration
   // pendente, banco fora) como falta de permissão, e mandava quem lê procurar
   // problema de acesso quando o acesso estava certo.
-  const auth = await autorizarSyncDp();
+  const auth = await autorizarSyncDp(companyId);
   if (!auth.ok) return { error: auth.error, semAcesso: true };
 
   const contexto = await lerContexto(companyId, year);
@@ -124,7 +124,7 @@ export async function aplicarDpSync(
   year: number,
   marcados: string[],
 ): Promise<{ resultado?: DpSyncResultado; error?: string }> {
-  const auth = await autorizarSyncDp();
+  const auth = await autorizarSyncDp(companyId);
   if (!auth.ok) return { error: auth.error };
   if (marcados.length === 0) return { error: "Nenhuma pessoa foi marcada." };
 
@@ -213,9 +213,8 @@ export async function salvarDpSetorDePara(
   companyId: string,
   linhas: Array<{ departamento: string; setorNome: string }>,
 ): Promise<{ ok?: true; gravadas?: number; error?: string }> {
-  const auth = await autorizarSyncDp();
+  const auth = await autorizarSyncDp(companyId);
   if (!auth.ok) return { error: auth.error };
-  if (!companyId) return { error: "Selecione uma empresa." };
 
   const limpas = linhas
     .map((l) => ({

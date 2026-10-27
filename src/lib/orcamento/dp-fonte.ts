@@ -1,7 +1,8 @@
 import "server-only";
 
-import { getCurrentSessionContext } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getDpUser } from "@/lib/dp/auth";
+import { podeVerEmpresa } from "@/lib/dp/escopo";
 import { getOrcamentoUser, SEM_ACESSO_ADMIN, type OrcamentoUser } from "@/lib/orcamento/auth";
 import { indexarRegras, resolverEmpresa, type DpEmpresaRegra } from "@/lib/dp/empresa";
 import { resolverLinha } from "@/lib/dp/vinculo";
@@ -22,8 +23,11 @@ import type { DpPessoa } from "@/lib/orcamento/dp-sync";
 export const SEM_ACESSO_DP =
   "Esta sincronização exige o módulo Departamento Pessoal, além de ser administrador do Orçamento.";
 
+export const SEM_ACESSO_EMPRESA_DP =
+  "Você não alcança esta empresa no Departamento Pessoal, então não pode puxar o quadro dela. Quem concede empresa no DP é o administrador do módulo.";
+
 /**
- * Guard DUPLO: admin do Orçamento **e** concessão do módulo DP.
+ * Guard DUPLO: admin do Orçamento **e** o módulo DP ALCANÇANDO ESTA EMPRESA.
  *
  * Decisão de 27/10/2026. O DP é o gate mais fechado do sistema — concessão
  * própria, admin NÃO herda, trigger no banco impedindo auto-concessão, e hoje
@@ -39,17 +43,44 @@ export const SEM_ACESSO_DP =
  * Note que NÃO basta `getOrcamentoAdmin()`: as telas de configuração do
  * Orçamento são admin-only, então o botão viveria numa tela que todo admin
  * abre.
+ *
+ * ── A EMPRESA entrou no guard em 27/10/2026 ────────────────────────────────
+ * Ter o módulo não é ter o grupo inteiro: desde 26/10 cada pessoa do DP é
+ * recortada por `dp_user_empresas`, e quem só alcança a Viva Juiz de Fora lá
+ * não pode puxar o quadro das outras por aqui. Reusa `getDpUser` +
+ * `podeVerEmpresa` — a MESMA regra das telas do DP, nunca uma segunda leitura
+ * de `dp_user_empresas`: duas leituras divergiriam exatamente no caso do admin
+ * com empresas marcadas, que é o caso que motivou o recorte.
+ *
+ * `companyId` é obrigatório de propósito: sem ele o compilador acusa todo
+ * chamador que ainda não decidiu de qual empresa está falando.
  */
-export async function autorizarSyncDp(): Promise<
-  { ok: true; user: OrcamentoUser } | { ok: false; error: string }
-> {
+export async function autorizarSyncDp(
+  companyId: string,
+): Promise<{ ok: true; user: OrcamentoUser } | { ok: false; error: string }> {
   const user = await getOrcamentoUser();
   if (!user?.isAdmin) return { ok: false, error: SEM_ACESSO_ADMIN };
+  if (!companyId) return { ok: false, error: "Selecione uma empresa." };
 
-  const { profile } = await getCurrentSessionContext();
-  if (!profile?.can_dp) return { ok: false, error: SEM_ACESSO_DP };
+  const dp = await getDpUser();
+  if (!dp) return { ok: false, error: SEM_ACESSO_DP };
+  if (!podeVerEmpresa(dp, companyId)) return { ok: false, error: SEM_ACESSO_EMPRESA_DP };
 
   return { ok: true, user };
+}
+
+/**
+ * O usuário alcança esta empresa no DP? É o que decide se o card "Colaboradores
+ * do DP" aparece na Configuração da empresa.
+ *
+ * Esconder o card é conveniência, não defesa — quem digitar a URL chega na tela
+ * e recebe a recusa de `autorizarSyncDp`, com o motivo. O que o card evita é
+ * oferecer a quem administra o Orçamento uma porta que o servidor vai fechar.
+ */
+export async function alcancaEmpresaNoDp(companyId: string): Promise<boolean> {
+  if (!companyId) return false;
+  const dp = await getDpUser();
+  return dp != null && podeVerEmpresa(dp, companyId);
 }
 
 /** Linha da tabela salarial do DP, como o Orçamento a oferece. */
