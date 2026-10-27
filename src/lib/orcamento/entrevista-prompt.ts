@@ -481,13 +481,46 @@ export function buildSystemPrompt(opts: BuildSystemPromptInput): string {
         ]
       : [];
 
+  // A abertura é a BASE DE INFORMAÇÃO do gestor para o resto da conversa. Só
+  // total + média + "o que muda?" era genérico demais: a IA tinha a base e o
+  // direcionamento do admin no prompt e não usava nenhum dos dois (Viva
+  // Barbacena, Capacitação e Treinamentos, 27/10/2026).
+  const baseTotal = opts.base.reduce((a, b) => a + b.valorAno, 0);
+  const naoDetalhado =
+    !opts.setorNome && opts.realizado && opts.realizado.total - baseTotal >= 1
+      ? opts.realizado.total - baseTotal
+      : 0;
   const bloco0: string[] = [
-    "BLOCO 0 — ABERTURA E CONTEXTO DO ANO (sua primeira mensagem, sempre):",
-    `1. Informe o total gasto em ${anoAnterior} nesta categoria e a média mensal (os números acima),`,
-    "   em tom de fato. Se houver mês fora da curva, cite-o em meia frase. Se não houver dado, diga",
-    "   que não houve gasto registrado.",
-    `2. Faça UMA pergunta: o que muda no setor/na empresa em ${year} que afeta esta categoria`,
-    "   (crescimento, novas unidades, tamanho da equipe, novos produtos ou projetos, cortes)?",
+    "BLOCO 0 — ABERTURA (sua primeira mensagem, sempre). Ela entrega ao gestor a BASE DE",
+    "INFORMAÇÃO que ele vai usar para responder o resto da entrevista — não é saudação nem resumo",
+    "genérico. Poucas linhas, em tom de fato, nesta ordem:",
+    `1. O total gasto em ${anoAnterior} nesta categoria e a média mensal (os números acima). Se`,
+    "   houver mês fora da curva, cite-o em meia frase. Se não houver dado, diga que não houve gasto",
+    "   registrado.",
+    ...(semBase
+      ? []
+      : [
+          `2. A COMPOSIÇÃO desse gasto pela BASE: cada item com o valor pago em ${anoAnterior}, do maior`,
+          "   para o menor (com mais de 6 itens, os 5 maiores e \"mais N itens somando R$ X\"). Se",
+          "   houver mês fora da curva, ligue-o ao item que o explica quando isso for evidente.",
+          ...(naoDetalhado > 0
+            ? [
+                `   A base soma ${formatBRL(baseTotal)}; ${formatBRL(naoDetalhado)} do realizado não estão em`,
+                "   nenhum item — diga isso em meia frase.",
+              ]
+            : []),
+        ]),
+    ...(ctx
+      ? [
+          `${semBase ? "2" : "3"}. O que o CONTEXTO DO ADMINISTRADOR traz sobre esta categoria, com suas palavras e`,
+          "   como fato (decisões, tetos, trocas de fornecedor, planos). O que ele só repete da base,",
+          "   não repita.",
+        ]
+      : []),
+    `${1 + (semBase ? 0 : 1) + (ctx ? 1 : 0) + 1}. UMA pergunta, ANCORADA nesses itens: o que muda em ${year} que afeta ESTES gastos`,
+    "   (crescimento, novas unidades, tamanho da equipe, novos produtos ou projetos, cortes) —",
+    "   cite os itens pelo nome, não pergunte sobre \"a categoria\" no abstrato. Não pergunte o que",
+    "   o contexto do administrador já respondeu.",
     "   Guarde a resposta — ela calibra as perguntas de driver de todos os itens E as provocações:",
     "   se ele disse que a equipe dobra, pergunte o impacto disso NESTA despesa; se disse que um",
     "   projeto acaba, pergunte o que sai junto. Usar o que ele mesmo falou é o que separa uma",

@@ -187,6 +187,24 @@ test("prompt: contexto do admin e regra da categoria continuam entrando", () => 
   assert.match(prompt({ categoryName: "Pró-labore" }), /SALÁRIO DOS SÓCIOS/);
 });
 
+test("prompt: a abertura apresenta a base e o contexto do admin, não só total e média", () => {
+  const sem = prompt({ base: [], contextoAdmin: "" });
+  assert.doesNotMatch(sem, /COMPOSIÇÃO desse gasto/);
+  assert.match(sem, /^2\. UMA pergunta, ANCORADA/m);
+
+  const p = prompt({
+    setorNome: "",
+    base: [base("Imersão de Vendas", 2715.11), base("CONVIVA", 1721.56)],
+    contextoAdmin: "1.721,56 com a Conviva e 2.715,11 com Imersão de Vendas",
+    realizado: realizado([0, 0, 0, 0, 0, 0, 2578.44, 0, 0, 0, 0, 1958.23], 504.07),
+  });
+  assert.match(p, /^2\. A COMPOSIÇÃO desse gasto pela BASE/m);
+  assert.match(p, /^3\. O que o CONTEXTO DO ADMINISTRADOR traz/m);
+  assert.match(p, /^4\. UMA pergunta, ANCORADA/m);
+  // Realizado 4.536,67 × base 4.436,67: a diferença é dita, não escondida.
+  assert.match(p, /R\$\s?100,00 do realizado não estão em/);
+});
+
 // ─── Os dois modos ───────────────────────────────────────────────────────────
 
 test("prompt: modo entrevista ensina o cartão e o [[FECHAR]]", () => {
