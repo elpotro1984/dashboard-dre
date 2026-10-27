@@ -133,6 +133,8 @@ export interface PlanejamentoMontagemDetalhe {
   /** Setor efetivamente carregado (o escolhido, ou o único, ou null). */
   setorId: string | null;
   setorNome: string;
+  /** `orcar_por_setor` da empresa × ano. Sem ele não há "prévia do setor". */
+  orcaPorSetor: boolean;
   /** Grupos ATIVOS da empresa, em ordem alfabética — a faixa do topo da tela. */
   grupos: PlanejamentoGrupoOption[];
   base: PlanejamentoBaseLinha[];
@@ -365,6 +367,7 @@ export async function getPlanejamentoMontagem(
     setores,
     setorId: null,
     setorNome: "",
+    orcaPorSetor: porSetor,
     grupos,
     base: [],
     baseSalva: false,
