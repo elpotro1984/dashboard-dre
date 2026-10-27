@@ -17,7 +17,7 @@ import { formatBRL, numberToInput, parseBrNumber } from "@/lib/orcamento/format"
 import { cn } from "@/lib/utils";
 
 const INPUT_CLS =
-  "w-full rounded-md border bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-50";
+  "rounded-md border bg-background px-2.5 py-1.5 text-sm outline-none focus:ring-2 focus:ring-ring disabled:opacity-50";
 const BTN_GHOST =
   "inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50 transition-colors";
 
@@ -230,7 +230,7 @@ export function PlanejamentoBaseEditor({
             onChange={(e) => setContexto(e.target.value)}
             rows={3}
             placeholder="Ex.: o contrato do Trello não será renovado; migrar para o Notion a partir de março."
-            className={INPUT_CLS}
+            className={INPUT_CLS + " w-full"}
           />
           <p className="text-[11px] text-muted-foreground">
             A IA lê isto antes de tudo e não contradiz. Use para decisões já tomadas, tetos de valor
@@ -302,7 +302,7 @@ export function PlanejamentoBaseEditor({
                         if (e.key === "Enter") salvarEdicao(linha);
                         if (e.key === "Escape") setEditandoId(null);
                       }}
-                      className={INPUT_CLS + " w-32 text-right"}
+                      className={INPUT_CLS + " w-32 shrink-0 text-right"}
                     />
                     <button
                       onClick={() => salvarEdicao(linha)}
@@ -423,7 +423,7 @@ export function PlanejamentoBaseEditor({
             value={novoValor}
             onChange={(e) => setNovoValor(e.target.value)}
             placeholder="Valor no ano"
-            className={INPUT_CLS + " w-36 text-right"}
+            className={INPUT_CLS + " w-36 shrink-0 text-right"}
           />
           <button
             onClick={() => {

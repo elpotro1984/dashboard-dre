@@ -4,7 +4,15 @@ import { revalidatePath } from "next/cache";
 
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClientIfAvailable } from "@/lib/supabase/admin";
-import { autorizarLeitura } from "@/lib/orcamento/auth";
+import {
+  aprovacaoDoDiretor,
+  autorizarLeitura,
+  podeEscreverNoSetor,
+  SEM_ACESSO_SETOR,
+  setoresDeEscrita,
+  type OrcamentoUser,
+} from "@/lib/orcamento/auth";
+import { orcaPorSetor } from "@/lib/orcamento/setor-gravacao";
 import { isSchemaMissing } from "@/lib/orcamento/errors";
 import { isValidBudgetYear } from "@/lib/orcamento/years";
 import { registrarAlteracao } from "@/lib/orcamento/actions/trilha";
@@ -88,9 +96,8 @@ export async function decidirItem(
   const supabase = createAdminClientIfAvailable() ?? (await createClient());
   const auth = await autorizarLeitura(supabase, companyId, year);
   if (!auth.ok) return { error: auth.error };
-  if (!podeDecidir(auth.user.papel)) {
-    return { error: "Só a diretoria aprova ou reprova itens do orçamento." };
-  }
+  const recusa = await recusaDaDecisao(supabase, auth.user, companyId, year, setorId);
+  if (recusa) return { error: recusa };
 
   const { error } = await supabase.from("orcamento_validacoes").upsert(
     {
@@ -156,9 +163,24 @@ export async function limparDecisao(params: {
   // Mesmo escopo de `decidirItem`: desfazer é decidir de novo.
   const auth = await autorizarLeitura(supabase, companyId, year);
   if (!auth.ok) return { error: auth.error };
-  if (!podeDecidir(auth.user.papel)) {
-    return { error: "Só a diretoria altera uma decisão." };
-  }
+  // O setor do item está na própria decisão gravada — é ele que recorta o
+  // gestor quando a empresa não tem aprovação do diretor.
+  const { data: atual } = await supabase
+    .from("orcamento_validacoes")
+    .select("setor_id")
+    .eq("company_id", companyId)
+    .eq("year", year)
+    .eq("alvo_tipo", alvoTipo)
+    .eq("alvo_id", alvoId)
+    .maybeSingle();
+  const recusa = await recusaDaDecisao(
+    supabase,
+    auth.user,
+    companyId,
+    year,
+    ((atual as { setor_id?: string | null } | null)?.setor_id as string | null) ?? null,
+  );
+  if (recusa) return { error: recusa };
 
   const { error } = await supabase
     .from("orcamento_validacoes")
@@ -171,6 +193,36 @@ export async function limparDecisao(params: {
 
   revalidatePath(PATH);
   return { ok: true };
+}
+
+/**
+ * Por que ESTE usuário não pode decidir sobre um item deste setor, ou `null`.
+ *
+ * Diretoria e admin decidem na empresa inteira. Com a aprovação do diretor
+ * DESLIGADA na empresa, o gestor também decide — mas só nos setores em que ele
+ * escreve: é o orçamento que ele monta, não o dos outros. Sem esse recorte o
+ * Gerente Sócio (que LÊ a empresa inteira) aprovaria o setor de outro gestor.
+ */
+async function recusaDaDecisao(
+  supabase: Parameters<typeof setoresDeEscrita>[0],
+  user: OrcamentoUser,
+  companyId: string,
+  year: number,
+  setorId: string | null,
+): Promise<string | null> {
+  if (podeDecidir(user.papel)) return null;
+  const aprovacaoDiretor = await aprovacaoDoDiretor(supabase, companyId, year);
+  if (!podeDecidir(user.papel, aprovacaoDiretor)) {
+    return "Só a diretoria aprova ou reprova itens do orçamento.";
+  }
+  const setores = await setoresDeEscrita(supabase, user, companyId, year);
+  // Empresa que não orça por setor: o setor da linha é detalhe de armazenamento
+  // (ver `orcaPorSetor`). Decide quem escreve na empresa — mesma regra que pinta
+  // `podeEscrever` na montagem do Planejamento.
+  if (!(await orcaPorSetor(supabase, companyId, year))) {
+    return setores === null || setores.length > 0 ? null : SEM_ACESSO_SETOR;
+  }
+  return podeEscreverNoSetor(setores, setorId) ? null : SEM_ACESSO_SETOR;
 }
 
 // ─── Contadores dos cards ────────────────────────────────────────────────────
@@ -305,6 +357,12 @@ export async function travaDaValidacao(params: {
   if (podeDecidir(params.papel)) return null;
 
   const supabase = createAdminClientIfAvailable() ?? (await createClient());
+  // Sem aprovação do diretor, o gestor é quem decide — e quem decide não se
+  // trava (é ele quem mexe no que aprovou). O recorte por setor já vem da
+  // action de escrita que chamou esta função.
+  if (podeDecidir(params.papel, await aprovacaoDoDiretor(supabase, params.companyId, params.year))) {
+    return null;
+  }
   const { data, error } = await supabase
     .from("orcamento_validacoes")
     .select("status, decidido_em")

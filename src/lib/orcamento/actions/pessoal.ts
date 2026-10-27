@@ -20,6 +20,7 @@ import {
 import { diffCampos } from "@/lib/orcamento/trilha";
 import type { OrcamentoPapel } from "@/lib/supabase/types";
 import {
+  aprovacaoDoDiretor,
   autorizarEscrita,
   autorizarLeitura,
   getOrcamentoAdmin,
@@ -480,6 +481,7 @@ export async function getColaboradores(
   const supabase = db() ?? (await createClient());
   const auth = await autorizarLeitura(supabase, companyId, year);
   if (!auth.ok) return { error: auth.error };
+  const aprovacaoDiretor = await aprovacaoDoDiretor(supabase, companyId, year);
   let query = supabase
     .from("orcamento_pessoal_colaboradores")
     .select(COLAB_COLS)
@@ -542,7 +544,7 @@ export async function getColaboradores(
     canceladoEm: (r.cancelado_em as string) ?? null,
     canceladoMotivo: (r.cancelado_motivo as string) ?? null,
     diretoriaTravado: Boolean(r.diretoria_travado),
-    ...decisaoDo(r, decisoes.get(r.id as string) ?? null, auth.user.papel),
+    ...decisaoDo(r, decisoes.get(r.id as string) ?? null, auth.user.papel, aprovacaoDiretor),
   }));
   return { items };
 }
@@ -1102,11 +1104,12 @@ function decisaoDo(
   linha: Record<string, unknown>,
   decisao: { status: ValidacaoStatus; comentario: string | null; decididoEm: string } | null,
   papel: string,
+  aprovacaoDiretor: boolean,
 ): { estado: ValidacaoEstado; comentario: string | null; travado: boolean } {
   const estado = estadoDoItem(decisao, (linha.updated_at as string | null) ?? null);
   return {
     estado,
     comentario: decisao?.comentario ?? null,
-    travado: !podeDecidir(papel) && !gestorPodeEditar(estado),
+    travado: !podeDecidir(papel, aprovacaoDiretor) && !gestorPodeEditar(estado),
   };
 }

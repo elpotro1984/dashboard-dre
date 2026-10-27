@@ -11,6 +11,7 @@ import { estadoDaLinha, lerDecisoes } from "@/lib/orcamento/decisoes-linha";
 import { podeDecidir, type ValidacaoEstado } from "@/lib/orcamento/validacao-diretoria";
 import { diffCampos } from "@/lib/orcamento/trilha";
 import {
+  aprovacaoDoDiretor,
   autorizarEscrita,
   autorizarLeitura,
   podeEscreverNoSetor,
@@ -171,6 +172,8 @@ export async function getValorFixoCategorias(
   const supabase = db() ?? (await createClient());
   const auth = await autorizarLeitura(supabase, companyId, year);
   if (!auth.ok) return { error: auth.error };
+  const aprovacaoDiretor = await aprovacaoDoDiretor(supabase, companyId, year);
+  const podeValidar = podeDecidir(auth.user.papel, aprovacaoDiretor);
 
   // Índices do ano do orçamento (para o seletor de correção). Inclui o salário
   // mínimo, cujo valor cadastrado é o próprio orçado quando escolhido.
@@ -193,7 +196,7 @@ export async function getValorFixoCategorias(
   if (cats.error) return { error: cats.error };
   const codes = Array.from(cats.codes.keys());
   if (codes.length === 0) {
-    return { setup: { items: [], indices, podeValidar: podeDecidir(auth.user.papel) } };
+    return { setup: { items: [], indices, podeValidar } };
   }
 
   // Contratos salvos (N por categoria). Ordena por created_at/id para a lista
@@ -238,6 +241,7 @@ export async function getValorFixoCategorias(
         decisoes.get(raw.id),
         (raw as unknown as { updated_at?: string | null }).updated_at ?? null,
         auth.user.papel,
+        aprovacaoDiretor,
       ),
     });
   }
@@ -250,7 +254,7 @@ export async function getValorFixoCategorias(
 
   items.sort((a, b) => a.categoryName.localeCompare(b.categoryName, "pt-BR"));
 
-  return { setup: { items, indices, podeValidar: podeDecidir(auth.user.papel) } };
+  return { setup: { items, indices, podeValidar } };
 }
 
 // ─── Edição ───────────────────────────────────────────────────────────────────

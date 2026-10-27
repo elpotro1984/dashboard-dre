@@ -4,6 +4,7 @@ import { getCompaniesBudgetConfig } from "@/lib/orcamento/actions/config";
 import { getEncargosCompanies } from "@/lib/orcamento/actions/encargos";
 import { CONFIG_SECOES, isConfigSecao } from "@/lib/orcamento/workspace-tabs";
 import { OrcarPorSetorManager } from "@/components/orcamento/orcar-por-setor-manager";
+import { AprovacaoDiretorManager } from "@/components/orcamento/aprovacao-diretor-manager";
 import { SetoresManager } from "@/components/orcamento/setores-manager";
 import { CategoriaMetodoManager } from "@/components/orcamento/categoria-metodo-manager";
 import { GruposArvoreManager } from "@/components/orcamento/grupos-arvore-manager";
@@ -91,6 +92,13 @@ export default async function OrcamentoConfigSecaoPage({
             fixedCompanyId={companyId}
             fixedYear={year}
           />
+        );
+      } else if (secao === "aprovacao-diretor") {
+        const company = (items ?? []).find((c) => c.companyId === companyId);
+        body = company ? (
+          <AprovacaoDiretorManager key={key} company={company} year={year} />
+        ) : (
+          <p className="text-sm text-destructive">Empresa não encontrada.</p>
         );
       } else if (secao === "setores") {
         body = (

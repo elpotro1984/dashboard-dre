@@ -87,7 +87,7 @@ export function PlanejamentoMontagem({
   useEffect(() => {
     setCarregando(true);
     void recarregar().then((d) => {
-      if (d && (d.setorId !== null || d.setores.length > 0)) {
+      if (d && d.orcaPorSetor && (d.setorId !== null || d.setores.length > 0)) {
         void recarregarPrevia(d.setorId, d.categoryName);
       }
     });
@@ -96,7 +96,7 @@ export function PlanejamentoMontagem({
   /** Depois de mexer no orçamento: recarrega o detalhe E a prévia. */
   const aposMudanca = useCallback(() => {
     void recarregar().then((d) => {
-      if (d) void recarregarPrevia(d.setorId, d.categoryName);
+      if (d?.orcaPorSetor) void recarregarPrevia(d.setorId, d.categoryName);
     });
   }, [recarregar, recarregarPrevia]);
 
@@ -304,14 +304,18 @@ export function PlanejamentoMontagem({
             />
           </div>
 
-          <PlanejamentoPreviaSetor
-            resumo={previa}
-            carregando={carregandoPrevia}
-            setorNome={detalhe.setorNome}
-            year={year}
-            companyId={companyId}
-            onDecidiu={aposMudanca}
-          />
+          {/* Empresa sem "Orçar por setor" não tem setor para prever: a
+              faixa somaria a empresa inteira sob o título "Prévia do setor". */}
+          {detalhe.orcaPorSetor && (
+            <PlanejamentoPreviaSetor
+              resumo={previa}
+              carregando={carregandoPrevia}
+              setorNome={detalhe.setorNome}
+              year={year}
+              companyId={companyId}
+              onDecidiu={aposMudanca}
+            />
+          )}
         </>
       )}
     </div>

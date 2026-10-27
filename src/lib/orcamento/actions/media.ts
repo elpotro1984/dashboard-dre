@@ -12,6 +12,7 @@ import { estadoDaLinha, lerDecisoes } from "@/lib/orcamento/decisoes-linha";
 import { podeDecidir, type ValidacaoEstado } from "@/lib/orcamento/validacao-diretoria";
 import { chaveMedia } from "@/lib/orcamento/validacao-diretoria";
 import {
+  aprovacaoDoDiretor,
   autorizarEscrita,
   autorizarLeitura,
   podeEscreverNoSetor,
@@ -201,6 +202,8 @@ export async function getMediaCategorias(
   const auth = await autorizarLeitura(supabase, companyId, year);
   if (!auth.ok) return { error: auth.error };
   const baseYear = year - 1;
+  const aprovacaoDiretor = await aprovacaoDoDiretor(supabase, companyId, year);
+  const podeValidar = podeDecidir(auth.user.papel, aprovacaoDiretor);
 
   // Índices percentuais do ano do orçamento (para o seletor de correção).
   const { data: indiceRowRaw } = await supabase
@@ -224,7 +227,7 @@ export async function getMediaCategorias(
   if (cats.error) return { error: cats.error };
   const codes = Array.from(cats.codes.keys());
   if (codes.length === 0) {
-    return { setup: { items: [], baseYear, indices, podeValidar: podeDecidir(auth.user.papel) } };
+    return { setup: { items: [], baseYear, indices, podeValidar } };
   }
 
   // Snapshots salvos. A chave é (categoria, setor): a mesma categoria pode ter
@@ -323,6 +326,7 @@ export async function getMediaCategorias(
         decisoes.get(alvoId),
         (row?.updated_at as string | null) ?? null,
         auth.user.papel,
+        aprovacaoDiretor,
       ),
       categoryCode: code,
       categoryName: cats.codes.get(code) ?? code,
@@ -354,7 +358,7 @@ export async function getMediaCategorias(
       : items.filter((i) => i.setorId !== null && auth.setores!.includes(i.setorId));
 
   return {
-    setup: { items: visiveis, baseYear, indices, podeValidar: podeDecidir(auth.user.papel) },
+    setup: { items: visiveis, baseYear, indices, podeValidar },
   };
 }
 
