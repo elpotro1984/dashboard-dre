@@ -4,7 +4,7 @@ import { cache } from "react";
 
 import type { DpRole } from "@/lib/auth/dp";
 import { getSessionContext } from "@/lib/auth/session";
-import { podeVerEmpresa, type DpEscopo } from "@/lib/dp/escopo";
+import { escopoDeEmpresasDp, podeVerEmpresa, type DpEscopo } from "@/lib/dp/escopo";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export interface DpUserContext extends DpEscopo {
@@ -15,27 +15,27 @@ export interface DpUserContext extends DpEscopo {
 }
 
 /**
- * Empresas liberadas no DP (`dp_user_empresas`) — para os DOIS papéis desde
- * 26/10/2026 (tela de Usuários módulo → perfil: a Visão Estratégica também é
- * por empresa). Só o admin COM a concessão vê todas. Tabela ausente = nenhuma
- * empresa — falha fechada, nunca "todas".
+ * Empresas marcadas no DP (`dp_user_empresas`) — para os DOIS papéis desde
+ * 26/10/2026, e também para o admin desde 27/10. `null` = a leitura falhou
+ * (tabela ausente…): o escopo vira zero empresas, nunca "todas".
  */
-export async function empresasDoAnalista(userId: string): Promise<string[]> {
+async function lerEmpresasDp(userId: string): Promise<string[] | null> {
   const { data, error } = await createAdminClient().from("dp_user_empresas").select("company_id").eq("user_id", userId);
   if (error) {
     console.error("[dp] dp_user_empresas:", error.message);
-    return [];
+    return null;
   }
   return (data ?? []).map((r) => r.company_id as string);
 }
 
 /**
  * Escopo de empresa — usado também pela tela inicial, e só para quem JÁ tem a
- * concessão do DP (admin não herda o módulo). Admin com a concessão vê todas as
- * empresas; os demais, só as marcadas para eles.
+ * concessão do DP (admin não herda o módulo). A regra é escopoDeEmpresasDp:
+ * admin sem empresa marcada vê todas; com empresas marcadas, só elas; os
+ * demais, só as marcadas.
  */
 export async function escopoDp(userId: string, role: DpRole, isAdmin: boolean): Promise<DpEscopo> {
-  return { role, empresas: isAdmin ? null : await empresasDoAnalista(userId) };
+  return { role, empresas: escopoDeEmpresasDp(await lerEmpresasDp(userId), isAdmin) };
 }
 
 /**

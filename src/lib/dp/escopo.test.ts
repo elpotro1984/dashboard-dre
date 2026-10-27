@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { escolherEmpresaAtiva, podeVerEmpresa, recortarPorEmpresa, type DpEscopo } from "@/lib/dp/escopo";
+import { escolherEmpresaAtiva, escopoDeEmpresasDp, podeVerEmpresa, recortarPorEmpresa, type DpEscopo } from "@/lib/dp/escopo";
 
 const gestor: DpEscopo = { role: "gestor", empresas: null };
 const analista: DpEscopo = { role: "analista", empresas: ["a", "b"] };
@@ -38,4 +38,16 @@ test("empresa ativa: cookie permitido vale; cookie de outra empresa é IGNORADO"
   assert.equal(escolherEmpresaAtiva(permitidas, "z"), "b"); // maior quadro
   assert.equal(escolherEmpresaAtiva(permitidas, null), "b");
   assert.equal(escolherEmpresaAtiva([], "a"), null);
+});
+
+test("escopo pelas empresas marcadas: admin sem nenhuma vê todas; com marcadas, só elas (a Carol)", () => {
+  assert.equal(escopoDeEmpresasDp([], true), null, "admin com 'Todas as empresas'");
+  assert.deepEqual(escopoDeEmpresasDp(["c1"], true), ["c1"], "admin recortado");
+  assert.deepEqual(escopoDeEmpresasDp([], false), [], "quem não é admin e não tem empresa vê zero");
+  assert.deepEqual(escopoDeEmpresasDp(["c1", "c2"], false), ["c1", "c2"]);
+});
+
+test("leitura das marcadas que falhou é ZERO para todos — para o admin recortado, 'nenhuma marcada' viraria todas", () => {
+  assert.deepEqual(escopoDeEmpresasDp(null, true), []);
+  assert.deepEqual(escopoDeEmpresasDp(null, false), []);
 });

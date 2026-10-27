@@ -185,6 +185,22 @@ export async function getDpColaborador(db: AdminClient, id: string): Promise<DpC
   };
 }
 
+/**
+ * Quando a Sólides foi espelhada pela última vez COM SUCESSO — é a data do dado
+ * que as telas mostram. A última execução pode ter falhado (`lastDpSyncRun`).
+ */
+export async function ultimaSincronizacaoOk(db: AdminClient): Promise<string | null> {
+  const { data, error } = await db
+    .from("dp_sync_runs")
+    .select("started_at, finished_at")
+    .eq("status", "ok")
+    .order("started_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  check(error, "dp_sync_runs");
+  return (data?.finished_at as string | null) ?? (data?.started_at as string | null) ?? null;
+}
+
 export async function lastDpSyncRun(db: AdminClient): Promise<DpSyncRun | null> {
   const { data, error } = await db
     .from("dp_sync_runs")

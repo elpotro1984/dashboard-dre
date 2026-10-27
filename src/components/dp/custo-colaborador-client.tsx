@@ -6,7 +6,8 @@ import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from
 
 import { FilterTable, type FilterColumn } from "@/components/data-table/filter-table";
 import { Card, CardContent } from "@/components/ui/card";
-import { DP_ENCARGOS_PATH, DP_PARAMETROS_FOLHA_PATH } from "@/lib/auth/dp";
+import { DP_ENCARGOS_PATH, DP_FOLHA_PATH, DP_PARAMETROS_FOLHA_PATH } from "@/lib/auth/dp";
+import { formatDateTimeBR } from "@/lib/ctrl/datetime";
 import {
   colunasComValor,
   participacao,
@@ -29,6 +30,10 @@ export interface DpCustoDados {
   encargos: EncargoValues;
   origemEncargos: { tipo: "cadastro"; ano: number } | { tipo: "padrao"; regime: string | null };
   linhas: DpCustoColaborador[];
+  /** Pessoas da Folha do mês fora da Sólides (avulsos): não entram, mas a tela diz quantas. */
+  avulsosFora: number;
+  /** De quando é o cadastro da Sólides, e o erro da última sincronização quando ela falhou. */
+  solides: { sincronizadaEm: string | null; falhando: string | null };
 }
 
 const norm = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -126,6 +131,35 @@ export function DpCustoColaboradorClient({ dados }: { dados: DpCustoDados }) {
         <span className="ml-2 text-xs text-ink-muted">
           {filtrado ? `${recorte.pessoas} de ${empresa.pessoas} colaboradores na tela` : `${empresa.pessoas} colaboradores`}
         </span>
+      </div>
+
+      <div className="space-y-1 text-xs">
+        <p className="text-ink-muted">
+          Colaboradores, empresa, setor, contrato e salário vêm da Sólides
+          {dados.solides.sincronizadaEm ? ` (sincronizada em ${formatDateTimeBR(dados.solides.sincronizadaEm)})` : " (ainda sem sincronização)"}.
+          {dados.avulsosFora > 0 && (
+            <>
+              {" "}
+              {dados.avulsosFora === 1
+                ? "1 pessoa lançada só na Folha do mês, fora da Sólides, não entra aqui"
+                : `${dados.avulsosFora} pessoas lançadas só na Folha do mês, fora da Sólides, não entram aqui`}{" "}
+              (
+              <Link href={DP_FOLHA_PATH} className="underline hover:text-ink-primary">
+                ver na Folha do mês
+              </Link>
+              ).
+            </>
+          )}
+        </p>
+        {dados.solides.falhando && (
+          <p className="flex gap-1 text-amber-800 dark:text-amber-300">
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>
+              A sincronização com a Sólides está falhando — quem entrou, saiu ou mudou de unidade depois dessa data ainda não aparece aqui. Último
+              erro: {dados.solides.falhando}
+            </span>
+          </p>
+        )}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">

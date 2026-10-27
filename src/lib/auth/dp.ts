@@ -24,8 +24,9 @@
  *    do grupo (parâmetros da folha, de-para de empresas).
  *  - `analista` ("Visão Operacional"): as empresas marcadas; folha e cadastros,
  *    sem as configurações do grupo.
- *  Os dois são recortados por `dp_user_empresas`; o admin COM a concessão vê
- *  todas as empresas.
+ *  Os dois são recortados por `dp_user_empresas`. O admin COM a concessão vê
+ *  todas as empresas ("Todas as empresas" na tela de Usuários) ou, desde
+ *  27/10/2026, só as marcadas para ele — @/lib/dp/escopo, escopoDeEmpresasDp.
  *
  * Client-safe: só constantes e funções puras.
  */

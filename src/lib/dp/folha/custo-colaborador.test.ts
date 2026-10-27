@@ -7,6 +7,7 @@ import {
   colunasComValor,
   COLUNAS_CUSTO,
   custoDoColaborador,
+  entraNoCusto,
   GRUPO_DA_COLUNA,
   participacao,
   resumirCusto,
@@ -162,6 +163,13 @@ test("colunas: só as que têm valor na empresa; salário sempre", () => {
   assert.deepEqual(colunasComValor([est]), ["salario"]);
   const clt = custoDoColaborador(pessoa(), P, ENC, COMP);
   assert.deepEqual(colunasComValor([est, clt]), ["salario", "decimo", "ferias", "inssPatronal", "rat", "terceiros", "fgts"]);
+});
+
+test("só quem está na Sólides: o avulso da folha fica fora, mesmo ativo no mês", () => {
+  const avulso = { pessoaId: -4, companyId: "e1" };
+  assert.equal(entraNoCusto({ avulso: null, desligamento: null }, COMP), true);
+  assert.equal(entraNoCusto({ avulso, desligamento: null }, COMP), false);
+  assert.equal(entraNoCusto({ avulso: null, desligamento: "2026-09-15" }, COMP), false, "saiu no mês");
 });
 
 test("quem sai no mês fica de fora; quem sai depois, entra", () => {

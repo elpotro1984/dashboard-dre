@@ -8,10 +8,10 @@ import { todayBR } from "@/lib/ctrl/datetime";
 import { getDpUser } from "@/lib/dp/auth";
 import { getDpEmpresaAtiva } from "@/lib/dp/empresa-ativa";
 import { lerEncargosDaEmpresa } from "@/lib/dp/encargos-dp";
-import { ativoNoCusto, custoDoColaborador } from "@/lib/dp/folha/custo-colaborador";
+import { ativoNoCusto, custoDoColaborador, entraNoCusto } from "@/lib/dp/folha/custo-colaborador";
 import { competenciaValida } from "@/lib/dp/folha/parametros";
 import { entradaDe, listParametrosVigencias, listPessoasDaFolha, parametrosDaCompetencia } from "@/lib/dp/folha/queries";
-import { DpNaoInstaladoError } from "@/lib/dp/queries";
+import { DpNaoInstaladoError, lastDpSyncRun, ultimaSincronizacaoOk } from "@/lib/dp/queries";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const dynamic = "force-dynamic";
@@ -34,10 +34,13 @@ export default async function DpCustoColaboradorPage({ searchParams }: { searchP
     const { ativa } = await getDpEmpresaAtiva(db, user);
     let dados: DpCustoDados | null = null;
     if (ativa) {
-      const [{ pessoas }, vigencias, encargos] = await Promise.all([
+      const [{ pessoas }, vigencias, encargos, sincronizadaEm, ultimaExecucao] = await Promise.all([
         listPessoasDaFolha(db, ativa.id, competencia),
         listParametrosVigencias(db),
         lerEncargosDaEmpresa(db, ativa.id, Number(competencia.slice(0, 4))),
+        // Melhor esforço: a data da Sólides é aviso, não pode derrubar a tela.
+        ultimaSincronizacaoOk(db).catch(() => null),
+        lastDpSyncRun(db).catch(() => null),
       ]);
       const { vigencia, parametros } = parametrosDaCompetencia(vigencias, competencia);
       dados = {
@@ -47,9 +50,15 @@ export default async function DpCustoColaboradorPage({ searchParams }: { searchP
         encargos: encargos.values,
         origemEncargos: encargos.origem,
         linhas: pessoas
-          .filter((p) => ativoNoCusto(p.desligamento, competencia))
-          .map((p) => custoDoColaborador(entradaDe(p, ativa.id), parametros, encargos.values, competencia))
+          .filter((p) => entraNoCusto(p, competencia))
+          // Setor = o departamento da Sólides, não o "setor da folha" que o DP reclassifica.
+          .map((p) => custoDoColaborador({ ...entradaDe(p, ativa.id), setor: p.setor }, parametros, encargos.values, competencia))
           .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")),
+        avulsosFora: pessoas.filter((p) => p.avulso !== null && ativoNoCusto(p.desligamento, competencia)).length,
+        solides: {
+          sincronizadaEm,
+          falhando: ultimaExecucao?.status === "erro" ? (ultimaExecucao.erro ?? "erro sem mensagem") : null,
+        },
       };
     }
     return (
@@ -57,7 +66,9 @@ export default async function DpCustoColaboradorPage({ searchParams }: { searchP
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="text-xl font-semibold text-ink-primary">Custo com colaborador</h1>
-            <p className="text-sm text-ink-muted">Quanto cada pessoa custa à empresa por mês: salários, encargos e benefícios, com os valores fixos do cadastro.</p>
+            <p className="text-sm text-ink-muted">
+              Quanto cada pessoa da Sólides custa à empresa por mês: salários, encargos e benefícios, com os valores fixos do cadastro.
+            </p>
           </div>
           {ativa && <span className="text-sm font-medium text-ink-muted">{ativa.name}</span>}
         </div>

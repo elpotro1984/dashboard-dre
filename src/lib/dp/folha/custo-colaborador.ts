@@ -20,6 +20,11 @@
 // saem do MOTOR DA FOLHA rodado assim — a regra de cada benefício (desconto de
 // VT, parte do plano paga pela empresa, alimentação) é uma só nas duas telas.
 //
+// Fonte: a SÓLIDES — quem é da empresa (o de-para do DP sobre a unidade e o
+// departamento dela), setor (o departamento, não o "setor da folha"), contrato e
+// salário. Do cadastro do DP vêm só o que a Sólides não tem: centro de custo e
+// os benefícios. Avulsos da folha não entram (entraNoCusto).
+//
 // Alíquotas: INSS patronal, RAT e terceiros do cadastro de encargos da empresa
 // (o mesmo da tela de Impostos, das Simulações e do Orçamento); FGTS dos
 // Parâmetros da folha (8%; aprendiz 2%), como a tela de Impostos. Estágio, PJ e
@@ -128,11 +133,23 @@ const somarCols = (l: Record<DpColunaCusto, number>, grupo: DpGrupoCusto) =>
   r2(COLUNAS_CUSTO.filter((k) => GRUPO_DA_COLUNA[k] === grupo).reduce((s, k) => s + l[k], 0));
 
 /**
- * Quem entra: a população da folha do mês MENOS quem sai nele. O custo é o da
- * posição que continua; o desligado do mês vai na rescisão, não aqui.
+ * Quem sai no mês fica fora: o custo é o da posição que continua; o desligado
+ * do mês vai na rescisão, não aqui.
  */
 export function ativoNoCusto(desligamento: string | null, competencia: string): boolean {
   return !desligamento || desligamento > ultimoDia(competencia);
+}
+
+/**
+ * Quem entra: as pessoas da folha do mês que estão NA SÓLIDES e continuam
+ * depois dele. O AVULSO (pessoa lançada só na folha, fora da Sólides) fica de
+ * fora — a tela é o custo do cadastro de RH, e a empresa dele vem da planilha
+ * importada, não da Sólides (27/10/2026: um prestador criado pela importação na
+ * VE Franqueadora aparecia ali sem existir na Sólides). Ele continua na Folha
+ * do mês, e a tela diz quantos ficaram fora.
+ */
+export function entraNoCusto(p: { avulso: unknown; desligamento: string | null }, competencia: string): boolean {
+  return p.avulso === null && ativoNoCusto(p.desligamento, competencia);
 }
 
 function regimeDe(contrato: DpContratoFolha): string {

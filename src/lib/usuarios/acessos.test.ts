@@ -167,15 +167,39 @@ test("admin: o formulário marca Admin, o plano não mexe no escopo — e o DP N
   assert.equal(plano.users.role, "admin");
 });
 
-test("admin COM o DP: aparece para o Lucas, é salvável sem empresa e é regravado como está", () => {
-  const atual: AcessoAtual = {
-    ...base, profile: "admin", legacyRole: "admin", moduleRoles: [{ module: "dp", role: "gestor" }], empresasDp: ["c1"],
-  };
-  const { form } = acessosIniciais(atual, { verDp: true });
-  // Admin com o DP vê todas as empresas: a lista guardada não vale para ele.
-  assert.deepEqual(form.dp, { ativo: true, perfil: "gestor", empresas: [] });
+const adminDp: AcessoAtual = { ...base, profile: "admin", legacyRole: "admin", moduleRoles: [{ module: "dp", role: "gestor" }] };
+
+test("admin COM o DP e sem empresa marcada: 'Todas as empresas' (o Lucas e o Marcelo), regravado como está", () => {
+  const { form } = acessosIniciais({ ...adminDp, empresasDp: [] }, { verDp: true });
+  assert.deepEqual(form.dp, { ativo: true, perfil: "gestor", empresas: [], todasEmpresas: true });
   assert.equal(validarAcessos(form, { verDp: true }), null);
   assert.deepEqual(planoDeGravacao(form, ORG_DO_SETOR, { gravarDp: true }).dp, { papel: "gestor", empresas: [] });
+});
+
+test("admin COM o DP e empresas marcadas: fica recortado nelas, como qualquer pessoa", () => {
+  const { form } = acessosIniciais({ ...adminDp, empresasDp: ["c1", "c2"] }, { verDp: true });
+  assert.deepEqual(form.dp, { ativo: true, perfil: "gestor", empresas: ["c1", "c2"], todasEmpresas: false });
+  assert.deepEqual(planoDeGravacao(form, ORG_DO_SETOR, { gravarDp: true }).dp, { papel: "gestor", empresas: ["c1", "c2"] });
+});
+
+test("conceder o DP a uma admin (a Carol): começa SEM 'todas' — o Lucas escolhe as empresas", () => {
+  const { form } = acessosIniciais({ ...base, profile: "admin", legacyRole: "admin" }, { verDp: true });
+  assert.equal(form.dp.todasEmpresas, false);
+  const concedido: AcessosForm = { ...form, dp: { ...form.dp, ativo: true, perfil: "gestor" } };
+  assert.match(validarAcessos(concedido, { verDp: true }) ?? "", /marque as empresas ou “Todas as empresas”/);
+  const comEmpresa = { ...concedido, dp: { ...concedido.dp, empresas: ["c1"] } };
+  assert.equal(validarAcessos(comEmpresa, { verDp: true }), null);
+  assert.deepEqual(planoDeGravacao(comEmpresa, ORG_DO_SETOR, { gravarDp: true }).dp, { papel: "gestor", empresas: ["c1"] });
+  // "Todas" vence a lista: guardar as marcadas recortaria quem deveria ver tudo.
+  const todas = { ...comEmpresa, dp: { ...comEmpresa.dp, todasEmpresas: true } };
+  assert.deepEqual(planoDeGravacao(todas, ORG_DO_SETOR, { gravarDp: true }).dp, { papel: "gestor", empresas: [] });
+});
+
+test("'Todas as empresas' só vale para admin: fora dele, lista vazia é nenhuma empresa", () => {
+  const form: AcessosForm = { ...FORM_VAZIO, caixa: true, dp: { ativo: true, perfil: "gestor", empresas: [], todasEmpresas: true } };
+  assert.match(validarAcessos(form, { verDp: true }) ?? "", /Departamento Pessoal: marque pelo menos uma empresa/);
+  const comEmpresa = { ...form, dp: { ...form.dp, empresas: ["c1"] } };
+  assert.deepEqual(planoDeGravacao(comEmpresa, ORG_DO_SETOR, { gravarDp: true }).dp, { papel: "gestor", empresas: ["c1"] });
 });
 
 test("admin pela coluna legada também é reconhecido", () => {
@@ -191,18 +215,21 @@ const analistaDp: AcessoAtual = {
 
 test("quem não concede o DP recebe a seção VAZIA — o estado do DP não sai do servidor", () => {
   const { form, avisos } = acessosIniciais(analistaDp, { verDp: false });
-  assert.deepEqual(form.dp, { ativo: false, perfil: null, empresas: [] });
+  assert.deepEqual(form.dp, { ativo: false, perfil: null, empresas: [], todasEmpresas: false });
   assert.deepEqual(avisos, [], "nem o aviso do DP");
   // Admin também: para quem não é o Lucas, o admin "tem tudo" e o DP não aparece.
   const admin = acessosIniciais({ ...analistaDp, profile: "admin", legacyRole: "admin" }, { verDp: false }).form;
-  assert.deepEqual(admin.dp, { ativo: false, perfil: null, empresas: [] });
+  assert.deepEqual(admin.dp, { ativo: false, perfil: null, empresas: [], todasEmpresas: false });
 });
 
 test("sem gravarDp o plano NÃO mexe no DP, diga o formulário o que disser", () => {
-  const form: AcessosForm = { ...FORM_VAZIO, caixa: true, dp: { ativo: true, perfil: "gestor", empresas: ["c1"] } };
+  const form: AcessosForm = { ...FORM_VAZIO, caixa: true, dp: { ativo: true, perfil: "gestor", empresas: ["c1"], todasEmpresas: false } };
   assert.equal(planoDeGravacao(form, ORG_DO_SETOR, { gravarDp: false }).dp, null);
   // A validação de quem não vê o DP também ignora a seção.
-  assert.equal(validarAcessos({ ...FORM_VAZIO, caixa: true, dp: { ativo: true, perfil: null, empresas: [] } }, { verDp: false }), null);
+  assert.equal(
+    validarAcessos({ ...FORM_VAZIO, caixa: true, dp: { ativo: true, perfil: null, empresas: [], todasEmpresas: false } }, { verDp: false }),
+    null,
+  );
 });
 
 test("quem não vê o DP não é barrado por 'marque um módulo' na edição — a recusa contaria que a pessoa tem o DP", () => {
@@ -231,15 +258,17 @@ test("validação: módulo marcado exige perfil e empresa; Compras exige setor n
   assert.equal(validarAcessos(f({ caixa: true }), lucas), null);
 });
 
-test("validação: o DP exige perfil e, fora do admin, empresa — e vale para a admin Carol se o Lucas marcar", () => {
+test("validação: o DP exige perfil e empresa (ou, só para admin, 'Todas as empresas') — vale para a admin Carol", () => {
   const lucas = { verDp: true };
   const dp = (patch: Partial<AcessosForm["dp"]>, admin = false): AcessosForm => ({
-    ...FORM_VAZIO, admin, dp: { ativo: true, perfil: "analista", empresas: ["c1"], ...patch },
+    ...FORM_VAZIO, admin, dp: { ativo: true, perfil: "analista", empresas: ["c1"], todasEmpresas: false, ...patch },
   });
   assert.equal(validarAcessos(dp({}), lucas), null);
   assert.match(validarAcessos(dp({ perfil: null }), lucas) ?? "", /Departamento Pessoal: escolha o perfil/);
   assert.match(validarAcessos(dp({ empresas: [] }), lucas) ?? "", /Departamento Pessoal: marque/);
-  assert.equal(validarAcessos(dp({ empresas: [] }, true), lucas), null, "admin com o DP vê todas as empresas");
+  assert.match(validarAcessos(dp({ empresas: [] }, true), lucas) ?? "", /Todas as empresas/, "admin sem empresa e sem 'todas'");
+  assert.equal(validarAcessos(dp({ empresas: [], todasEmpresas: true }, true), lucas), null, "admin com 'Todas as empresas'");
+  assert.equal(validarAcessos(dp({}, true), lucas), null, "admin com empresa marcada");
   assert.match(validarAcessos(dp({ perfil: null }, true), lucas) ?? "", /escolha o perfil/);
 });
 
@@ -252,7 +281,7 @@ test("módulo desmarcado limpa o escopo dele", () => {
     financeiro: { ativo: false, perfil: "csc", empresas: ["c1"] },
     compras: { ativo: false, perfil: "diretor", empresas: ["viva"], papelPorEmpresa: {}, setores: ["s1"] },
     orcamento: { ativo: false, perfil: "validador", empresas: ["c1"], setores: { c1: ["X"] } },
-    dp: { ativo: false, perfil: "gestor", empresas: ["c1"] },
+    dp: { ativo: false, perfil: "gestor", empresas: ["c1"], todasEmpresas: false },
   };
   const plano = planoDeGravacao(form, ORG_DO_SETOR, { gravarDp: true });
   const e = plano.escopo!;

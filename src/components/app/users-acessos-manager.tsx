@@ -126,7 +126,9 @@ function resumoAcessos(u: UsuarioTela, reservado: boolean): string[] {
   // Para os demais, o DP não existe na tela.
   if (f.admin) {
     if (!reservado) return ["Admin (todos os módulos)"];
-    return f.dp.ativo ? ["Admin", `Departamento Pessoal · ${rotuloPerfil("dp", f.dp.perfil)}`] : ["Admin (sem o DP)"];
+    if (!f.dp.ativo) return ["Admin (sem o DP)"];
+    const empresasDp = f.dp.todasEmpresas ? "todas as empresas" : `${f.dp.empresas.length} empresa(s)`;
+    return ["Admin", `Departamento Pessoal · ${rotuloPerfil("dp", f.dp.perfil)} · ${empresasDp}`];
   }
   const out: string[] = [];
   if (f.financeiro.ativo) out.push(`Financeiro · ${rotuloPerfil("financeiro", f.financeiro.perfil)}`);
@@ -824,8 +826,16 @@ function EditorAcessos({
             valor={form.dp.perfil}
             onEscolher={(perfil) => onChange({ ...form, dp: { ...form.dp, perfil } })}
           />
-          {form.admin ? (
-            <p className="text-xs text-muted-foreground">Como admin, vê o DP de todas as empresas.</p>
+          {/* Admin escolhe entre todas as empresas e só as marcadas (27/10/2026); os demais, só as marcadas. */}
+          {form.admin && (
+            <ModuloSimples
+              titulo="Todas as empresas (inclusive as que forem criadas)"
+              ativo={form.dp.todasEmpresas}
+              onAlternar={() => onChange({ ...form, dp: { ...form.dp, todasEmpresas: !form.dp.todasEmpresas } })}
+            />
+          )}
+          {form.admin && form.dp.todasEmpresas ? (
+            <p className="text-xs text-muted-foreground">Vê o DP de todas as empresas. Desmarque para escolher quais.</p>
           ) : (
             <Bloco titulo="Empresas" obrigatorio>
               <PillMultiSelect

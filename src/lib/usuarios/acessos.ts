@@ -49,7 +49,18 @@ export interface AcessosForm {
   caixa: boolean;
   case: boolean;
   contratos: boolean;
-  dp: { ativo: boolean; perfil: DpRole | null; empresas: string[] };
+  dp: {
+    ativo: boolean;
+    perfil: DpRole | null;
+    empresas: string[];
+    /**
+     * Só para ADMIN: vê o DP de todas as empresas (guardado como lista vazia —
+     * é o que o Lucas e o Marcelo têm). Desmarcado, o admin fica recortado pelas
+     * empresas marcadas, como qualquer pessoa (pedido de 27/10/2026, para a
+     * Carol). Fora do admin não vale: a lista vazia é "nenhuma empresa".
+     */
+    todasEmpresas: boolean;
+  };
 }
 
 // ── Vocabulário da tela ─────────────────────────────────────────────────────
@@ -154,7 +165,7 @@ export const FORM_VAZIO: AcessosForm = {
   caixa: false,
   case: false,
   contratos: false,
-  dp: { ativo: false, perfil: null, empresas: [] },
+  dp: { ativo: false, perfil: null, empresas: [], todasEmpresas: false },
 };
 
 // ── Estado de hoje → formulário ─────────────────────────────────────────────
@@ -214,8 +225,10 @@ export function acessosIniciais(a: AcessoAtual, { verDp }: { verDp: boolean }): 
     ? {
         ativo: acesso.dpRole !== null,
         perfil: acesso.dpRole,
-        // Admin com o DP vê todas as empresas: as marcadas não valem para ele.
-        empresas: acesso.dpRole && !acesso.isAdmin ? [...a.empresasDp] : [],
+        empresas: acesso.dpRole ? [...a.empresasDp] : [],
+        // Admin com o DP e sem empresa marcada vê todas (o que o banco diz hoje).
+        // Admin que ainda NÃO tem o DP começa sem "todas": ao conceder, escolhe-se.
+        todasEmpresas: acesso.dpRole !== null && acesso.isAdmin && a.empresasDp.length === 0,
       }
     : { ...FORM_VAZIO.dp };
 
@@ -294,8 +307,12 @@ function clonarMapa(m: Record<string, string[]>): Record<string, string[]> {
 export function validarAcessos(form: AcessosForm, { verDp, novo = false }: { verDp: boolean; novo?: boolean }): string | null {
   if (verDp && form.dp.ativo) {
     if (!form.dp.perfil) return "Departamento Pessoal: escolha o perfil.";
-    // Admin com o DP vê todas as empresas; os demais precisam das marcadas.
-    if (!form.admin && form.dp.empresas.length === 0) return "Departamento Pessoal: marque pelo menos uma empresa.";
+    // Só o admin pode ficar com "todas as empresas"; os demais precisam das marcadas.
+    if (!(form.admin && form.dp.todasEmpresas) && form.dp.empresas.length === 0) {
+      return form.admin
+        ? "Departamento Pessoal: marque as empresas ou “Todas as empresas”."
+        : "Departamento Pessoal: marque pelo menos uma empresa.";
+    }
   }
   if (form.admin) return null;
 
@@ -422,8 +439,8 @@ export function planoDeGravacao(
   const dp = !gravarDp
     ? null
     : form.dp.ativo && form.dp.perfil
-      ? // Admin com o DP vê todas as empresas: lista guardada não valeria nada.
-        { papel: form.dp.perfil, empresas: form.admin ? [] : unicos(form.dp.empresas) }
+      ? // Lista vazia = todas as empresas, e só para admin (ver escopoDeEmpresasDp).
+        { papel: form.dp.perfil, empresas: form.admin && form.dp.todasEmpresas ? [] : unicos(form.dp.empresas) }
       : { papel: null, empresas: [] };
   if (form.admin) return { users, escopo: null, dp };
 
