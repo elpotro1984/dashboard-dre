@@ -66,15 +66,18 @@ export function DpBeneficiosConfigClient({
   companyId,
   beneficios,
   podeEditar,
+  podeCopiar,
 }: {
   companyId: string;
   beneficios: DpBeneficiosEmpresa;
   podeEditar: boolean;
+  /** Copiar de outra empresa — os dois papéis do DP; salvar e reajustar seguem `podeEditar`. */
+  podeCopiar: boolean;
 }) {
   const [copiando, setCopiando] = useState(false);
   return (
     <div className="space-y-4">
-      {podeEditar && (
+      {podeCopiar && (
         <div className="flex justify-end">
           <button
             type="button"
@@ -89,7 +92,9 @@ export function DpBeneficiosConfigClient({
       <p className="text-xs text-ink-muted">
         Por enquanto é só o cadastro: a folha do mês continua calculando pelos Parâmetros da folha. Estes valores vão alimentar a
         tela de gestão de benefícios.{" "}
-        {podeEditar ? "Cada bloco é salvo e reajustado separadamente." : "Só a Visão Estratégica do DP altera estes valores."}
+        {podeEditar
+          ? "Cada bloco é salvo e reajustado separadamente."
+          : "Só a Visão Estratégica do DP altera e reajusta estes valores; copiar de outra empresa, você também pode."}
       </p>
       {BLOCOS_BENEFICIO.map((b) => (
         <BlocoCard

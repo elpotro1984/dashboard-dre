@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { DP_BENEFICIOS_PATH } from "@/lib/auth/dp";
 import { todayBR } from "@/lib/ctrl/datetime";
-import { exigirEmpresa, requireDpGestor } from "@/lib/dp/auth";
+import { exigirEmpresa, requireDpEmpresa, requireDpGestor } from "@/lib/dp/auth";
 import {
   BLOCOS_BENEFICIO,
   blocoValido,
@@ -21,7 +21,9 @@ import { podeVerEmpresa } from "@/lib/dp/escopo";
 import { buscarSalarioFamiliaNaWeb, type SalarioFamiliaEncontrado } from "@/lib/dp/salario-familia-web";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-// Configurações › Benefícios da EMPRESA. Só a Visão Estratégica (gestor) grava —
+// Configurações › Benefícios da EMPRESA. Só a Visão Estratégica (gestor) grava, reajusta
+// e busca na web — exceto COPIAR de outra empresa, que a Visão Operacional também faz
+// (27/10/2026), entre as empresas que ela vê. No resto,
 // como os Encargos da empresa: são premissas que mudam o custo dela; a Visão
 // Operacional lê. A regra de cada bloco é @/lib/dp/beneficios-config (pura e testada).
 
@@ -150,8 +152,8 @@ export interface DpOrigemBeneficios {
  */
 export async function origensDeCopiaBeneficios(input: { companyId: string }): Promise<DpBeneficioResult<{ origens: DpOrigemBeneficios[] }>> {
   try {
-    const user = await requireDpGestor();
-    exigirEmpresa(user, input.companyId);
+    // Os dois papéis copiam; a lista é recortada pelas empresas que a pessoa vê.
+    const user = await requireDpEmpresa(input.companyId);
     const admin = createAdminClient();
     const { data, error } = await admin.from("dp_beneficios_config").select("company_id, bloco, dados").neq("company_id", input.companyId);
     if (error) throw error;
@@ -186,8 +188,8 @@ export async function copiarBeneficiosDeEmpresa(input: {
   blocos: DpBlocoBeneficio[];
 }): Promise<DpBeneficioResult<{ copiados: number }>> {
   try {
-    const user = await requireDpGestor();
-    exigirEmpresa(user, input.companyId);
+    // Os dois papéis copiam (a Visão Operacional também, 27/10/2026) — origem e destino no escopo.
+    const user = await requireDpEmpresa(input.companyId);
     exigirEmpresa(user, input.origemId);
     if (input.origemId === input.companyId) throw new Error("Escolha outra empresa para copiar.");
     const blocos = Array.from(new Set(input.blocos)).filter(blocoValido);

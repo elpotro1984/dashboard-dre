@@ -18,7 +18,8 @@ export const maxDuration = 120;
 /**
  * Configurações › Benefícios (empresa ativa): os oito blocos de benefícios que
  * a futura tela de gestão vai usar, com os valores desta empresa e o reajuste %
- * de cada bloco. Todos do DP veem; só a Visão Estratégica grava.
+ * de cada bloco. Todos do DP veem e copiam de outra empresa; só a Visão
+ * Estratégica salva à mão, reajusta e busca na web.
  */
 export default async function DpBeneficiosPage() {
   const user = await getDpUser();
@@ -43,7 +44,14 @@ export default async function DpBeneficiosPage() {
           {ativa && <span className="text-sm font-medium text-ink-muted">{ativa.name}</span>}
         </div>
         {ativa && beneficios ? (
-          <DpBeneficiosConfigClient key={ativa.id} companyId={ativa.id} beneficios={beneficios} podeEditar={user.role === "gestor"} />
+          <DpBeneficiosConfigClient
+            key={ativa.id}
+            companyId={ativa.id}
+            beneficios={beneficios}
+            podeEditar={user.role === "gestor"}
+            // Copiar de outra empresa: os dois papéis (a Visão Operacional também, 27/10/2026).
+            podeCopiar
+          />
         ) : (
           <p className="text-sm text-ink-muted">Nenhuma empresa liberada para você no Departamento Pessoal.</p>
         )}
