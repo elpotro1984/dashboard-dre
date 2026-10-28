@@ -28,6 +28,10 @@ export interface RequisitionRow {
   // Tipo de pagamento da RP (ex.: "Reembolso"). Usado pela validação para
   // relaxar o match de favorecido quando os anexos são comprovantes de reembolso.
   tipo_pagamento: string | null
+  // Vínculo da RP com a OP (relatório novo, 28/10/2026). Decidem a comissão:
+  // ver `decidirComissaoPorOp` em validate.ts.
+  item_op: string | null
+  nome_evento_op: string | null
 }
 
 export interface ParseXlsxResult {
@@ -39,6 +43,7 @@ export interface ParseXlsxResult {
 // Listing variants keeps the importer tolerant to small label tweaks
 // (case, accents, with/without colon).
 const HEADER_ALIASES: Record<string, keyof RequisitionRow> = {
+  rp: 'requisicao_codigo',
   requisicao: 'requisicao_codigo',
   requisição: 'requisicao_codigo',
   codigo: 'requisicao_codigo',
@@ -102,6 +107,12 @@ const HEADER_ALIASES: Record<string, keyof RequisitionRow> = {
   formadepagamento: 'tipo_pagamento',
   tipopgto: 'tipo_pagamento',
   formapgto: 'tipo_pagamento',
+
+  item: 'item_op',
+  itemop: 'item_op',
+
+  nomeeventoop: 'nome_evento_op',
+  eventoop: 'nome_evento_op',
 }
 
 function normalizeHeader(value: unknown): string {
@@ -163,7 +174,7 @@ export function parseRequisitionsXlsx(buffer: ArrayBuffer): ParseXlsxResult {
 
   if (headerRowIdx === -1) {
     throw new Error(
-      'Cabeçalho não reconhecido. Esperado: REQUISIÇÃO, Fornecedor, Favorecido, CPF/CNPJ, Conta, valor, Link do Contrato.',
+      'Cabeçalho não reconhecido. Esperado: RP (ou REQUISIÇÃO), Fornecedor, Favorecido, CPF/CNPJ, Conta, valor, Link do Contrato.',
     )
   }
 
@@ -207,6 +218,8 @@ export function parseRequisitionsXlsx(buffer: ArrayBuffer): ParseXlsxResult {
         else if (field === 'fundo') result.fundo = stringValue
         else if (field === 'numero_contrato') result.numero_contrato = stringValue
         else if (field === 'tipo_pagamento') result.tipo_pagamento = stringValue
+        else if (field === 'item_op') result.item_op = stringValue
+        else if (field === 'nome_evento_op') result.nome_evento_op = stringValue
       }
     }
 
@@ -245,6 +258,8 @@ export function parseRequisitionsXlsx(buffer: ArrayBuffer): ParseXlsxResult {
       fundo: result.fundo ?? null,
       numero_contrato: result.numero_contrato ?? null,
       tipo_pagamento: result.tipo_pagamento ?? null,
+      item_op: result.item_op ?? null,
+      nome_evento_op: result.nome_evento_op ?? null,
     })
   }
 

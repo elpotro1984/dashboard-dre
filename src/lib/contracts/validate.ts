@@ -55,6 +55,91 @@ export function isComissao(descricao: string | null | undefined): boolean {
   return /\bcomiss(ao|oes)\b/.test(norm)
 }
 
+// Comissão com vínculo na OP (regra da controladoria, 28/10/2026): o relatório
+// passou a trazer o Item e o Nome Evento OP, então a comissão pode ser conferida
+// pela estrutura da OP em vez de ir sempre ao especialista. Aprova sozinha só
+// quando os três batem; qualquer falta cai no especialista, dizendo qual foi.
+const EVENTO_OP_COMISSAO = 'custo administrativo'
+
+const ITENS_OP_COMISSAO = [
+  'COMISSÃO',
+  'COMISSÃO (RELACIONAMENTO/PRODUÇÃO)',
+  'COMISSÃO MARKETING',
+  'COMISSÃO ATENDIMENTO',
+  'COMISSÃO RELACIONAMENTO',
+  'COMISSÃO PRODUÇÃO',
+  'COMISSÃO COMERCIAL %',
+  'COMISSÃO SDR',
+  'COMISSÃO COMERCIAL LÍDER DE VENDAS',
+]
+
+// Sem acento, sem caixa e com espaços colapsados: "COMISSÃO  Produção " casa
+// com "COMISSÃO PRODUÇÃO". A comparação é EXATA depois disso — continência
+// faria "COMISSÃO" aceitar qualquer item que comece pela palavra.
+function chaveOp(texto: string | null | undefined): string {
+  return semAcento(texto).replace(/\s+/g, ' ').trim()
+}
+
+const ITENS_OP_COMISSAO_CHAVES = new Set(ITENS_OP_COMISSAO.map(chaveOp))
+
+export function isItemOpComissao(item: string | null | undefined): boolean {
+  return ITENS_OP_COMISSAO_CHAVES.has(chaveOp(item))
+}
+
+export function isEventoCustoAdministrativo(evento: string | null | undefined): boolean {
+  return chaveOp(evento) === EVENTO_OP_COMISSAO
+}
+
+export interface ComissaoOpInput {
+  descricao: string | null | undefined
+  item_op: string | null | undefined
+  nome_evento_op: string | null | undefined
+}
+
+// Quem entra na regra: descrição com "comissão" OU item de comissão. Só a
+// descrição deixaria escapar o item de comissão com descrição sem a palavra —
+// ele iria à leitura do anexo, que pode aprová-lo, quando a regra o manda ao
+// especialista.
+export function isRequisicaoComissao(row: ComissaoOpInput): boolean {
+  return isComissao(row.descricao) || isItemOpComissao(row.item_op)
+}
+
+export function decidirComissaoPorOp(row: ComissaoOpInput): ValidationResult {
+  const faltas: string[] = []
+  if (!isEventoCustoAdministrativo(row.nome_evento_op)) {
+    faltas.push(
+      row.nome_evento_op?.trim()
+        ? `Nome Evento OP é '${row.nome_evento_op.trim()}' — esperado 'Custo administrativo'`
+        : 'Nome Evento OP não informado — esperado "Custo administrativo"',
+    )
+  }
+  if (!isItemOpComissao(row.item_op)) {
+    faltas.push(
+      row.item_op?.trim()
+        ? `Item '${row.item_op.trim()}' não está na lista de serviços de comissão`
+        : 'Item da OP não informado',
+    )
+  }
+  if (!isComissao(row.descricao)) {
+    faltas.push('Descrição da RP não contém "comissão"')
+  }
+
+  if (faltas.length === 0) {
+    return {
+      status: 'aprovada',
+      motivos: [
+        'Comissão vinculada à OP: evento Custo administrativo, item de comissão e descrição de comissão',
+      ],
+      resumo: 'Aprovada — comissão vinculada à OP (Custo administrativo)',
+    }
+  }
+  return {
+    status: 'analise_especialista',
+    motivos: [...faltas, 'Comissão fora do vínculo com a OP: confira na OP o valor orçado e o já aprovado'],
+    resumo: 'Análise do especialista — Comissão sem vínculo completo com a OP',
+  }
+}
+
 // Parser tolerante de data: aceita "DD/MM/AAAA" (e variações com . ou -),
 // ISO "AAAA-MM-DD" e número serial do Excel. Retorna null se não der pra ler.
 export function parseDataBR(value: string | null | undefined): Date | null {
