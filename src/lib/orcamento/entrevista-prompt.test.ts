@@ -235,6 +235,31 @@ test("prompt: o direcionamento manda na UNIDADE dos valores da base (Viva Barbac
   assert.doesNotMatch(prompt({ contextoAdmin: "" }), /ATENÇÃO À UNIDADE/);
 });
 
+test("prompt: Consultoria e Capacitação abrem explicando a categoria e apontando a vizinha", () => {
+  for (const nome of [
+    "Consultoria e Treinamento",
+    "Consultoria, ReS e Treinamento",
+    "Consultorias, ReS e Treinamentos",
+  ]) {
+    const p = prompt({ categoryName: nome });
+    assert.match(p, /^1\. O QUE ESTA CATEGORIA COBRE/m, nome);
+    assert.match(p, /contratação de parceiros para estruturar/, nome);
+    assert.match(p, /confundi-la com Capacitação e Treinamentos/, nome);
+    assert.match(p, /^2\. O total gasto/m, nome);
+  }
+  const cap = prompt({ categoryName: "Capacitação e Treinamentos", base: [] });
+  assert.match(cap, /compra de cursos online/);
+  assert.match(cap, /confundi-la com Consultoria e Treinamento/);
+  // Sem base, a explicação não sai duas vezes.
+  assert.doesNotMatch(cap, /O QUE É esta despesa/);
+  assert.match(cap, /já saiu no Bloco 0/);
+
+  // As outras categorias seguem sem o passo.
+  const outra = prompt();
+  assert.doesNotMatch(outra, /O QUE ESTA CATEGORIA COBRE/);
+  assert.match(outra, /^1\. O total gasto/m);
+});
+
 test("realizadoContexto: com o ano em curso, o total inclui o mês aberto e a média não", () => {
   // Viva Barbacena, Consultoria (27/10/2026): jan–set fechados somam 459,16 e
   // outubro, em curso, 1.463,72. O total que a IA anuncia é o do ano: 1.922,88.

@@ -138,9 +138,44 @@ const CONDUCAO_POR_CLASSE: Record<ClasseDespesa, string> = {
 
 // ─── Descrições e regras por categoria (calibração fina) ─────────────────────
 // `descricao` orienta o gestor quando NÃO há base; `regra` prevalece sobre a
-// condução padrão (com ou sem base).
+// condução padrão (com ou sem base). `confundeCom` faz a descrição abrir a
+// conversa SEMPRE, com ou sem base, apontando a categoria vizinha.
+//
+// Consultoria × Capacitação (28/10/2026, pedido do dono do projeto): os
+// gestores confundem as duas, e a resposta à primeira pergunta já saía na
+// categoria errada. Nomes reais nas empresas: "Consultoria e Treinamento",
+// "Consultoria(s), ReS e Treinamento(s)" e "Capacitação e Treinamentos" — por
+// isso o casamento é por palavra, e a consultoria vem ANTES (o nome dela também
+// tem "treinamento").
 
-const CATEGORIA_DESCRICOES: { match: string; descricao: string; regra?: string }[] = [
+interface CategoriaDescricao {
+  /** Todas as palavras precisam estar no nome normalizado. */
+  match: string | string[];
+  descricao: string;
+  regra?: string;
+  /** Nome da categoria vizinha com que o gestor costuma confundir esta. */
+  confundeCom?: string;
+}
+
+const CATEGORIA_DESCRICOES: CategoriaDescricao[] = [
+  {
+    match: ["consultoria", "treinamento"],
+    descricao:
+      "Previsão de despesas com contratação de parceiros para estruturar algum processo, " +
+      "para apoiar no desenvolvimento de uma área, ou até mesmo para dar um salto em algum " +
+      "indicador de resultado.",
+    confundeCom:
+      "Capacitação e Treinamentos (cursos online ou presenciais e eventos com palestras)",
+  },
+  {
+    match: "capacitacao",
+    descricao:
+      "Previsão de despesas com compra de cursos online, compra de cursos presenciais (se for " +
+      "fora da cidade, estimar também o custo da viagem), eventos com palestras, etc.",
+    confundeCom:
+      "Consultoria e Treinamento (contratação de parceiros para estruturar processo, " +
+      "desenvolver uma área ou dar salto num indicador)",
+  },
   {
     match: "consultoria",
     descricao:
@@ -186,14 +221,27 @@ const CATEGORIA_DESCRICOES: { match: string; descricao: string; regra?: string }
   },
 ];
 
-export function descricaoCategoria(name: string): string | null {
+function categoriaDescricao(name: string): CategoriaDescricao | undefined {
   const n = normNome(name);
-  return CATEGORIA_DESCRICOES.find((d) => n.includes(d.match))?.descricao ?? null;
+  return CATEGORIA_DESCRICOES.find((d) =>
+    (Array.isArray(d.match) ? d.match : [d.match]).every((p) => n.includes(p)),
+  );
+}
+
+export function descricaoCategoria(name: string): string | null {
+  return categoriaDescricao(name)?.descricao ?? null;
 }
 
 export function regraCategoria(name: string): string | null {
-  const n = normNome(name);
-  return CATEGORIA_DESCRICOES.find((d) => n.includes(d.match))?.regra ?? null;
+  return categoriaDescricao(name)?.regra ?? null;
+}
+
+/** Explicação que abre a conversa — só nas categorias que o gestor confunde. */
+export function explicacaoAbertura(
+  name: string,
+): { descricao: string; confundeCom: string } | null {
+  const d = categoriaDescricao(name);
+  return d?.confundeCom ? { descricao: d.descricao, confundeCom: d.confundeCom } : null;
 }
 
 // ─── Materialidade (Pareto) ──────────────────────────────────────────────────
@@ -354,6 +402,7 @@ export function buildSystemPrompt(opts: BuildSystemPromptInput): string {
   const classe = classeDespesa(categoryName, opts.dreLineName);
   const regra = regraCategoria(categoryName);
   const descricao = descricaoCategoria(categoryName);
+  const explicacao = explicacaoAbertura(categoryName);
 
   const ctx = opts.contextoAdmin.trim();
   const blocoContexto: string[] = ctx
@@ -533,24 +582,35 @@ export function buildSystemPrompt(opts: BuildSystemPromptInput): string {
   // Barbacena, Capacitação e Treinamentos, 27/10/2026). E ela NÃO aponta a
   // diferença entre a soma da base e o realizado: a base é curada, o que o
   // admin tirou foi julgado irrelevante (Viva Barbacena, Marketing, 28/10).
+  let passo = 0;
+  const p = () => `${++passo}.`;
   const bloco0: string[] = [
     "BLOCO 0 — ABERTURA (sua primeira mensagem, sempre). Ela entrega ao gestor a BASE DE",
     "INFORMAÇÃO que ele vai usar para responder o resto da entrevista — não é saudação nem resumo",
     "genérico. ENTENDA o cenário primeiro (números, itens e o direcionamento interno, se houver) e",
     "só então escreva. Poucas linhas, em tom de fato e de conversa, nesta ordem:",
-    `1. O total gasto em ${anoAnterior} nesta categoria e a média mensal (os números acima). Se`,
+    ...(explicacao
+      ? [
+          `${p()} O QUE ESTA CATEGORIA COBRE, em 1–2 frases com suas palavras (os gestores costumam`,
+          `   confundi-la com ${explicacao.confundeCom}):`,
+          `   "${explicacao.descricao}"`,
+          "   É o que guia a resposta dele. Na conversa toda, se ele citar algo que é da outra",
+          "   categoria, avise em meia frase que aquilo entra lá, e não registre aqui.",
+        ]
+      : []),
+    `${p()} O total gasto em ${anoAnterior} nesta categoria e a média mensal (os números acima). Se`,
     "   houver mês fora da curva, cite-o em meia frase. Se não houver dado, diga que não houve gasto",
     "   registrado.",
     ...(semBase
       ? []
       : [
-          `2. Os ITENS principais desse gasto: cada item da base com o valor de ${anoAnterior}, do`,
+          `${p()} Os ITENS principais desse gasto: cada item da base com o valor de ${anoAnterior}, do`,
           "   maior para o menor (com mais de 6 itens, os 5 maiores e \"mais N itens somando R$ X\"), na",
           "   UNIDADE certa — anual, salvo se o direcionamento interno disser que é mensal ou outra. Se",
           "   houver mês fora da curva, ligue-o ao item que o explica quando isso for evidente. Junte a",
           "   cada item, com naturalidade, o que você já sabe dele pelo direcionamento interno.",
         ]),
-    `${semBase ? 2 : 3}. UMA pergunta que SAIA desse cenário, citando os itens pelo nome — nunca \"a`,
+    `${p()} UMA pergunta que SAIA desse cenário, citando os itens pelo nome — nunca \"a`,
     "   categoria\" no abstrato. Se o direcionamento interno aponta o que precisa ser questionado",
     "   (continuidade, reajuste, troca de fornecedor, teto), ESSA é a pergunta de abertura, feita com",
     `   suas palavras. Sem isso, pergunte o que muda em ${year} que afeta ESTES gastos (crescimento,`,
@@ -581,10 +641,16 @@ export function buildSystemPrompt(opts: BuildSystemPromptInput): string {
   const bloco1SemBase: string[] = [
     "Esta categoria NÃO tem base cadastrada: o administrador não definiu itens para você confirmar",
     "um a um — a entrevista é ABERTA e você GUIA o gestor.",
-    "O QUE É esta despesa (explique em 1–2 frases para o gestor reconhecer o cenário):",
-    descricao ?? `Descreva, em 1–2 frases, o que costuma ser a despesa "${categoryName}".`,
-    "",
-    "BLOCO 1 — PREVISÃO ABERTA: depois do Bloco 0, explique o que é a despesa e pergunte, de forma",
+    ...(explicacao
+      ? []
+      : [
+          "O QUE É esta despesa (explique em 1–2 frases para o gestor reconhecer o cenário):",
+          descricao ?? `Descreva, em 1–2 frases, o que costuma ser a despesa "${categoryName}".`,
+          "",
+        ]),
+    explicacao
+      ? "BLOCO 1 — PREVISÃO ABERTA: a explicação da categoria já saiu no Bloco 0 (não a repita); pergunte, de forma"
+      : "BLOCO 1 — PREVISÃO ABERTA: depois do Bloco 0, explique o que é a despesa e pergunte, de forma",
     `aberta e neutra, qual é a previsão de gasto com "${categoryName}" em ${year}. NÃO pressuponha`,
     "\"contrato\", \"assinatura\", \"contratação\" ou \"investimento\" — muitas dessas despesas são",
     "variáveis. Cada gasto que ele citar é tratado como item NOVO (Bloco 2). Se ele não prevê nada,",
