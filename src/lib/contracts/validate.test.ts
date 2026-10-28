@@ -4,9 +4,11 @@ import { test } from 'node:test'
 import {
   agruparRpsIrmas,
   analisarRequisicao,
+  decidirComissaoPorOp,
   isComissao,
   isFeeCerimonial,
   isPagamentoBvViva,
+  isRequisicaoComissao,
   type RequisitionDocument,
 } from './validate'
 import type { RequisitionInput } from './types'
@@ -227,4 +229,77 @@ test('isPagamentoBvViva separa a perna BV da perna do fornecedor', () => {
   assert.equal(isPagamentoBvViva('Pagamento BV - parcela 1/2 - contrato de decoração'), true)
   assert.equal(isPagamentoBvViva('Pagamento - parcela 1/2 - contrato de bar - retirando BV Viva'), false)
   assert.equal(isPagamentoBvViva('Pagamento - parcela única - rádios para equipe Viva'), false)
+})
+
+const comissaoOk = {
+  descricao: 'Pagamento comissão comercial - setembro',
+  item_op: 'COMISSÃO COMERCIAL %',
+  nome_evento_op: 'Custo administrativo',
+}
+
+test('comissão com evento, item e descrição batendo é aprovada', () => {
+  assert.equal(decidirComissaoPorOp(comissaoOk).status, 'aprovada')
+  // caixa, acento e espaços não importam
+  assert.equal(
+    decidirComissaoPorOp({
+      descricao: 'COMISSAO sdr',
+      item_op: '  comissao   sdr ',
+      nome_evento_op: 'CUSTO ADMINISTRATIVO',
+    }).status,
+    'aprovada',
+  )
+  for (const item of [
+    'COMISSÃO ',
+    'COMISSÃO (RELACIONAMENTO/PRODUÇÃO)',
+    'COMISSÃO MARKETING',
+    'COMISSÃO ATENDIMENTO',
+    'COMISSÃO RELACIONAMENTO',
+    'COMISSÃO PRODUÇÃO',
+    'COMISSÃO COMERCIAL %',
+    'COMISSÃO SDR',
+    'COMISSÃO COMERCIAL LÍDER DE VENDAS',
+  ]) {
+    assert.equal(decidirComissaoPorOp({ ...comissaoOk, item_op: item }).status, 'aprovada', item)
+  }
+})
+
+test('qualquer critério faltando manda a comissão ao especialista, dizendo qual', () => {
+  const evento = decidirComissaoPorOp({ ...comissaoOk, nome_evento_op: 'Formatura Medicina 2026' })
+  assert.equal(evento.status, 'analise_especialista')
+  assert.match(evento.motivos[0], /Formatura Medicina 2026/)
+
+  const item = decidirComissaoPorOp({ ...comissaoOk, item_op: 'COMISSÃO DIRETORIA' })
+  assert.equal(item.status, 'analise_especialista')
+  assert.match(item.motivos[0], /COMISSÃO DIRETORIA/)
+
+  const desc = decidirComissaoPorOp({ ...comissaoOk, descricao: 'Pagamento SDR setembro' })
+  assert.equal(desc.status, 'analise_especialista')
+  assert.match(desc.motivos[0], /Descrição/)
+
+  // relatório antigo, sem as colunas novas
+  const antigo = decidirComissaoPorOp({ descricao: 'Comissão', item_op: null, nome_evento_op: null })
+  assert.equal(antigo.status, 'analise_especialista')
+  assert.equal(antigo.motivos.length, 3)
+})
+
+test('item parecido mas fora da lista não aprova (comparação exata, não continência)', () => {
+  assert.equal(
+    decidirComissaoPorOp({ ...comissaoOk, item_op: 'COMISSÃO COMERCIAL' }).status,
+    'analise_especialista',
+  )
+  assert.equal(
+    decidirComissaoPorOp({ ...comissaoOk, nome_evento_op: 'Custo administrativo - extra' }).status,
+    'analise_especialista',
+  )
+})
+
+test('item de comissão entra na regra mesmo sem a palavra na descrição', () => {
+  assert.equal(
+    isRequisicaoComissao({ descricao: 'Pagamento SDR', item_op: 'COMISSÃO SDR', nome_evento_op: null }),
+    true,
+  )
+  assert.equal(
+    isRequisicaoComissao({ descricao: 'Pagamento bar', item_op: 'BAR', nome_evento_op: 'Custo administrativo' }),
+    false,
+  )
 })

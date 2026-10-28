@@ -765,6 +765,8 @@ O módulo é liberável em **qualquer perfil**, inclusive `franqueado` ("Visão 
 
 No menu, a tela tem grupo próprio (`CONTRATOS`); saiu de PLATAFORMA, onde convivia com as telas de administração sem ter relação com elas.
 
+**Comissão decide pelo vínculo com a OP, sem ler o anexo** (28/10/2026, pedido da controladoria; migration `20261028120000`). O relatório de requisições passou a trazer **Item** (col. D) e **Nome Evento OP** (col. F), e a 1ª coluna virou **RP** (alias no importador — sem ele o arquivo inteiro era recusado). Aprovada quando os três batem: evento "Custo administrativo", item na lista fechada `ITENS_OP_COMISSAO` e descrição com "comissão"; qualquer falta → especialista, com o motivo nomeando o critério (`decidirComissaoPorOp`, pura e testada). Comparação **exata** depois de tirar acento/caixa/espaços: continência faria o item "COMISSÃO" aceitar qualquer coisa que comece pela palavra. **Entra na regra quem tem "comissão" na descrição OU item de comissão** (`isRequisicaoComissao`): só pela descrição, o item de comissão com descrição sem a palavra iria à leitura do anexo, que pode aprová-lo. A decisão é por RP (uma linha falhando manda a RP inteira ao especialista), FEE/Cerimonial continua com precedência, e lote antigo sem as colunas cai no especialista como antes.
+
 "Viagens" saiu de "Módulos visíveis" (módulo sem uso). As colunas `can_viagens`/`can_viagens_aprovar`, o módulo e o kill-switch `VIAGENS_ENABLED` continuam existindo; o formulário só carrega e devolve os valores atuais, sem oferecê-los.
 
 ### Módulo VB (`/vb`, Viva Bank)

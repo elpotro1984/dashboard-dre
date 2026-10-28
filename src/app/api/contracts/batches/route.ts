@@ -136,6 +136,8 @@ export async function POST(request: Request) {
     fundo: row.fundo,
     numero_contrato: row.numero_contrato,
     tipo_pagamento: row.tipo_pagamento,
+    item_op: row.item_op,
+    nome_evento_op: row.nome_evento_op,
     status: 'pending' as const,
   }))
 

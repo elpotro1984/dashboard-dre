@@ -224,6 +224,17 @@ test("prompt: o direcionamento interno é invisível ao gestor", () => {
 });
 
 
+test("prompt: o direcionamento manda na UNIDADE dos valores da base (Viva Barbacena, Softwares)", () => {
+  const p = prompt({
+    base: [base("FATURA FRANQUEADORA", 1239.7), base("OMIE", 188.19)],
+    contextoAdmin: "Os valores da base 1.239,70 e 188,19 são o custo mensal das plataformas.",
+  });
+  assert.match(p, /PREVALECE sobre os dados da BASE/);
+  assert.match(p, /VALE O DIRECIONAMENTO/);
+  // Sem direcionamento o aviso não aparece: "no ano" é o padrão e está certo.
+  assert.doesNotMatch(prompt({ contextoAdmin: "" }), /ATENÇÃO À UNIDADE/);
+});
+
 test("realizadoContexto: com o ano em curso, o total inclui o mês aberto e a média não", () => {
   // Viva Barbacena, Consultoria (27/10/2026): jan–set fechados somam 459,16 e
   // outubro, em curso, 1.463,72. O total que a IA anuncia é o do ano: 1.922,88.

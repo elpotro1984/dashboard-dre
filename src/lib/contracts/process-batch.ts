@@ -15,20 +15,21 @@ import { LlmExtractionError } from './llm'
 import {
   agruparRpsIrmas,
   analisarRequisicao,
-  isComissao,
+  decidirComissaoPorOp,
   isFeeCerimonial,
+  isRequisicaoComissao,
   type RequisitionDocument,
 } from './validate'
 import type { ContractExtraction, ValidationStatus } from './types'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-// Veredito fixo das requisições de comissão (fase 0c e rede de segurança da
-// fase 1): a conferência é na OP, não no anexo.
+// Rede de segurança da fase 1: comissão que chegou à extração sem a decisão da
+// fase 0c (update falhou). Nunca lê o anexo — cai no especialista.
 const COMISSAO_DECISAO = {
   status: 'analise_especialista' as const,
   resumo: 'Análise do especialista — Comissão: conferir na OP os valores orçados e já aprovados',
   motivos: [
-    'Requisição de comissão (comercial/relacionamento/produção/atendimento/pós-venda): leitura do anexo dispensada — confira na OP o valor orçado e o já aprovado antes de pagar',
+    'Requisição de comissão: leitura do anexo dispensada; a conferência pela OP não concluiu — confira na OP o valor orçado e o já aprovado antes de pagar',
   ],
 }
 
@@ -160,17 +161,23 @@ export async function processBatch(
   // A decisão é por requisição (a descrição é da requisição, não do documento).
   const { data: descRows } = await db
     .from('contract_validation_items')
-    .select('requisicao_codigo, descricao')
+    .select('requisicao_codigo, descricao, item_op, nome_evento_op')
     .eq('batch_id', batchId)
 
   const feeReqs = new Set<string>()
-  // Comissões (comercial, relacionamento, produção, atendimento, pós-venda):
-  // o valor a pagar vem da OP, não do anexo — sem leitura, direto para o
-  // especialista (fase 0c). FEE tem precedência se a descrição casar os dois.
+  // Comissões: o valor a pagar vem da OP, não do anexo — sem leitura. A fase 0c
+  // decide pelo vínculo com a OP (evento + item + descrição). FEE tem
+  // precedência se a descrição casar os dois.
   const comissaoReqs = new Set<string>()
-  for (const r of (descRows ?? []) as Array<{ requisicao_codigo: string; descricao: string | null }>) {
+  type DescRow = {
+    requisicao_codigo: string
+    descricao: string | null
+    item_op: string | null
+    nome_evento_op: string | null
+  }
+  for (const r of (descRows ?? []) as DescRow[]) {
     if (isFeeCerimonial(r.descricao)) feeReqs.add(r.requisicao_codigo)
-    else if (isComissao(r.descricao)) comissaoReqs.add(r.requisicao_codigo)
+    else if (isRequisicaoComissao(r)) comissaoReqs.add(r.requisicao_codigo)
   }
   console.log(`[contracts] phase0 FEE/Cerimonial reqs=${feeReqs.size} comissao reqs=${comissaoReqs.size}`)
 
@@ -245,30 +252,42 @@ export async function processBatch(
     }
   }
 
-  // ── Phase 0c: comissões → análise especialista, sem leitura ───────────────
-  // O recibo/contrato anexo sempre "bate" com a RP (a pessoa emite o recibo
-  // pelo valor pedido), então a leitura não confere nada. O que decide é a OP:
-  // valor orçado e já aprovado. Isso é conferência humana.
+  // ── Phase 0c: comissões → decisão pelo vínculo com a OP, sem leitura ──────
+  // O recibo anexo sempre "bate" com a RP (a pessoa emite pelo valor pedido),
+  // então a leitura não confere nada. Evento Custo administrativo + item de
+  // comissão + descrição de comissão → aprovada; qualquer falta → especialista.
+  // A decisão é por REQUISIÇÃO: se uma das linhas da RP falha, a RP inteira vai
+  // ao especialista (aprovar metade de uma RP não existe).
   if (comissaoReqs.size > 0) {
     const { data: comissaoRows } = await db
       .from('contract_validation_items')
-      .select('id, requisicao_codigo')
+      .select('id, requisicao_codigo, descricao, item_op, nome_evento_op')
       .eq('batch_id', batchId)
       .eq('status', 'pending')
-    const comissaoIds = ((comissaoRows ?? []) as Array<Pick<ItemRow, 'id' | 'requisicao_codigo'>>)
-      .filter((r) => comissaoReqs.has(r.requisicao_codigo))
-      .map((r) => r.id)
-    if (comissaoIds.length > 0) {
+    const porRp = new Map<string, Array<{ id: string } & DescRow>>()
+    for (const r of (comissaoRows ?? []) as Array<{ id: string } & DescRow>) {
+      if (!comissaoReqs.has(r.requisicao_codigo)) continue
+      const lista = porRp.get(r.requisicao_codigo) ?? []
+      lista.push(r)
+      porRp.set(r.requisicao_codigo, lista)
+    }
+    let aprovadas = 0
+    for (const linhas of Array.from(porRp.values())) {
+      const decisoes = linhas.map((l) => decidirComissaoPorOp(l))
+      const decisao = decisoes.find((d) => d.status !== 'aprovada') ?? decisoes[0]
+      if (decisao.status === 'aprovada') aprovadas += 1
       await db
         .from('contract_validation_items')
         .update({
-          status: COMISSAO_DECISAO.status,
-          status_resumo: COMISSAO_DECISAO.resumo,
-          status_motivos: COMISSAO_DECISAO.motivos,
+          status: decisao.status,
+          status_resumo: decisao.resumo,
+          status_motivos: decisao.motivos,
           processed_at: new Date().toISOString(),
         })
-        .in('id', comissaoIds)
-      console.log(`[contracts] phase0c comissao decided items=${comissaoIds.length}`)
+        .in('id', linhas.map((l) => l.id))
+    }
+    if (porRp.size > 0) {
+      console.log(`[contracts] phase0c comissao decided reqs=${porRp.size} aprovadas=${aprovadas}`)
     }
   }
 

@@ -372,6 +372,11 @@ export function buildSystemPrompt(opts: BuildSystemPromptInput): string {
         "  - Um FATO dele você cita como seu (\"a Prisma sai por R$ 800 por mês\"), sem dizer de onde veio.",
         "  - Um PEDIDO dele (\"confirmar se continua\", \"ver se haverá reajuste\") vira a SUA pergunta,",
         "    feita com naturalidade e na hora certa — nunca o anuncie como tarefa.",
+        // A base é gravada como "valor pago no ano", mas o admin às vezes digita
+        // o MENSAL e avisa aqui — e a IA seguia o rótulo da lista (Viva
+        // Barbacena, Softwares, 28/10/2026: "R$ 1.239,70 no ano").
+        "  - Ele PREVALECE sobre os dados da BASE: se diz que um valor é MENSAL (ou de outra",
+        "    periodicidade), fale dele assim — nunca \"no ano\" — e use essa unidade nas contas e no cartão.",
         "NÃO o contradiga nem ignore; se ele já responde algo que você perguntaria, não repita a",
         "pergunta — no máximo confirme com o gestor. Se ele pedir uma condução mais curta (\"só",
         "confirme\"), obedeça. Direcionamento:",
@@ -539,8 +544,9 @@ export function buildSystemPrompt(opts: BuildSystemPromptInput): string {
     ...(semBase
       ? []
       : [
-          `2. Os ITENS principais desse gasto: cada item da base com o valor pago em ${anoAnterior}, do`,
-          "   maior para o menor (com mais de 6 itens, os 5 maiores e \"mais N itens somando R$ X\"). Se",
+          `2. Os ITENS principais desse gasto: cada item da base com o valor de ${anoAnterior}, do`,
+          "   maior para o menor (com mais de 6 itens, os 5 maiores e \"mais N itens somando R$ X\"), na",
+          "   UNIDADE certa — anual, salvo se o direcionamento interno disser que é mensal ou outra. Se",
           "   houver mês fora da curva, ligue-o ao item que o explica quando isso for evidente. Junte a",
           "   cada item, com naturalidade, o que você já sabe dele pelo direcionamento interno.",
         ]),
@@ -727,6 +733,12 @@ export function buildSystemPrompt(opts: BuildSystemPromptInput): string {
           "nela — nem que existe, nem por que ficou de fora, nem a diferença entre a soma da base e o",
           "realizado da categoria:",
           listaBase(opts.base),
+          ...(ctx
+            ? [
+                "ATENÇÃO À UNIDADE: \"no ano\" acima é o padrão do cadastro. Se o direcionamento interno",
+                "disser que algum desses valores é mensal (ou de outra periodicidade), VALE O DIRECIONAMENTO.",
+              ]
+            : []),
           "",
         ]),
     ...blocoRegistradas,
