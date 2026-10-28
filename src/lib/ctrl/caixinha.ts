@@ -23,6 +23,9 @@ import { dayKeyBR } from "@/lib/ctrl/datetime";
 // no ciclo anterior: o saldo segue certo, só com um aviso. Isso é o que impede
 // o erro mais perigoso (planilha atrasada fazendo o saldo parecer MAIOR).
 //
+// Só desconta requisição dos setores CSC Pós-Vendas e CSC Consultoria
+// (SETORES_DA_CAIXINHA); no rateio, só a parcela desses setores.
+//
 // É informativo: não bloqueia o envio nem muda alçada. A verificação de
 // orçamento do setor continua igual.
 // ============================================================================
@@ -58,9 +61,46 @@ export function caixinhaDoTipo(expenseTypeId: string | null | undefined): Caixin
   return CAIXINHAS.find((c) => c.expenseTypeId === expenseTypeId) ?? null;
 }
 
+/**
+ * Só estes setores consomem a caixinha (decisão do dono do projeto, 28/10/2026):
+ * requisição Puxada de outro setor aparece no cartão, mas não desconta. Vale
+ * para as duas caixinhas — qual delas é decidido pelo TIPO. Por ID, como as
+ * regras por setor de routing.ts: o nome se renomeia.
+ */
+export const SETORES_DA_CAIXINHA: readonly { id: string; nome: string }[] = [
+  { id: "5769358c-b068-4bb4-8a7b-0e749ed13ec1", nome: "CSC Pós-Vendas" },
+  { id: "eb14752a-f384-4978-ac0c-d6c3c6fb430b", nome: "CSC Consultoria" },
+];
+
+export const SETORES_DA_CAIXINHA_TEXTO = SETORES_DA_CAIXINHA.map((s) => s.nome).join(" e ");
+
+export function setorConsomeCaixinha(sectorId: string | null | undefined): boolean {
+  return !!sectorId && SETORES_DA_CAIXINHA.some((s) => s.id === sectorId);
+}
+
+/**
+ * Quanto ESTA requisição (ainda no formulário) tira da caixinha. No rateio, só
+ * as parcelas dos setores da caixinha; recorrência cria uma requisição por mês,
+ * todas com o valor cheio, então multiplica.
+ */
+export function valorQueConsome(input: {
+  sectorId: string | null;
+  valor: number;
+  ocorrencias: number;
+  rateio: { sectorId: string; amount: number }[] | null;
+}): number {
+  const base = input.rateio
+    ? input.rateio.filter((p) => setorConsomeCaixinha(p.sectorId)).reduce((s, p) => s + p.amount, 0)
+    : setorConsomeCaixinha(input.sectorId)
+      ? input.valor
+      : 0;
+  return centavos(base * Math.max(1, input.ocorrencias));
+}
+
 export const DIA_DO_FECHAMENTO = 10;
 
 const pad = (n: number) => String(n).padStart(2, "0");
+const centavos = (n: number) => Math.round(n * 100) / 100;
 
 /**
  * Dia em que começou o ciclo vigente no dia informado ('YYYY-MM-DD', já em
@@ -123,11 +163,16 @@ export const STATUS_PENDENTE = [
 ] as const;
 // Rejeitada, estornada, inativada e excluída não contam.
 
+/**
+ * Uma requisição — ou, no rateio, UMA PARCELA dela (o setor e o valor da
+ * parcela, com a data e o status da requisição-mãe).
+ */
 export interface RequisicaoDaCaixinha {
   amount: number | string;
   status: string;
   due_date: string | null;
   created_at: string;
+  sector_id: string | null;
 }
 
 /**
@@ -147,8 +192,6 @@ export interface Consumo {
   qtdPendente: number;
 }
 
-const centavos = (n: number) => Math.round(n * 100) / 100;
-
 export function somarConsumo(requisicoes: RequisicaoDaCaixinha[], corte: string): Consumo {
   const consumidos = new Set<string>(STATUS_CONSUMIDO);
   const pendentes = new Set<string>(STATUS_PENDENTE);
@@ -157,6 +200,7 @@ export function somarConsumo(requisicoes: RequisicaoDaCaixinha[], corte: string)
   let pendente = 0;
   let qtdPendente = 0;
   for (const r of requisicoes) {
+    if (!setorConsomeCaixinha(r.sector_id)) continue;
     if (dataQueConta(r) < corte) continue;
     const valor = Number(r.amount) || 0;
     if (consumidos.has(r.status)) {

@@ -2,6 +2,7 @@ import "server-only";
 
 import {
   CAIXINHAS,
+  SETORES_DA_CAIXINHA,
   STATUS_CONSUMIDO,
   STATUS_PENDENTE,
   inicioDoCiclo,
@@ -23,7 +24,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 // Leitura da planilha + do banco para a caixinha (regras em caixinha.ts).
 // Tudo com o admin client: a tabela de leituras não tem policy, e um
 // solicitante sob RLS não enxerga as requisições dos outros setores — que são
-// justamente as que consomem a caixinha (ela é uma só para todos os setores).
+// justamente as que consomem a caixinha (uma só para os setores da lista).
 
 // Planilha do Google informada pelo dono do projeto em 28/10/2026. A primeira
 // era um .xlsx guardado no Drive, que a API do Sheets recusa ("must not be an
@@ -104,15 +105,42 @@ async function requisicoesDesde(db: Db, caixinha: CaixinhaConfig, corte: string)
   // Sem vencimento, quem decide é a criação — por isso o filtro do banco é
   // largo (vence a partir do corte OU sem vencimento) e somarConsumo fecha a
   // conta com a data de criação em Brasília.
+  const setores = SETORES_DA_CAIXINHA.map((s) => s.id);
+  const status = [...STATUS_CONSUMIDO, ...STATUS_PENDENTE];
+
   const { data, error } = await db
     .from("ctrl_requests")
-    .select("amount, status, due_date, created_at")
+    .select("amount, status, due_date, created_at, sector_id")
     .eq("expense_type_id", caixinha.expenseTypeId)
+    .eq("is_rateio", false)
+    .in("sector_id", setores)
     .is("deleted_at", null)
-    .in("status", [...STATUS_CONSUMIDO, ...STATUS_PENDENTE])
+    .in("status", status)
     .or(`due_date.gte.${corte},due_date.is.null`);
   if (error) throw new Error(`leitura de ctrl_requests: ${error.message}`);
-  return (data ?? []) as RequisicaoDaCaixinha[];
+
+  // Rateio: o `sector_id` da requisição é só o 1º setor, e o `amount` é o total.
+  // O que sai da caixinha é a PARCELA de cada setor da lista — a mesma leitura
+  // da verificação de orçamento (performBudgetVerification).
+  const { data: partes, error: erroPartes } = await db
+    .from("ctrl_request_sectors")
+    .select("amount, sector_id, ctrl_requests!inner(status, due_date, created_at, expense_type_id, deleted_at)")
+    .in("sector_id", setores)
+    .eq("ctrl_requests.expense_type_id", caixinha.expenseTypeId)
+    .is("ctrl_requests.deleted_at", null)
+    .in("ctrl_requests.status", status);
+  if (erroPartes) throw new Error(`leitura de ctrl_request_sectors: ${erroPartes.message}`);
+
+  const doRateio = (partes ?? []).flatMap((p) => {
+    const embed = (p as { ctrl_requests: unknown }).ctrl_requests;
+    const mae = (Array.isArray(embed) ? embed[0] : embed) as
+      | { status: string; due_date: string | null; created_at: string }
+      | null;
+    if (!mae) return [];
+    return [{ amount: p.amount, sector_id: p.sector_id, status: mae.status, due_date: mae.due_date, created_at: mae.created_at }];
+  });
+
+  return [...((data ?? []) as RequisicaoDaCaixinha[]), ...(doRateio as RequisicaoDaCaixinha[])];
 }
 
 export async function lerSaldoCaixinha(caixinha: CaixinhaConfig, userId: string): Promise<SaldoCaixinha> {

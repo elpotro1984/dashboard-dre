@@ -6,7 +6,7 @@ import { AlertTriangle, CheckCircle2, ChevronDown, Loader2, Paperclip, RefreshCc
 
 import { CaixinhaCard } from "@/components/ctrl/caixinha-card";
 import { CtrlOrgChip, useCtrlActiveOrg } from "@/components/ctrl/ctrl-active-org";
-import { caixinhaDoTipo, type SaldoCaixinha } from "@/lib/ctrl/caixinha";
+import { caixinhaDoTipo, setorConsomeCaixinha, valorQueConsome, type SaldoCaixinha } from "@/lib/ctrl/caixinha";
 import type { ClonePrefill } from "@/lib/ctrl/clone-request";
 import { getSaldoCaixinha } from "@/lib/ctrl/actions/caixinha";
 import { createRequest, verifyBudget } from "@/lib/ctrl/actions/requests";
@@ -1799,14 +1799,24 @@ export function NovaRequisicaoForm({
             </button>
           </div>
 
-          {/* Recorrência cria uma requisição por mês, todas com o valor cheio —
-              é o total delas que sai da caixinha. Parcelas já somam o valor. */}
+          {/* Só os setores da caixinha consomem; no rateio, só a parcela deles.
+              Recorrência cria uma requisição por mês, todas com o valor cheio. */}
           <CaixinhaCard
             saldo={caixinha}
             loading={caixinhaLoading}
             error={caixinhaError}
-            valorDaRequisicao={parsedAmount * (isRecurring ? 1 + recurMonths.length : 1)}
+            valorDaRequisicao={valorQueConsome({
+              sectorId,
+              valor: parsedAmount,
+              ocorrencias: isRecurring ? 1 + recurMonths.length : 1,
+              rateio: isRateio ? rateioParts : null,
+            })}
             ocorrencias={isRecurring ? 1 + recurMonths.length : 1}
+            setorForaDaCaixinha={
+              isRateio
+                ? rateioParts.length > 0 && !rateioParts.some((p) => setorConsomeCaixinha(p.sectorId))
+                : !!sectorId && !setorConsomeCaixinha(sectorId)
+            }
           />
 
           {!competenciaOk && (

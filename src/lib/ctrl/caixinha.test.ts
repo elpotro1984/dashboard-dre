@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   CAIXINHAS,
+  SETORES_DA_CAIXINHA_TEXTO,
   caixinhaDoTipo,
   dataQueConta,
   inicioDoCiclo,
@@ -11,17 +12,74 @@ import {
   planilhaAtrasada,
   posicaoDaCelula,
   rangeQueCobre,
+  setorConsomeCaixinha,
   somarConsumo,
   valorDaCelula,
+  valorQueConsome,
   type LeituraGravada,
   type RequisicaoDaCaixinha,
 } from "./caixinha";
 
 const vendas = CAIXINHAS[0];
+const CSC_POS = "5769358c-b068-4bb4-8a7b-0e749ed13ec1";
+const CSC_CONSULTORIA = "eb14752a-f384-4978-ac0c-d6c3c6fb430b";
+const CSC = "521074f1-cb92-4ef9-a40a-a0e45c1711c6"; // setor "CSC": não consome
 
-function req(amount: number, status: string, due_date: string | null, created_at = "2026-10-01T15:00:00Z"): RequisicaoDaCaixinha {
-  return { amount, status, due_date, created_at };
+function req(
+  amount: number,
+  status: string,
+  due_date: string | null,
+  created_at = "2026-10-01T15:00:00Z",
+  sector_id: string | null = CSC_POS,
+): RequisicaoDaCaixinha {
+  return { amount, status, due_date, created_at, sector_id };
 }
+
+test("setorConsomeCaixinha: só CSC Pós-Vendas e CSC Consultoria, por id", () => {
+  assert.equal(setorConsomeCaixinha(CSC_POS), true);
+  assert.equal(setorConsomeCaixinha(CSC_CONSULTORIA), true);
+  assert.equal(setorConsomeCaixinha(CSC), false);
+  assert.equal(setorConsomeCaixinha(""), false);
+  assert.equal(setorConsomeCaixinha(null), false);
+  assert.equal(SETORES_DA_CAIXINHA_TEXTO, "CSC Pós-Vendas e CSC Consultoria");
+});
+
+test("somarConsumo: setor fora da lista não desconta", () => {
+  const c = somarConsumo(
+    [
+      req(100, "aprovado", "2026-10-20", undefined, CSC_POS),
+      req(200, "aprovado", "2026-10-20", undefined, CSC_CONSULTORIA),
+      req(999, "aprovado", "2026-10-20", undefined, CSC),
+      req(999, "pendente", "2026-10-20", undefined, CSC),
+      req(999, "aprovado", "2026-10-20", undefined, null),
+    ],
+    "2026-10-10",
+  );
+  assert.deepEqual(c, { consumido: 300, qtdConsumido: 2, pendente: 0, qtdPendente: 0 });
+});
+
+test("valorQueConsome: o que esta requisição tira da caixinha", () => {
+  const base = { valor: 1000, ocorrencias: 1, rateio: null };
+  assert.equal(valorQueConsome({ ...base, sectorId: CSC_POS }), 1000);
+  assert.equal(valorQueConsome({ ...base, sectorId: CSC }), 0);
+  assert.equal(valorQueConsome({ ...base, sectorId: null }), 0);
+  // Recorrência: uma requisição por mês, todas com o valor cheio.
+  assert.equal(valorQueConsome({ ...base, sectorId: CSC_CONSULTORIA, ocorrencias: 3 }), 3000);
+  // Rateio: só as parcelas dos setores da caixinha.
+  assert.equal(
+    valorQueConsome({
+      ...base,
+      sectorId: CSC,
+      rateio: [
+        { sectorId: CSC, amount: 600 },
+        { sectorId: CSC_CONSULTORIA, amount: 250.5 },
+        { sectorId: CSC_POS, amount: 149.5 },
+      ],
+    }),
+    400,
+  );
+  assert.equal(valorQueConsome({ ...base, sectorId: CSC_POS, rateio: [{ sectorId: CSC, amount: 1000 }] }), 0);
+});
 
 test("caixinhaDoTipo: só os dois tipos Puxada, por id", () => {
   assert.equal(caixinhaDoTipo("1a6f8b09-e45c-481d-b9da-7de219524acd")?.chave, "puxada_vendas");

@@ -365,7 +365,7 @@ export const MANUAL_SECTIONS: ManualSection[] = [
           {
             title: "Clique em Verificar Orçamento",
             text:
-              "Passo obrigatório: sem ele o botão de envio não libera. O sistema mostra o saldo do setor e informa se a requisição precisará também do diretor. Nos tipos **Puxada de Vendas** e **Puxada Pós-Vendas** aparece também o saldo da **caixinha** daquele tipo (uma só para todos os setores): o valor da planilha, menos o que já foi aprovado desde o último fechamento (dia 10), menos o que está em aprovação e esta requisição. É só informativo — não bloqueia o envio nem muda a aprovação.",
+              "Passo obrigatório: sem ele o botão de envio não libera. O sistema mostra o saldo do setor e informa se a requisição precisará também do diretor. Nos tipos **Puxada de Vendas** e **Puxada Pós-Vendas** aparece também o saldo da **caixinha** daquele tipo: o valor da planilha, menos o que já foi aprovado desde o último fechamento (dia 10), menos o que está em aprovação e esta requisição. **Só descontam da caixinha as requisições dos setores CSC Pós-Vendas e CSC Consultoria** — de outro setor, o saldo aparece mas não diminui. É só informativo — não bloqueia o envio nem muda a aprovação.",
           },
           {
             title: "Responda “O fornecedor emite nota fiscal?” e envie",

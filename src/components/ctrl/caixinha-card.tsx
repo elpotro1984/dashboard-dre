@@ -2,7 +2,7 @@
 
 import { AlertTriangle, Loader2, Wallet } from "lucide-react";
 
-import type { SaldoCaixinha } from "@/lib/ctrl/caixinha";
+import { SETORES_DA_CAIXINHA_TEXTO, type SaldoCaixinha } from "@/lib/ctrl/caixinha";
 
 // Saldo da caixinha da Puxada, ao lado da Verificação Orçamentária. É só
 // leitura: não bloqueia o envio nem muda a aprovação (regras em
@@ -22,14 +22,20 @@ export function CaixinhaCard({
   error,
   valorDaRequisicao,
   ocorrencias,
+  setorForaDaCaixinha,
 }: {
   saldo: SaldoCaixinha | null;
   loading: boolean;
   error: string | null;
-  /** Total desta requisição em reais (recorrência já multiplicada). */
+  /**
+   * O que esta requisição tira da caixinha, em reais: só a parte dos setores da
+   * caixinha, com a recorrência já multiplicada (valorQueConsome).
+   */
   valorDaRequisicao: number;
   /** Quantas requisições este envio cria (recorrência); 1 no caso comum. */
   ocorrencias: number;
+  /** O setor escolhido (ou nenhum setor do rateio) consome a caixinha. */
+  setorForaDaCaixinha: boolean;
 }) {
   if (!loading && !error && !saldo) return null;
 
@@ -55,6 +61,12 @@ export function CaixinhaCard({
       {!loading && error && <p className="text-xs text-destructive">{error}</p>}
 
       {!loading && saldo && <Detalhe saldo={saldo} valor={valorDaRequisicao} ocorrencias={ocorrencias} />}
+
+      {!loading && setorForaDaCaixinha && (
+        <p className="text-xs font-medium text-sky-800 dark:text-sky-200">
+          Esta requisição não sai da caixinha: só consomem os setores {SETORES_DA_CAIXINHA_TEXTO}.
+        </p>
+      )}
     </div>
   );
 }
@@ -144,8 +156,8 @@ function Detalhe({ saldo, valor, ocorrencias }: { saldo: SaldoCaixinha; valor: n
         </p>
       )}
       <p className="text-[11px] text-muted-foreground">
-        A planilha é fechada todo dia 10; até lá, o Control Hub desconta o que vence a partir de {desde}. Não bloqueia
-        o envio nem muda a aprovação.
+        Só descontam as requisições dos setores {SETORES_DA_CAIXINHA_TEXTO}. A planilha é fechada todo dia 10; até
+        lá, o Control Hub desconta o que vence a partir de {desde}. Não bloqueia o envio nem muda a aprovação.
       </p>
     </div>
   );
