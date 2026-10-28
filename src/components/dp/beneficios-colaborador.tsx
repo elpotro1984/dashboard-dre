@@ -411,31 +411,34 @@ function Outros(props: {
     <div className="space-y-1.5 rounded-md border border-border px-3 py-2">
       <div className="text-xs font-medium text-ink-muted">Outros benefícios</div>
       {rascunho.outros.map((o) => (
-        // Uma linha só: o rótulo fica com o espaço que sobra; valor, unidade e destino têm largura fixa.
-        <div key={o.id} className="flex items-center gap-2">
+        // Uma linha só, dentro do quadro: 2/4 rótulo, 1/4 valor (com a unidade), 1/4 destino e a lixeira.
+        // Grade, não flex: o `w-full` de inputCls venceria uma largura fixa e empurraria a linha para fora.
+        <div key={o.id} className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2">
           <input
             value={o.rotulo}
             onChange={(e) => trocar(o.id, { rotulo: e.target.value })}
             placeholder="Rótulo"
             aria-label="Rótulo do benefício"
             disabled={disabled}
-            className={`${inputCls} min-w-0 flex-1`}
+            className={inputCls}
           />
-          <NumCampo
-            valor={o.valor}
-            onChange={(valor) => trocar(o.id, { valor })}
-            disabled={disabled}
-            className="w-28 shrink-0"
-            ariaLabel={`Valor de ${o.rotulo || "benefício"}`}
-          />
-          <span className="shrink-0 whitespace-nowrap text-xs text-ink-muted">{ROTULO_UNIDADE[unidadeDoDestino(cfg, o.destino)]}</span>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <NumCampo
+              valor={o.valor}
+              onChange={(valor) => trocar(o.id, { valor })}
+              disabled={disabled}
+              className="min-w-0 flex-1"
+              ariaLabel={`Valor de ${o.rotulo || "benefício"}`}
+            />
+            <span className="shrink-0 whitespace-nowrap text-xs text-ink-muted">{ROTULO_UNIDADE[unidadeDoDestino(cfg, o.destino)]}</span>
+          </div>
           <select
             value={o.destino}
             onChange={(e) => trocar(o.id, { destino: e.target.value as DpDestinoOutro })}
             aria-label="Para onde vai o valor"
             title={o.destino === "separado" ? "Separado — não soma a nenhum benefício" : `Soma em ${ROTULO_DESTINO[o.destino]}`}
             disabled={disabled}
-            className={`${inputCls} w-36 shrink-0`}
+            className={inputCls}
           >
             {DESTINOS_OUTROS.map((d) => (
               <option key={d} value={d}>
@@ -447,7 +450,7 @@ function Outros(props: {
             type="button"
             onClick={() => mudar({ outros: rascunho.outros.filter((x) => x.id !== o.id) })}
             disabled={disabled}
-            className="shrink-0 rounded p-1 text-ink-muted hover:text-red-600"
+            className="rounded p-1 text-ink-muted hover:text-red-600"
             aria-label={`Remover ${o.rotulo || "benefício"}`}
           >
             <Trash2 className="h-4 w-4" />
