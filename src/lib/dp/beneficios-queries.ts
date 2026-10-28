@@ -135,3 +135,26 @@ export async function lerBeneficiosDoColaborador(db: AdminClient, solidesId: num
     atualizadoPor,
   };
 }
+
+/**
+ * As escolhas de VÁRIAS pessoas de uma vez (a Gestão de benefícios). `null` = a
+ * tabela do card ainda não existe no banco — a tela diz isso em vez de cair.
+ */
+export async function lerBeneficiosDosColaboradores(
+  db: AdminClient,
+  solidesIds: number[],
+): Promise<Map<number, { dados: DpBeneficiosColaborador; companyId: string | null }> | null> {
+  const out = new Map<number, { dados: DpBeneficiosColaborador; companyId: string | null }>();
+  for (let i = 0; i < solidesIds.length; i += 500) {
+    const { data, error } = await db
+      .from("dp_colaborador_beneficios")
+      .select("solides_id, dados, company_id")
+      .in("solides_id", solidesIds.slice(i, i + 500));
+    if (error?.code === "PGRST205" || error?.code === "42P01") return null;
+    check(error, "dp_colaborador_beneficios");
+    for (const r of data ?? []) {
+      out.set(Number(r.solides_id), { dados: lerBeneficiosColaborador(r.dados), companyId: (r.company_id as string | null) ?? null });
+    }
+  }
+  return out;
+}

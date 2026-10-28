@@ -65,7 +65,10 @@ export const DP_IMPOSTOS_PATH = "/dp/impostos";
 export const DP_NAV_KEY_FERIAS = "dp-ferias";
 export const DP_FERIAS_PATH = "/dp/ferias";
 export const DP_DECIMO_PATH = "/dp/decimo-terceiro";
-/** Custo com colaborador — só do admin com a Visão Estratégica (ver podeVerCustoColaborador). */
+/** Gestão de benefícios — de todos do DP, na empresa ativa (@/lib/dp/gestao-beneficios). */
+export const DP_NAV_KEY_GESTAO_BENEFICIOS = "dp-gestao-beneficios";
+export const DP_GESTAO_BENEFICIOS_PATH = "/dp/gestao-beneficios";
+/** Custos com colaboradores — só do admin com a Visão Estratégica (ver podeVerCustoColaborador). */
 export const DP_NAV_KEY_CUSTO = "dp-custo-colaborador";
 export const DP_CUSTO_PATH = "/dp/custo-colaborador";
 

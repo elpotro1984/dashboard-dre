@@ -40,7 +40,7 @@ interface NavLinksProps {
   orcamentoPapel?: OrcamentoPapel | null;
   /** Módulo Departamento Pessoal (grupo DP, sigiloso). Só a concessão — admin não herda. */
   dpRole?: DpRole | null;
-  /** Perfil admin. Hoje só decide o "Custo com colaborador" do DP (admin + Visão Estratégica). */
+  /** Perfil admin. Hoje só decide o "Custos com colaboradores" do DP (admin + Visão Estratégica). */
   isAdmin?: boolean;
   segments: Segment[];
   activeSegmentSlug: string | null;

@@ -206,7 +206,7 @@ export async function updateSession(request: NextRequest) {
       url.pathname = "/dp";
       supabaseResponse = NextResponse.redirect(url);
     } else if (isDpCustoPath(pathname) && !podeVerCustoColaborador(userProfile === "admin", dpRole)) {
-      // Custo com colaborador: só admin COM a Visão Estratégica. A página repete a trava.
+      // Custos com colaboradores: só admin COM a Visão Estratégica. A página repete a trava.
       const url = request.nextUrl.clone();
       url.pathname = "/dp";
       supabaseResponse = NextResponse.redirect(url);

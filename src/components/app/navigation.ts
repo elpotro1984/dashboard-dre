@@ -11,6 +11,7 @@ import {
   ClipboardCheck,
   Cog,
   Coins,
+  Gift,
   DollarSign,
   FileCheck,
   Files,
@@ -52,6 +53,8 @@ import {
   DP_NAV_KEY_COLABORADORES,
   DP_NAV_KEY_CONFIG,
   DP_NAV_KEY_CUSTO,
+  DP_NAV_KEY_GESTAO_BENEFICIOS,
+  DP_GESTAO_BENEFICIOS_PATH,
   DP_NAV_KEY_SIMULACOES,
   DP_SIMULACOES_PATH,
   DP_FERIAS_PATH,
@@ -286,7 +289,7 @@ export interface NavItem {
   /** Item só do GESTOR do DP (Configurações): o analista não vê. */
   dpGestorOnly?: boolean;
   /**
-   * Item só do ADMIN que tem o DP na Visão Estratégica (Custo com colaborador)
+   * Item só do ADMIN que tem o DP na Visão Estratégica (Custos com colaboradores)
    * — as duas condições, ver podeVerCustoColaborador.
    */
   dpAdminEstrategica?: boolean;
@@ -441,11 +444,12 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { key: DP_NAV_KEY_FOLHA, title: "Folha do mês", icon: Wallet, scope: "global", href: DP_FOLHA_PATH, dpAccess: true },
       // O controle de férias: a Folha do mês tira os dias de férias daqui.
       { key: DP_NAV_KEY_FERIAS, title: "Pagamento de férias", icon: TreePalm, scope: "global", href: DP_FERIAS_PATH, dpAccess: true },
+      { key: DP_NAV_KEY_GESTAO_BENEFICIOS, title: "Gestão de benefícios", icon: Gift, scope: "global", href: DP_GESTAO_BENEFICIOS_PATH, dpAccess: true },
       { key: DP_NAV_KEY_IMPOSTOS, title: "Impostos", icon: Receipt, scope: "global", href: DP_IMPOSTOS_PATH, dpAccess: true },
       { key: DP_NAV_KEY_DECIMO, title: "13º salário", icon: Calendar, scope: "global", href: DP_DECIMO_PATH, dpAccess: true },
       { key: DP_NAV_KEY_COLABORADORES, title: "Colaboradores", icon: Users, scope: "global", href: DP_COLABORADORES_PATH, dpAccess: true },
       { key: DP_NAV_KEY_CARGOS, title: "Cargos e salários", icon: Sliders, scope: "global", href: DP_CARGOS_PATH, dpAccess: true },
-      { key: DP_NAV_KEY_CUSTO, title: "Custo com colaborador", icon: Coins, scope: "global", href: DP_CUSTO_PATH, dpAccess: true, dpAdminEstrategica: true },
+      { key: DP_NAV_KEY_CUSTO, title: "Custos com colaboradores", icon: Coins, scope: "global", href: DP_CUSTO_PATH, dpAccess: true, dpAdminEstrategica: true },
       { key: DP_NAV_KEY_SIMULACOES, title: "Simulações", icon: Calculator, scope: "global", href: DP_SIMULACOES_PATH, dpAccess: true },
       // Centros de custo, encargos e (para o gestor) as configurações do grupo — ver /dp/configuracoes.
       { key: DP_NAV_KEY_CONFIG, title: "Configurações", icon: Cog, scope: "global", href: DP_CONFIG_PATH, dpAccess: true },

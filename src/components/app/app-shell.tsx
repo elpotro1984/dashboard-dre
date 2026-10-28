@@ -128,7 +128,7 @@ export function AppShell({
 
   const hasCtrl = (ctrlRoles?.length ?? 0) > 0;
   const hasSegments = segments.length > 0;
-  // O perfil, não o dreRole: é a mesma leitura do middleware (Custo com colaborador do DP).
+  // O perfil, não o dreRole: é a mesma leitura do middleware (Custos com colaboradores do DP).
   const isAdmin = userProfile === "admin";
   // A home é desenhada em faixas de largura total (padding próprio por
   // faixa); as demais telas continuam com o respiro do <main>.

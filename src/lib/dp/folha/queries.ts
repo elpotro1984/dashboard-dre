@@ -373,15 +373,16 @@ export async function getFolhaEmpresa(
  */
 export async function lerFeriasDasPessoas(db: AdminClient, solidesIds: number[]): Promise<Map<number, DpFeriasLancada[]> | null> {
   if (solidesIds.length === 0) return new Map();
-  const { data, error } = await db
-    .from("dp_ferias")
-    .select("id, solides_id, inicio, fim, valor_manual, observacao")
-    .in("solides_id", solidesIds)
-    .order("inicio");
+  const ler = (colunas: string) => db.from("dp_ferias").select(colunas).in("solides_id", solidesIds).order("inicio");
+  let { data, error } = await ler("id, solides_id, inicio, fim, valor_manual, observacao, fk");
+  // Sem a coluna FK (migration 20261028140000 ainda não aplicada): lê sem ela, e
+  // toda férias vale como verdadeira. Derrubar aqui derrubaria a folha inteira.
+  if (error?.code === "42703") ({ data, error } = await ler("id, solides_id, inicio, fim, valor_manual, observacao"));
   if (error?.code === "PGRST205" || error?.code === "42P01") return null;
   check(error, "dp_ferias");
   const porPessoa = new Map<number, DpFeriasLancada[]>();
-  for (const r of data ?? []) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const r of (data ?? []) as any[]) {
     const f: DpFeriasLancada = {
       id: r.id as string,
       solidesId: Number(r.solides_id),
@@ -389,6 +390,7 @@ export async function lerFeriasDasPessoas(db: AdminClient, solidesIds: number[])
       fim: r.fim as string,
       valorManual: r.valor_manual === null ? null : Number(r.valor_manual),
       observacao: (r.observacao as string | null) ?? null,
+      fk: r.fk === true,
     };
     porPessoa.set(f.solidesId, [...(porPessoa.get(f.solidesId) ?? []), f]);
   }

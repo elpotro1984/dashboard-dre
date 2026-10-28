@@ -23,6 +23,8 @@ export interface DpFeriasLinha {
   /** O que vale: o manual, senão o líquido do recibo. */
   valor: number;
   observacao: string | null;
+  /** FK marcado = não são férias verdadeiras para os benefícios (Gestão de benefícios). */
+  fk: boolean;
   /** A folha de um mês que o período toca está fechada: as férias não mudam (frase pronta), ou null. */
   travada: string | null;
 }
@@ -94,6 +96,7 @@ export async function getFeriasDoMes(db: AdminClient, companyId: string, compete
         valorManual: f.valorManual,
         valor: valorDasFerias(f.valorManual, recibo.liquido),
         observacao: f.observacao,
+        fk: f.fk,
         travada: fechado ? `A folha de ${rotuloCompetencia(fechado)} está fechada — reabra para mudar estas férias.` : null,
       });
     }

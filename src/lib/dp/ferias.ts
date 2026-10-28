@@ -29,6 +29,11 @@ export interface DpFeriasLancada {
   /** null = vale o calculado. */
   valorManual: number | null;
   observacao: string | null;
+  /**
+   * FK marcado = NÃO são férias verdadeiras para os benefícios: na Gestão de
+   * benefícios elas não tiram dias. A folha ainda não lê o campo.
+   */
+  fk: boolean;
 }
 
 /** A CLT permite fracionar em até 3 períodos; cada um com no máximo 30 dias. */

@@ -57,6 +57,11 @@ export function DpFeriasClient({ companyId, dados }: { companyId: string; dados:
           <button type="button" onClick={() => setEdicao({ linha: l })} className="inline-flex items-center gap-1 text-left text-ink-primary hover:underline">
             {l.travada && <Lock className="h-3.5 w-3.5 text-ink-muted" aria-label="Folha fechada" />}
             {l.nome}
+            {l.fk && (
+              <span className="rounded bg-violet-500/10 px-1 text-[11px] font-medium text-violet-800 dark:text-violet-300" title="FK: não reduzem os dias dos benefícios">
+                FK
+              </span>
+            )}
           </button>
         ),
       },
@@ -207,6 +212,7 @@ function FeriasDialog({
   const [fim, setFim] = useState(linha?.fim ?? "");
   const [valorManual, setValorManual] = useState<number | null>(linha?.valorManual ?? null);
   const [observacao, setObservacao] = useState(linha?.observacao ?? "");
+  const [fk, setFk] = useState(linha?.fk ?? false);
   const [busca, setBusca] = useState("");
   const [confirmarExclusao, setConfirmarExclusao] = useState(false);
   const [pending, start] = useTransition();
@@ -238,6 +244,7 @@ function FeriasDialog({
         fim,
         valorManual,
         observacao: observacao.trim() || null,
+        fk,
       });
       if (!r.ok) {
         showToast({ title: "Não salvo", description: r.error, variant: "destructive" });
@@ -352,6 +359,17 @@ function FeriasDialog({
           <label className="block space-y-1 text-xs">
             <span className="text-ink-muted">Observação</span>
             <input value={observacao} onChange={(e) => setObservacao(e.target.value)} maxLength={300} className={inputCls} />
+          </label>
+
+          <label className="flex items-start gap-2 text-xs">
+            <input type="checkbox" checked={fk} onChange={(e) => setFk(e.target.checked)} className="mt-0.5" />
+            <span>
+              <span className="font-medium text-ink-primary">FK</span>
+              <span className="block text-ink-muted">
+                Marcado: não são férias verdadeiras para os benefícios — na Gestão de benefícios a pessoa segue com os dias cheios de VT,
+                gasolina, carona e vale-alimentação por dia.
+              </span>
+            </span>
           </label>
 
           {erro && <p className="text-sm text-red-700 dark:text-red-400">{erro}</p>}

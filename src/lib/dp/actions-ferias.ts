@@ -53,6 +53,8 @@ export async function salvarFerias(input: {
   fim: string;
   valorManual: number | null;
   observacao: string | null;
+  /** FK marcado = não são férias verdadeiras para os benefícios. Ausente = desmarcado. */
+  fk?: boolean;
 }): Promise<DpFeriasResult<{ id: string }>> {
   try {
     const user = await requireDpEmpresa(input.companyId);
@@ -79,15 +81,31 @@ export async function salvarFerias(input: {
     await exigirMesesAbertos(admin, input.companyId, Array.from(new Set([...mesesDoPeriodo(input.inicio, input.fim), ...(antiga ? mesesDoPeriodo(antiga.inicio, antiga.fim) : [])])));
 
     const agora = new Date().toISOString();
-    const dados = { solides_id: input.solidesId, inicio: input.inicio, fim: input.fim, valor_manual: input.valorManual, observacao, updated_by: user.id, updated_at: agora };
+    const fk = input.fk === true;
+    const base = { solides_id: input.solidesId, inicio: input.inicio, fim: input.fim, valor_manual: input.valorManual, observacao, updated_by: user.id, updated_at: agora };
+    // Sem a coluna FK no banco (migration 20261028140000), gravar com FK desmarcado
+    // continua funcionando; marcar exige a migration — sem ela o FK se perderia calado.
+    const semColunaFk = (e: { code?: string } | null) => e?.code === "42703" || e?.code === "PGRST204";
+    const exigirColunaFk = () => {
+      if (fk) throw new Error("Para marcar FK, falta aplicar no banco a migration 20261028140000_dp_ferias_fk.sql.");
+    };
     if (input.id) {
-      const { error } = await admin.from("dp_ferias").update(dados).eq("id", input.id);
+      let { error } = await admin.from("dp_ferias").update({ ...base, fk }).eq("id", input.id);
+      if (semColunaFk(error)) {
+        exigirColunaFk();
+        ({ error } = await admin.from("dp_ferias").update(base).eq("id", input.id));
+      }
       if (error) throw error;
       revalidar();
       return { ok: true, id: input.id };
     }
-    const { data: nova, error } = await admin.from("dp_ferias").insert({ ...dados, created_by: user.id }).select("id").single();
+    let { data: nova, error } = await admin.from("dp_ferias").insert({ ...base, fk, created_by: user.id }).select("id").single();
+    if (semColunaFk(error)) {
+      exigirColunaFk();
+      ({ data: nova, error } = await admin.from("dp_ferias").insert({ ...base, created_by: user.id }).select("id").single());
+    }
     if (error) throw error;
+    if (!nova) throw new Error("As férias não foram gravadas.");
     revalidar();
     return { ok: true, id: nova.id as string };
   } catch (error) {

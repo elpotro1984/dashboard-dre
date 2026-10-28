@@ -17,7 +17,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 export const dynamic = "force-dynamic";
 
 /**
- * Custo com colaborador da EMPRESA ATIVA: quanto cada pessoa custa por mês, com
+ * Custos com colaboradores da EMPRESA ATIVA: quanto cada pessoa custa por mês, com
  * os valores fixos do cadastro, despesa a despesa (@/lib/dp/folha/custo-colaborador).
  * Só do admin com a Visão Estratégica do DP — o middleware barra a rota e a
  * página repete a trava.
@@ -65,7 +65,7 @@ export default async function DpCustoColaboradorPage({ searchParams }: { searchP
       <div className="mx-auto max-w-7xl space-y-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold text-ink-primary">Custo com colaborador</h1>
+            <h1 className="text-xl font-semibold text-ink-primary">Custos com colaboradores</h1>
             <p className="text-sm text-ink-muted">
               Quanto cada pessoa da Sólides custa à empresa por mês: salários, encargos e benefícios, com os valores fixos do cadastro.
             </p>
