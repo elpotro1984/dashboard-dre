@@ -17,7 +17,7 @@ import {
   type SaldoCaixinha,
 } from "@/lib/ctrl/caixinha";
 import { dayKeyBR, todayBR } from "@/lib/ctrl/datetime";
-import { describeGoogleReadError, fetchSheetOrOfficeValues } from "@/lib/sheets/sheet-or-office";
+import { fetchSheetValues } from "@/lib/sheets/client";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 // Leitura da planilha + do banco para a caixinha (regras em caixinha.ts).
@@ -25,14 +25,30 @@ import { createAdminClient } from "@/lib/supabase/admin";
 // solicitante sob RLS não enxerga as requisições dos outros setores — que são
 // justamente as que consomem a caixinha (ela é uma só para todos os setores).
 
-// Planilha informada pelo dono do projeto em 28/10/2026 — um .xlsx no Drive,
-// lido pela API do Drive (ver sheet-or-office.ts). Override por env sem deploy,
-// para o dia em que ela for convertida para planilha do Google (o id muda).
-const DEFAULT_SPREADSHEET_ID = "14dUiZ6Zvt6imA6vjL9PKLh3PF0uUimCT";
+// Planilha do Google informada pelo dono do projeto em 28/10/2026. A primeira
+// era um .xlsx guardado no Drive, que a API do Sheets recusa ("must not be an
+// Office file") — foi convertida para planilha nativa, e por isso o id mudou.
+// Override por env sem deploy (mesmo padrão da Sirena).
+const DEFAULT_SPREADSHEET_ID = "1xVHtuP3imV8KQnOKppqd4DgjIWGmqW6_Y_v7avFtLPs";
 const ABA = "Control Hub";
 
 function spreadsheetId(): string {
   return process.env.CAIXINHA_PUXADA_SHEET_ID?.trim() || DEFAULT_SPREADSHEET_ID;
+}
+
+/** Falha de leitura em português, para a tela; o erro técnico vai ao log. */
+function motivoDaFalha(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (/must not be an Office file/i.test(msg)) {
+    return "a planilha é um arquivo Excel; converta para planilha do Google";
+  }
+  if (/\b(403|404)\b/.test(msg)) {
+    return "a planilha não está compartilhada com a conta de serviço do Control Hub";
+  }
+  if (/Unable to parse range/i.test(msg)) return `a aba "${ABA}" não foi encontrada`;
+  if (/vazia ou sem número/.test(msg)) return "a célula do saldo está vazia ou sem número";
+  if (/GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON/.test(msg)) return "a conta de serviço do Google não está configurada";
+  return "o Google não respondeu";
 }
 
 type Db = ReturnType<typeof createAdminClient>;
@@ -76,7 +92,7 @@ async function ultimaLeitura(
 
 async function lerPlanilha(caixinha: CaixinhaConfig): Promise<number> {
   const range = rangeQueCobre(CAIXINHAS.map((c) => c.celula));
-  const rows = await fetchSheetOrOfficeValues(spreadsheetId(), ABA, range);
+  const rows = await fetchSheetValues(spreadsheetId(), `'${ABA}'!${range}`);
   const valor = valorDaCelula(rows, caixinha.celula);
   if (valor === null) {
     throw new Error(`Célula ${caixinha.celula} da aba "${ABA}" vazia ou sem número`);
@@ -136,7 +152,7 @@ export async function lerSaldoCaixinha(caixinha: CaixinhaConfig, userId: string)
     }
   } catch (err) {
     console.error(`[caixinha] falha ao ler a planilha (${caixinha.chave}):`, err instanceof Error ? err.message : err);
-    erroPlanilha = describeGoogleReadError(err);
+    erroPlanilha = motivoDaFalha(err);
     if (ultima) {
       saldoPlanilha = ultima.valor;
       vigente = ultima;

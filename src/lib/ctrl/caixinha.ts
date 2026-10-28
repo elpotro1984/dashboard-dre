@@ -250,15 +250,17 @@ export function rangeQueCobre(celulas: string[]): string {
 /**
  * Valor numérico de uma célula: number cru, ou texto no formato brasileiro
  * ("R$ 1.234,56", "-1.234,56"). Vazio ou ilegível → null (nunca zero: zero
- * na caixinha é um saldo, "não consegui ler" é outra coisa).
+ * na caixinha é um saldo, "não consegui ler" é outra coisa). Arredonda ao
+ * centavo: a soma da planilha chega com resíduo de ponto flutuante
+ * (20651.940000000002 na primeira leitura real), e o banco guarda 2 casas.
  */
 export function valorDaCelula(rows: unknown[][], celula: string): number | null {
   const { linha, coluna } = posicaoDaCelula(celula);
   const cell = rows[linha]?.[coluna];
-  if (typeof cell === "number") return Number.isFinite(cell) ? cell : null;
+  if (typeof cell === "number") return Number.isFinite(cell) ? centavos(cell) : null;
   if (typeof cell !== "string") return null;
   const limpo = cell.replace(/R\$/i, "").replace(/\s/g, "");
   if (!/\d/.test(limpo)) return null;
   const n = Number(limpo.replace(/\./g, "").replace(",", "."));
-  return Number.isFinite(n) ? n : null;
+  return Number.isFinite(n) ? centavos(n) : null;
 }

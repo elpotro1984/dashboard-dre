@@ -1,10 +1,7 @@
 import { createSign } from "crypto";
 
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
-const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly";
-// Drive só para BAIXAR arquivo Office (.xlsx) guardado no Drive — a API do
-// Sheets recusa esse tipo de arquivo (ver sheet-or-office.ts).
-export const DRIVE_READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly";
+const SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly";
 
 interface ServiceAccount {
   client_email: string;
@@ -17,8 +14,7 @@ interface CachedToken {
   expiresAt: number;
 }
 
-// Um token por escopo: o do Sheets e o do Drive não se substituem.
-const cachedTokens = new Map<string, CachedToken>();
+let cachedToken: CachedToken | null = null;
 
 function base64url(input: Buffer | string): string {
   return Buffer.from(input)
@@ -53,13 +49,13 @@ function loadServiceAccount(): ServiceAccount {
   return parsed;
 }
 
-function signJwt(serviceAccount: ServiceAccount, scope: string): string {
+function signJwt(serviceAccount: ServiceAccount): string {
   const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
   const now = Math.floor(Date.now() / 1000);
   const claim = base64url(
     JSON.stringify({
       iss: serviceAccount.client_email,
-      scope,
+      scope: SCOPE,
       aud: serviceAccount.token_uri ?? TOKEN_ENDPOINT,
       exp: now + 3600,
       iat: now,
@@ -78,18 +74,12 @@ function signJwt(serviceAccount: ServiceAccount, scope: string): string {
  * com cache em memoria (~55min — token oficial expira em 1h).
  */
 export async function getGoogleSheetsAccessToken(): Promise<string> {
-  return getGoogleAccessToken(SHEETS_SCOPE);
-}
-
-/** Access token do service account para o escopo informado (cache por escopo). */
-export async function getGoogleAccessToken(scope: string): Promise<string> {
-  const cachedToken = cachedTokens.get(scope);
   if (cachedToken && cachedToken.expiresAt > Date.now() + 60_000) {
     return cachedToken.accessToken;
   }
 
   const serviceAccount = loadServiceAccount();
-  const jwt = signJwt(serviceAccount, scope);
+  const jwt = signJwt(serviceAccount);
 
   const response = await fetch(serviceAccount.token_uri ?? TOKEN_ENDPOINT, {
     method: "POST",
@@ -117,10 +107,10 @@ export async function getGoogleAccessToken(scope: string): Promise<string> {
   }
 
   const ttlSeconds = payload.expires_in ?? 3600;
-  cachedTokens.set(scope, {
+  cachedToken = {
     accessToken: payload.access_token,
     expiresAt: Date.now() + ttlSeconds * 1000 - 60_000,
-  });
+  };
 
-  return payload.access_token;
+  return cachedToken.accessToken;
 }

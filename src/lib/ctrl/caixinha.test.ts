@@ -189,11 +189,13 @@ test("células: posição, range e leitura do valor", () => {
     ["", ""],
     ["x", "-1.000,00"],
     ["x", 0],
+    ["x", 20651.940000000002], // resíduo de ponto flutuante da 1ª leitura real
   ];
   assert.equal(valorDaCelula(rows, "B2"), 1234.5);
   assert.equal(valorDaCelula(rows, "B3"), 2345.67);
   assert.equal(valorDaCelula(rows, "B4"), null); // vazio não é zero
   assert.equal(valorDaCelula(rows, "B5"), -1000);
   assert.equal(valorDaCelula(rows, "B6"), 0); // zero é saldo
+  assert.equal(valorDaCelula(rows, "B7"), 20651.94);
   assert.equal(valorDaCelula(rows, "B9"), null); // fora do que veio da API
 });

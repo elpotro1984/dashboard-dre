@@ -3,10 +3,14 @@ import { notFound, redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
 import { DpAjusteColaborador } from "@/components/dp/ajuste-colaborador";
+import { DpBeneficiosColaboradorCard } from "@/components/dp/beneficios-colaborador";
 import { DpNaoInstalado } from "@/components/dp/nao-instalado";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDateTimeBR, formatDayBR, todayBR } from "@/lib/ctrl/datetime";
 import { getDpUser } from "@/lib/dp/auth";
+import { BENEFICIOS_COLABORADOR_VAZIO } from "@/lib/dp/beneficios-colaborador";
+import { BENEFICIOS_VAZIOS as BENEFICIOS_VAZIOS_EMPRESA } from "@/lib/dp/beneficios-config";
+import { lerBeneficiosDaEmpresa, lerBeneficiosDoColaborador } from "@/lib/dp/beneficios-queries";
 import { podeVerEmpresa } from "@/lib/dp/escopo";
 import { rotuloLinha } from "@/lib/dp/cargos";
 import { getDpCargosPagina, listDpAjustes, rotuloCentro } from "@/lib/dp/cargos-queries";
@@ -85,6 +89,20 @@ export default async function DpColaboradorPage({ params }: { params: { id: stri
         })
       : Promise.resolve(null),
   ]);
+  // Benefícios: as escolhas da pessoa + o cadastro da empresa, de onde sai o
+  // valor. Tabela ausente (migration a aplicar) não derruba a ficha.
+  const beneficios = companyId
+    ? await Promise.all([lerBeneficiosDaEmpresa(db, companyId), lerBeneficiosDoColaborador(db, c.solidesId)]).catch((error) => {
+        if (error instanceof DpNaoInstaladoError) return null;
+        throw error;
+      })
+    : undefined;
+  const beneficiosSalvos = beneficios ? beneficios[1] : null;
+  let avisoEmpresaBeneficios: string | null = null;
+  if (beneficiosSalvos?.companyId && beneficiosSalvos.companyId !== companyId) {
+    const { data: antiga } = await db.from("companies").select("name").eq("id", beneficiosSalvos.companyId).maybeSingle();
+    avisoEmpresaBeneficios = `Os benefícios foram escolhidos no cadastro de ${antiga?.name ?? "outra empresa"}, e a pessoa agora é de ${c.companyName ?? "outra empresa"}. Confira as escolhas.`;
+  }
   const vinculoRow = vinculo ? vinculo[0].enquadramento.find((r) => r.colaboradorId === c.id) ?? null : null;
   const ajuste = vinculo ? vinculo[1].get(c.solidesId) ?? null : null;
   const hoje = todayBR();
@@ -257,6 +275,38 @@ export default async function DpColaboradorPage({ params }: { params: { id: stri
           </CardContent>
         </Card>
       </div>
+
+      {beneficios === null ? (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base">Benefícios</CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-ink-muted">
+            Benefícios por colaborador ainda não instalados no banco (migrations 20261027170000 e 20261028130000).
+          </CardContent>
+        </Card>
+      ) : (
+        <DpBeneficiosColaboradorCard
+          colaboradorId={c.id}
+          podeEditar={Boolean(companyId)}
+          cfg={beneficios ? beneficios[0].dados : BENEFICIOS_VAZIOS_EMPRESA}
+          empresaTemCadastro={beneficios ? beneficios[0].blocosSalvos > 0 : false}
+          escolhas={beneficiosSalvos?.dados ?? BENEFICIOS_COLABORADOR_VAZIO}
+          pessoa={{
+            tipoContrato: c.tipoContrato,
+            salario: c.salario,
+            // Sem CPF: o card só precisa de nome, nascimento e parentesco.
+            dependentes: c.dependentes.map((d) => ({ nome: d.nome, nascimento: d.nascimento, parentesco: d.parentesco })),
+          }}
+          hoje={hoje}
+          atualizado={
+            beneficiosSalvos
+              ? `Atualizado em ${formatDateTimeBR(beneficiosSalvos.atualizadoEm)}${beneficiosSalvos.atualizadoPor ? ` por ${beneficiosSalvos.atualizadoPor}` : ""}`
+              : null
+          }
+          avisoEmpresa={avisoEmpresaBeneficios}
+        />
+      )}
 
       {c.beneficiosSolides.length > 0 && (
         <Card>

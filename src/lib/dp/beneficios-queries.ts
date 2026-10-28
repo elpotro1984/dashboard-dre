@@ -1,5 +1,6 @@
 import "server-only";
 
+import { lerBeneficiosColaborador, type DpBeneficiosColaborador } from "@/lib/dp/beneficios-colaborador";
 import {
   BENEFICIOS_VAZIOS,
   BLOCOS_BENEFICIO,
@@ -84,4 +85,53 @@ export async function getDpBeneficios(db: AdminClient, companyId: string): Promi
     reajustes[b].push({ percentual: Number(r.percentual), em: r.aplicado_em as string, por: nome(r.aplicado_por as string | null) });
   }
   return { blocos, reajustes };
+}
+
+/**
+ * Só os dados dos oito blocos (o não salvo vem vazio) — para a ficha do
+ * colaborador, que não precisa do histórico. `blocosSalvos` = quantos a empresa
+ * já gravou (zero: não há o que escolher).
+ */
+export async function lerBeneficiosDaEmpresa(db: AdminClient, companyId: string): Promise<{ dados: DpBeneficiosDados; blocosSalvos: number }> {
+  const { data, error } = await db.from("dp_beneficios_config").select("bloco, dados").eq("company_id", companyId);
+  check(error, "dp_beneficios_config");
+  const out = { ...BENEFICIOS_VAZIOS } as Record<DpBlocoBeneficio, unknown>;
+  let blocosSalvos = 0;
+  for (const r of data ?? []) {
+    const b = r.bloco as string;
+    if (!blocoValido(b)) continue;
+    out[b] = lerBloco(b, r.dados);
+    blocosSalvos++;
+  }
+  return { dados: out as unknown as DpBeneficiosDados, blocosSalvos };
+}
+
+export interface DpBeneficiosDoColaborador {
+  dados: DpBeneficiosColaborador;
+  /** Empresa em que as escolhas foram feitas. */
+  companyId: string | null;
+  atualizadoEm: string;
+  atualizadoPor: string | null;
+}
+
+/** As escolhas da pessoa (null = nunca cadastradas). Tabela ausente lança DpNaoInstaladoError. */
+export async function lerBeneficiosDoColaborador(db: AdminClient, solidesId: number): Promise<DpBeneficiosDoColaborador | null> {
+  const { data, error } = await db
+    .from("dp_colaborador_beneficios")
+    .select("dados, company_id, updated_at, updated_by")
+    .eq("solides_id", solidesId)
+    .maybeSingle();
+  check(error, "dp_colaborador_beneficios");
+  if (!data) return null;
+  let atualizadoPor: string | null = null;
+  if (data.updated_by) {
+    const { data: u } = await db.from("users").select("name, email").eq("id", data.updated_by as string).maybeSingle();
+    atualizadoPor = u ? ((u.name as string | null) ?? (u.email as string)) : null;
+  }
+  return {
+    dados: lerBeneficiosColaborador(data.dados),
+    companyId: (data.company_id as string | null) ?? null,
+    atualizadoEm: data.updated_at as string,
+    atualizadoPor,
+  };
 }

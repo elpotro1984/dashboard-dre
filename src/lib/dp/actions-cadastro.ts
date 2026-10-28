@@ -3,10 +3,13 @@
 import { revalidatePath } from "next/cache";
 
 import { DP_PATH } from "@/lib/auth/dp";
+import { todayBR } from "@/lib/ctrl/datetime";
 import { exigirEmpresa, requireDpEmpresa, requireDpUser } from "@/lib/dp/auth";
+import { conferirComEmpresa, validarBeneficiosColaborador } from "@/lib/dp/beneficios-colaborador";
+import { lerBeneficiosDaEmpresa } from "@/lib/dp/beneficios-queries";
 import { chaveNome } from "@/lib/dp/cargos";
 import { indexarRegras, resolverEmpresa } from "@/lib/dp/empresa";
-import { listDpRegras } from "@/lib/dp/queries";
+import { DpNaoInstaladoError, listDpRegras } from "@/lib/dp/queries";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 // Base cadastral do DP: exceções manuais por pessoa (linha da tabela salarial e
@@ -114,6 +117,48 @@ export async function salvarAjusteColaborador(input: {
     revalidar();
     return { ok: true, data: undefined };
   } catch (error) {
+    return falha(error);
+  }
+}
+
+/**
+ * Card "Benefícios" da ficha: grava as ESCOLHAS da pessoa (o valor vem do
+ * cadastro da empresa na leitura). Quem tem a empresa da pessoa no escopo grava
+ * — como as exceções acima. Cada escolha é conferida contra o cadastro ATUAL da
+ * empresa: uma aba aberta antes de alguém remover a faixa ainda posta.
+ */
+export async function salvarBeneficiosColaborador(input: {
+  colaboradorId: string;
+  dados: unknown;
+}): Promise<DpCadastroResult<{ atualizadoEm: string }>> {
+  try {
+    const user = await requireDpUser();
+    const admin = createAdminClient();
+    const { solidesId, companyId } = await empresaDoColaborador(admin, input.colaboradorId);
+    exigirEmpresa(user, companyId);
+    if (!companyId) throw new Error("Defina a empresa desta pessoa (de-para de empresas) antes de cadastrar benefícios.");
+    const v = validarBeneficiosColaborador(input.dados, todayBR());
+    if ("erro" in v) throw new Error(v.erro);
+    const erroEmpresa = conferirComEmpresa(v.ok, (await lerBeneficiosDaEmpresa(admin, companyId)).dados);
+    if (erroEmpresa) throw new Error(erroEmpresa);
+    const atualizadoEm = new Date().toISOString();
+    const { error } = await admin
+      .from("dp_colaborador_beneficios")
+      .upsert(
+        { solides_id: solidesId, company_id: companyId, dados: v.ok, updated_by: user.id, updated_at: atualizadoEm },
+        { onConflict: "solides_id" },
+      );
+    if (error) throw error;
+    revalidar();
+    return { ok: true, data: { atualizadoEm } };
+  } catch (error) {
+    const e = error as { code?: string } | null;
+    if (error instanceof DpNaoInstaladoError || e?.code === "PGRST205" || e?.code === "42P01") {
+      return {
+        ok: false,
+        error: "Benefícios por colaborador ainda não instalados no banco (migrations 20261027170000 e 20261028130000).",
+      };
+    }
     return falha(error);
   }
 }
