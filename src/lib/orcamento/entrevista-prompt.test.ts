@@ -182,28 +182,47 @@ test("prompt: sem base a entrevista é aberta e sem lista de itens", () => {
 
 test("prompt: contexto do admin e regra da categoria continuam entrando", () => {
   const p = prompt({ contextoAdmin: "Trocar o Trello pelo Notion em março." });
-  assert.match(p, /CONTEXTO DO ADMINISTRADOR/);
+  assert.match(p, /DIRECIONAMENTO INTERNO/);
   assert.match(p, /Notion/);
   assert.match(prompt({ categoryName: "Pró-labore" }), /SALÁRIO DOS SÓCIOS/);
 });
 
-test("prompt: a abertura apresenta a base e o contexto do admin, não só total e média", () => {
+test("prompt: a abertura apresenta a base e parte do direcionamento interno", () => {
   const sem = prompt({ base: [], contextoAdmin: "" });
-  assert.doesNotMatch(sem, /COMPOSIÇÃO desse gasto/);
-  assert.match(sem, /^2\. UMA pergunta, ANCORADA/m);
+  assert.doesNotMatch(sem, /ITENS principais/);
+  assert.match(sem, /^2\. UMA pergunta que SAIA desse cenário/m);
 
   const p = prompt({
     setorNome: "",
-    base: [base("Imersão de Vendas", 2715.11), base("CONVIVA", 1721.56)],
-    contextoAdmin: "1.721,56 com a Conviva e 2.715,11 com Imersão de Vendas",
-    realizado: realizado([0, 0, 0, 0, 0, 0, 2578.44, 0, 0, 0, 0, 1958.23], 504.07),
+    base: [base("META ADS / GOOGLE ADS", 10441.66), base("PRISMA - AGENCIA CRIATIVA", 800)],
+    contextoAdmin: "Prisma custa R$ 800/mês; confirmar se continua em 2027 e se haverá reajuste.",
+    realizado: realizado([3000, 3000, 3000, 6000, 2000, 2000, 5000, 5000, 1591.29, null, null, null], 3087.92),
   });
-  assert.match(p, /^2\. A COMPOSIÇÃO desse gasto pela BASE/m);
-  assert.match(p, /^3\. O que o CONTEXTO DO ADMINISTRADOR traz/m);
-  assert.match(p, /^4\. UMA pergunta, ANCORADA/m);
-  // Realizado 4.536,67 × base 4.436,67: a diferença é dita, não escondida.
-  assert.match(p, /R\$\s?100,00 do realizado não estão em/);
+  assert.match(p, /^2\. Os ITENS principais/m);
+  assert.match(p, /^3\. UMA pergunta que SAIA desse cenário/m);
+  assert.match(p, /ESSA é a pergunta de abertura/);
 });
+
+test("prompt: base curada — a IA não aponta o que ficou fora dela (Viva Barbacena, Marketing)", () => {
+  const p = prompt({
+    setorNome: "",
+    base: [base("META ADS / GOOGLE ADS", 10441.66)],
+    realizado: realizado([10000, 10000, 8591.29, null, null, null, null, null, null, null, null, null], 2382.6),
+  });
+  assert.doesNotMatch(p, /do realizado não estão em/);
+  assert.match(p, /não diga NADA sobre o que não está/);
+  // Nem o motivo pode vazar: a IA não recebe explicação para repetir.
+  assert.doesNotMatch(p, /desconsiderado por não ser relevante|CURADA/);
+});
+
+test("prompt: o direcionamento interno é invisível ao gestor", () => {
+  const p = prompt({ contextoAdmin: "Confirmar se a Prisma continua." });
+  assert.match(p, /O GESTOR NÃO SABE QUE ESTE DIRECIONAMENTO EXISTE/);
+  assert.match(p, /NUNCA atribua a alguém/);
+  assert.match(p, /vira a SUA pergunta/);
+  assert.doesNotMatch(p, /O que o CONTEXTO DO ADMINISTRADOR traz/);
+});
+
 
 test("realizadoContexto: com o ano em curso, o total inclui o mês aberto e a média não", () => {
   // Viva Barbacena, Consultoria (27/10/2026): jan–set fechados somam 459,16 e
