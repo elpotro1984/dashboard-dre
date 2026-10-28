@@ -32,6 +32,8 @@ const CHANGE_FIELD_LABEL: Record<string, string> = {
   due_date: "Vencimento",
   reference_month: "Mês de competência",
   reference_year: "Ano de competência",
+  projeto_nome: "Projeto",
+  anexos_adicionados: "Anexos adicionados",
 };
 
 // "Histórico de aprovações" — lê os eventos persistentes de decisão (ctrl_history

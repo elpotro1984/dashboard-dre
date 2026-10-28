@@ -33,6 +33,27 @@ export interface AdminEditRequestInput {
   reference_year?: number;
   /** Projeto (Omie). null = "Sem Projeto" (vazio no Omie). Não cruza orçamento. */
   projeto_nome?: string | null;
+  /**
+   * Anexos diversos NOVOS (paths já enviados ao bucket 'ctrl-attachments' pelo
+   * próprio editor). São SOMADOS aos que a requisição já tem — a edição não
+   * remove anexo. Vão à Omie no lançamento, junto com os demais.
+   */
+  add_extra_attachment_paths?: string[];
+}
+
+// Limite de anexos diversos novos por edição — o mesmo arquivo de 10 MB cada.
+const MAX_NEW_ATTACHMENTS = 20;
+
+// O path de upload é `${userId}/${timestamp}-${nome}` (attachment-upload.ts).
+// Só se aceita path do PRÓPRIO editor: sem isso, a edição viraria um jeito de
+// pendurar na requisição (e mandar à Omie) um arquivo de outra pessoa do bucket.
+function isOwnAttachmentPath(path: string, userId: string): boolean {
+  return (
+    path.startsWith(`${userId}/`) &&
+    !path.includes("..") &&
+    path.length > userId.length + 1 &&
+    path.length <= 512
+  );
 }
 
 // Uma requisição está "no Omie" (bloqueada para edição/exclusão) quando já foi
@@ -57,7 +78,7 @@ export async function updateRequestByAdmin(
   const { data: req, error: fetchErr } = await supabase
     .from("ctrl_requests")
     .select(
-      "id, status, deleted_at, omie_contapagar_codigo, is_rateio, title, description, amount, sector_id, expense_type_id, due_date, reference_month, reference_year, projeto_nome",
+      "id, status, deleted_at, omie_contapagar_codigo, is_rateio, title, description, amount, sector_id, expense_type_id, due_date, reference_month, reference_year, projeto_nome, extra_attachment_paths",
     )
     .eq("id", requestId)
     .maybeSingle();
@@ -109,6 +130,28 @@ export async function updateRequestByAdmin(
   // Projeto (Omie) — não cruza orçamento, então nunca entra em BUDGET_FIELDS nem
   // dispara reroteamento de alçada; só grava. "" → null ("Sem Projeto").
   if (data.projeto_nome !== undefined) set("projeto_nome", data.projeto_nome?.trim() || null);
+
+  // Anexos: não cruzam orçamento (como o projeto) e valem também no rateio. A
+  // lista é SOMADA à atual, sem repetir path. No histórico entram os NOMES dos
+  // arquivos, não os paths — o array cru apareceria como texto ilegível.
+  if (data.add_extra_attachment_paths !== undefined) {
+    const novos = Array.from(new Set(data.add_extra_attachment_paths.map((p) => p.trim()).filter(Boolean)));
+    if (novos.length > MAX_NEW_ATTACHMENTS) {
+      return { error: `Adicione no máximo ${MAX_NEW_ATTACHMENTS} anexos por vez.` };
+    }
+    if (novos.some((p) => !isOwnAttachmentPath(p, ctx.id))) {
+      return { error: "Anexo inválido — envie o arquivo de novo pela tela." };
+    }
+    const atuais = (current.extra_attachment_paths as string[] | null) ?? [];
+    const adicionados = novos.filter((p) => !atuais.includes(p));
+    if (adicionados.length > 0) {
+      payload.extra_attachment_paths = [...atuais, ...adicionados];
+      changes.anexos_adicionados = [
+        null,
+        adicionados.map((p) => (p.split("/").pop() ?? "anexo").replace(/^\d+-/, "")).join(", "),
+      ];
+    }
+  }
 
   if (Object.keys(changes).length === 0) return { ok: true as const, unchanged: true };
 

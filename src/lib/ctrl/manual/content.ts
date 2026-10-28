@@ -462,7 +462,7 @@ export const MANUAL_SECTIONS: ManualSection[] = [
         tone: "info",
         title: "Preciso corrigir uma requisição já enviada",
         text:
-          "O solicitante não edita a requisição depois do envio. Peça ao aprovador para rejeitar (e crie uma nova corrigida — o botão **Clonar** ajuda) ou, se ela já estiver em Contas a Pagar, peça ao time para **Devolver**. Setor, tipo de despesa e método de pagamento também podem ser corrigidos pelo próprio Contas a Pagar. Enquanto a requisição está **em aprovação**, o Contas a Pagar e o admin podem **editá-la** pela tela de Requisições (botão Editar) — se mudar setor, tipo ou valor, a alçada é recalculada e a aprovação reinicia. Em requisições **rateadas**, o editar cobre só título e descrição; para mudar a divisão (setores/valores), rejeite e recrie.",
+          "O solicitante não edita a requisição depois do envio. Peça ao aprovador para rejeitar (e crie uma nova corrigida — o botão **Clonar** ajuda) ou, se ela já estiver em Contas a Pagar, peça ao time para **Devolver**. Setor, tipo de despesa e método de pagamento também podem ser corrigidos pelo próprio Contas a Pagar. Enquanto a requisição está **em aprovação**, o Contas a Pagar e o admin podem **editá-la** pela tela de Requisições (botão Editar) — se mudar setor, tipo ou valor, a alçada é recalculada e a aprovação reinicia. Pelo mesmo botão dá para **adicionar anexos** esquecidos (contrato, nota, cupom…): eles se somam aos que a requisição já tem, vão para o Omie no pagamento e não mexem na aprovação. Em requisições **rateadas**, o editar cobre só título, descrição, projeto e anexos; para mudar a divisão (setores/valores), rejeite e recrie.",
       },
     ],
   },

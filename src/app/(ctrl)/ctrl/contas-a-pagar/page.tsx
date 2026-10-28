@@ -86,6 +86,7 @@ async function getContasAPagar(orgId: string | null) {
       invoice_number,
       omie_categoria_override,
       attachment_path,
+      extra_attachment_paths,
       created_at,
       approved_at,
       ctrl_suppliers(

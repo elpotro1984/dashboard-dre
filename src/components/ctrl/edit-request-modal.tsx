@@ -1,9 +1,10 @@
 "use client";
 
-import { AlertTriangle, Loader2, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { AlertTriangle, Loader2, Paperclip, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import {
+  ExtraAttachments,
   resolveNamed,
   type RequestDetail,
 } from "@/components/ctrl/request-detail-modal";
@@ -12,6 +13,7 @@ import {
   getProjetoEdicao,
   updateRequestByAdmin,
 } from "@/lib/ctrl/actions/request-admin";
+import { MAX_ATTACHMENT_SIZE, uploadCtrlAttachment } from "@/lib/ctrl/attachment-upload";
 
 export interface CadastroOption {
   id: string;
@@ -95,9 +97,54 @@ export function EditRequestModal({
     };
   }, [req.id]);
 
+  // ── Anexos novos ────────────────────────────────────────────────────────────
+  // Mesmo mecanismo dos "Anexos" da criação: cada arquivo sobe ao bucket no
+  // momento em que é escolhido e o Salvar só manda os paths, que o servidor SOMA
+  // aos anexos diversos já existentes. Daqui não se remove anexo já gravado.
+  const [newAttachments, setNewAttachments] = useState<Array<{ file: File; path: string }>>([]);
+  const [uploading, setUploading] = useState(false);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
+
+  async function addAttachments(files: FileList | null) {
+    setAttachmentError(null);
+    if (!files || files.length === 0) return;
+    const picked = Array.from(files);
+    const tooBig = picked.find((f) => f.size > MAX_ATTACHMENT_SIZE);
+    if (tooBig) {
+      setAttachmentError(`"${tooBig.name}" excede o limite de 10 MB.`);
+      if (attachmentInputRef.current) attachmentInputRef.current.value = "";
+      return;
+    }
+    setUploading(true);
+    try {
+      const uploaded: Array<{ file: File; path: string }> = [];
+      for (const file of picked) {
+        const objectPath = await uploadCtrlAttachment(file);
+        uploaded.push({ file, path: objectPath });
+      }
+      setNewAttachments((prev) => [...prev, ...uploaded]);
+    } catch (err) {
+      setAttachmentError(`Falha ao enviar o anexo: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setUploading(false);
+      if (attachmentInputRef.current) attachmentInputRef.current.value = "";
+    }
+  }
+
+  function removeNewAttachment(index: number) {
+    setNewAttachments((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  const attachmentPayload =
+    newAttachments.length > 0
+      ? { add_extra_attachment_paths: newAttachments.map((a) => a.path) }
+      : {};
+
   // Rateio: a divisão por setor (setor/valor) e o enquadramento (tipo, datas)
   // definem o orçamento POR PARCELA — editar isso aqui exigiria refazer a alçada
-  // de cada parcela. Por segurança, no rateio o editar libera só título/descrição.
+  // de cada parcela. Por segurança, no rateio o editar libera só título,
+  // descrição, projeto e anexos (nenhum deles cruza o orçamento).
   const isRateio = Boolean(req.is_rateio);
 
   const sectorOptions = withCurrent(sectors, req.sector_id, resolveNamed(req.ctrl_sectors ?? null));
@@ -111,13 +158,20 @@ export function EditRequestModal({
     e.preventDefault();
     setError(null);
 
-    // Rateio: só título e descrição (não mexe em orçamento/alçada por parcela).
+    if (uploading) {
+      setError("Aguarde o envio dos anexos terminar.");
+      return;
+    }
+
+    // Rateio: só título, descrição, projeto e anexos (não mexe em orçamento/
+    // alçada por parcela).
     if (isRateio) {
       setSaving(true);
       const res = await updateRequestByAdmin(req.id, {
         title: title.trim(),
         description: description.trim() || null,
         ...(projetoCarregado ? { projeto_nome: projetoNome.trim() || null } : {}),
+        ...attachmentPayload,
       });
       setSaving(false);
       if (res && "error" in res && res.error) {
@@ -151,6 +205,7 @@ export function EditRequestModal({
       reference_month: monthNum,
       reference_year: yearNum,
       ...(projetoCarregado ? { projeto_nome: projetoNome.trim() || null } : {}),
+      ...attachmentPayload,
     });
     setSaving(false);
 
@@ -272,8 +327,9 @@ export function EditRequestModal({
 
           {isRateio ? (
             <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30">
-              Requisição <strong>rateada</strong> — aqui dá para ajustar só o <strong>título</strong> e a{" "}
-              <strong>descrição</strong>. Setor, valor, tipo de despesa, vencimento e competência
+              Requisição <strong>rateada</strong> — aqui dá para ajustar só o <strong>título</strong>, a{" "}
+              <strong>descrição</strong>, o <strong>projeto</strong> e os <strong>anexos</strong>. Setor,
+              valor, tipo de despesa, vencimento e competência
               definem o orçamento de cada setor da divisão; para mudá-los, rejeite e recrie a
               requisição.
             </div>
@@ -364,6 +420,69 @@ export function EditRequestModal({
             </>
           )}
 
+          {/* Anexos — os já gravados ficam como estão; os novos se SOMAM a eles e
+              vão à Omie junto com os demais no lançamento da conta a pagar. */}
+          <div className="space-y-1.5">
+            <label htmlFor="edit_extra_attachments" className="text-sm font-medium">
+              Anexos <span className="font-normal text-muted-foreground">· até 10 MB cada</span>
+            </label>
+            <ExtraAttachments
+              requestId={req.id}
+              count={req.extra_attachment_paths?.length ?? 0}
+            />
+            <p className="text-xs text-muted-foreground">
+              Adicione documentos diversos — contrato, cupom fiscal, pedido, nota fiscal, etc.
+              Eles se somam aos anexos que a requisição já tem e serão enviados à Omie no
+              momento do pagamento.
+            </p>
+            <input
+              ref={attachmentInputRef}
+              id="edit_extra_attachments"
+              type="file"
+              multiple
+              accept=".pdf,.jpg,.jpeg,.png,.webp,.doc,.docx,.xls,.xlsx"
+              onChange={(e) => addAttachments(e.target.files)}
+              className="hidden"
+            />
+            <button
+              type="button"
+              onClick={() => attachmentInputRef.current?.click()}
+              disabled={uploading}
+              className="inline-flex items-center gap-2 rounded-md border border-dashed px-4 py-2 text-sm font-medium transition-colors hover:bg-muted disabled:opacity-50"
+            >
+              {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Paperclip className="h-4 w-4" />}
+              {uploading ? "Enviando…" : "Adicionar anexos"}
+            </button>
+            {newAttachments.length > 0 && (
+              <ul className="space-y-2 pt-1">
+                {newAttachments.map((att, i) => (
+                  <li
+                    key={`${att.path}-${i}`}
+                    className="flex items-center justify-between gap-2 rounded-md border bg-muted/30 px-3 py-2"
+                  >
+                    <div className="flex min-w-0 items-center gap-2 text-sm">
+                      <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="truncate">{att.file.name}</span>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        ({(att.file.size / 1024 / 1024).toFixed(2)} MB) · novo
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => removeNewAttachment(i)}
+                      className="shrink-0 text-muted-foreground hover:text-destructive"
+                      aria-label={`Remover ${att.file.name}`}
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {attachmentError && <p className="text-xs text-destructive">{attachmentError}</p>}
+            <p className="text-xs text-muted-foreground">Formatos: PDF, JPG, PNG, DOC, XLS.</p>
+          </div>
+
           {error && (
             <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {error}
@@ -380,7 +499,7 @@ export function EditRequestModal({
             </button>
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || uploading}
               className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
             >
               {saving && <Loader2 className="h-4 w-4 animate-spin" />}
