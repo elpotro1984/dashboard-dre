@@ -439,7 +439,7 @@ export const MANUAL_SECTIONS: ManualSection[] = [
           "Acompanhe pela tela **Requisições**: a coluna Status mostra em que etapa está e a busca aceita número (#), título ou status.",
           "Se aparecer **Complementação**, existe uma pergunta esperando você: clique em **Responder**. Enquanto não responder, a requisição fica parada.",
           "Se aparecer **Info pendente**, quem está perguntando é o time de Contas a Pagar, já na fase de pagamento. Mesmo botão, mesma urgência.",
-          "Depois do pagamento lançado, o botão **Anexos** abre os documentos que estão no Omie.",
+          "O botão **Anexos** abre os documentos da requisição (pagamento, nota fiscal e anexos diversos, inclusive os acrescentados depois pela edição). Depois do pagamento lançado, ele mostra também os documentos que estão no título do Omie.",
           "Toda mudança gera notificação no sino do topo e na tela **Notificações**.",
         ],
       },
