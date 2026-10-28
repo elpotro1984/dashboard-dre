@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Eye, MessageSquare, Paperclip, Reply, RotateCcw, X } from "lucide-react";
+import { Check, Eye, MessageSquare, Paperclip, Pencil, Reply, RotateCcw, X } from "lucide-react";
 
 import {
   approveRequest,
@@ -14,6 +14,8 @@ import {
 import { InfoThreadModal } from "@/components/ctrl/payment-info-thread-modal";
 import { ApprovalHistory, type PendingStage } from "@/components/ctrl/approval-history";
 import { ExtraAttachments } from "@/components/ctrl/request-detail-modal";
+import { ReclassifyApprovalModal } from "@/components/ctrl/reclassify-approval-modal";
+import type { CadastroOption } from "@/components/ctrl/edit-expense-routing-modal";
 import { SupplierNotApprovedBadge } from "@/components/ctrl/supplier-status-badge";
 import { ExcelHeaderCell, useExcelTable, type ExcelColumn } from "@/components/ctrl/excel-table";
 import { isForcedDirectorRouting, isManagerFinalSector } from "@/lib/ctrl/routing";
@@ -30,6 +32,10 @@ type Req = {
   complement_return_status?: string | null;
   approval_tier: string | null;
   sector_id?: string | null;
+  // Tipo e competência: usados pela reclassificação (confronto com o orçamento).
+  expense_type_id?: string | null;
+  reference_month?: number | null;
+  reference_year?: number | null;
   description: string | null;
   justification: string | null;
   observations: string | null;
@@ -136,15 +142,21 @@ interface Props {
   // Ids de requisições em complementação aguardando análise do aprovador
   // (último turno foi resposta do solicitante). Alimenta o alerta da aba.
   awaitingApproverIds?: string[];
+  // Reclassificar setor/tipo de uma requisição em aprovação (Contas a Pagar e
+  // admin — resolvido no servidor) + os cadastros ativos para o modal.
+  canReclassify?: boolean;
+  sectors?: CadastroOption[];
+  expenseTypes?: CadastroOption[];
 }
 
-export function AprovacoesClient({ requests, ctrlRoles, ownSectorIds = [], forceSectorGroups = false, actionSectorIds = null, awaitingApproverIds = [] }: Props) {
+export function AprovacoesClient({ requests, ctrlRoles, ownSectorIds = [], forceSectorGroups = false, actionSectorIds = null, awaitingApproverIds = [], canReclassify = false, sectors = [], expenseTypes = [] }: Props) {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<Tab>("pendente");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [modal, setModal] = useState<{ req: Req; mode: "reject" | "detail" } | null>(null);
   // Conversa de complementação (pedir info / responder) — thread completa.
   const [threadModal, setThreadModal] = useState<{ req: Req; mode: "ask" | "answer" } | null>(null);
+  const [reclassifyReq, setReclassifyReq] = useState<Req | null>(null);
   const [textInput, setTextInput] = useState("");
   const [feedback, setFeedback] = useState<{ msg: string; ok: boolean } | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -608,6 +620,21 @@ export function AprovacoesClient({ requests, ctrlRoles, ownSectorIds = [], force
                           </>
                         )}
 
+                        {/* Reclassificar setor/tipo enquanto aguarda o gerente ou o
+                            diretor (Contas a Pagar / admin). Rateio fica de fora:
+                            a alçada é por parcela. */}
+                        {canReclassify && isPendingStatus(req.status) && !req.is_rateio && (
+                          <button
+                            type="button"
+                            onClick={() => setReclassifyReq(req)}
+                            title="Reclassificar setor / tipo de despesa"
+                            aria-label="Reclassificar setor / tipo de despesa"
+                            className={`${ACTION_BTN} border hover:bg-muted`}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </button>
+                        )}
+
                         {/* Reabrir uma REPROVADA: só admin, e só aqui (a aba
                             Rejeitadas). Devolve à fila de aprovação para reavaliar
                             — às vezes é só editar algo. Aprovada não tem este botão. */}
@@ -809,6 +836,23 @@ export function AprovacoesClient({ requests, ctrlRoles, ownSectorIds = [], force
       )}
 
       {/* Conversa de complementação — histórico completo + pedir/responder */}
+      {reclassifyReq && (
+        <ReclassifyApprovalModal
+          req={reclassifyReq}
+          sectors={sectors}
+          expenseTypes={expenseTypes}
+          onClose={() => setReclassifyReq(null)}
+          onSaved={(message) => {
+            setReclassifyReq(null);
+            notify(message);
+            // A etapa pode ter mudado (ex.: saiu de "Aguardando Diretor"), então
+            // a seleção do lote não vale mais.
+            setSelected(new Set());
+            router.refresh();
+          }}
+        />
+      )}
+
       {threadModal && (
         <InfoThreadModal
           variant="complement"

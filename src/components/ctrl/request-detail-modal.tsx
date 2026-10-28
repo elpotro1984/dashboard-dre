@@ -103,6 +103,8 @@ export type RequestDetail = {
   supplier_issues_invoice?: string | null;
   invoice_number?: string | null;
   attachment_path?: string | null;
+  /** Anexo da nota fiscal (o de pagamento é attachment_path). */
+  invoice_attachment_path?: string | null;
   // Anexos diversos (contrato, cupom fiscal, pedido, nota, etc.). Só os paths
   // vêm na linha; as URLs assinadas são resolvidas sob demanda no modal.
   extra_attachment_paths?: string[] | null;

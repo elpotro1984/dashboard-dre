@@ -563,6 +563,7 @@ export const MANUAL_SECTIONS: ManualSection[] = [
           "Existem direcionamentos fixos: um tipo de despesa pode ter a etapa gerencial dirigida a um gerente específico, um setor pode ir sempre direto à diretoria, e um setor pode dispensar a diretoria mesmo fora do orçamento (caso de setor recém-criado, ainda sem orçamento carregado — nele a sua aprovação encerra o fluxo). Todas essas regras aparecem em Usuários › Regras especiais.",
           "Alguns setores são **isentos de controle de orçamento** (despesas ressarcidas, que não compõem o resultado da empresa): as requisições deles não são confrontadas com orçamento, não recebem o prefixo NÃO ORÇADO nem justificativa obrigatória, e são concluídas só com a sua aprovação (sem diretor). A lista atual está em Usuários › Regras especiais.",
           "**Autoaprovação gerencial:** quando o próprio gerente é o solicitante e a despesa está prevista em orçamento, a etapa gerencial é dispensada e a requisição nasce aprovada, com registro no histórico. Fora do orçamento isso não vale — o diretor continua obrigatório.",
+          "**Reclassificação na aprovação:** o Contas a Pagar (ou o admin) pode corrigir o setor e o tipo de despesa de uma requisição que ainda aguarda aprovação. O orçamento é recalculado e a alçada muda junto — se o novo tipo tem saldo, a etapa do diretor deixa de existir; se não tem, ela passa a existir. A aprovação recomeça pelo gerente, inclusive quando ele já tinha aprovado, e o histórico mostra o de/para e o motivo.",
         ],
       },
       {
@@ -712,6 +713,13 @@ export const MANUAL_SECTIONS: ManualSection[] = [
               "Falha no lançamento aparece com a etiqueta **Falha no envio ao Omie** e o motivo. Corrija a causa e use o botão para recolocar na fila.",
           },
         ],
+      },
+      {
+        kind: "callout",
+        tone: "sucesso",
+        title: "Tipo de despesa errado? Corrija ainda na aprovação",
+        text:
+          "Não é preciso esperar a requisição chegar aqui. Na tela **Aprovações**, nas requisições **Aguardando Gerente** ou **Aguardando Diretor**, o botão com o lápis (**Reclassificar**) troca o setor e o tipo de despesa. O orçamento é recalculado na hora e a alçada muda junto: uma despesa fora do orçamento em um tipo, mas que na verdade é de outro tipo com saldo, passa a precisar só do gerente — a prévia no próprio modal mostra o resultado antes de salvar. A aprovação **recomeça pelo gerente**, mesmo que ele já tivesse aprovado (ele aprovou outro enquadramento). Motivo obrigatório; o solicitante é avisado e a mudança fica no histórico. Não vale para requisição **rateada** nem em **Complementação**, e o tipo de despesa não pode ficar em branco.",
       },
       {
         kind: "callout",

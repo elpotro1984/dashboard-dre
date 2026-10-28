@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { AprovacoesClient } from "@/components/ctrl/aprovacoes-client";
 import { getCtrlUser, hasCtrlRole } from "@/lib/ctrl/auth";
 import { getRequests, getComplementsAwaitingApprover } from "@/lib/ctrl/actions/requests";
+import { listCadastrosAtivos } from "@/lib/ctrl/cadastros-ativos";
 import { hasCtrlFullView } from "@/lib/ctrl/full-view";
 import { directorHighlightSectorsFor } from "@/lib/ctrl/routing";
 
@@ -45,6 +46,15 @@ export default async function AprovacoesPage() {
     !hasCtrlRole(ctx, "diretor", "csc", "admin")
       ? ownSectorIds
       : null;
+
+  // Reclassificar setor/tipo enquanto a requisição aguarda aprovação: mesma
+  // correção do Contas a Pagar, mas só para o perfil Contas a Pagar e o admin —
+  // a visão completa fica de fora porque também aprova (ver
+  // reclassifyRequestInApproval). A trava é a action; aqui é só não oferecer.
+  const canReclassify = hasCtrlRole(ctx, "contas_a_pagar", "admin");
+  const cadastros = canReclassify
+    ? await listCadastrosAtivos(ctx.orgId)
+    : { sectors: [], expenseTypes: [] };
 
   const { requests = [], error } = await getRequests({
     // Aba "Aprovadas" mostra o histórico completo do que já passou pela aprovação:
@@ -92,6 +102,9 @@ export default async function AprovacoesPage() {
           forceSectorGroups={forceSectorGroups}
           actionSectorIds={actionSectorIds}
           awaitingApproverIds={awaitingApproverIds}
+          canReclassify={canReclassify}
+          sectors={cadastros.sectors}
+          expenseTypes={cadastros.expenseTypes}
         />
       )}
     </div>

@@ -1223,6 +1223,72 @@ export async function getRequestExtraAttachments(
   return { attachments };
 }
 
+export interface RequestAttachment {
+  /** pagamento = boleto/comprovante; nota = nota fiscal; anexo = anexos diversos. */
+  kind: "pagamento" | "nota" | "anexo";
+  name: string;
+  url: string;
+}
+
+// TODOS os anexos guardados na requisição (bucket 'ctrl-attachments'): o
+// documento de pagamento, a nota fiscal e os anexos diversos — inclusive os
+// acrescentados depois, pela edição. É o que a coluna Anexos da tela de
+// Requisições mostra antes do envio ao Omie (e junto com os do título, depois).
+// Mesma autorização de getRequestExtraAttachments.
+export async function getRequestAttachments(
+  requestId: string,
+): Promise<{ attachments: RequestAttachment[] } | { error: string }> {
+  const ctx = await requireCtrlRole(
+    "solicitante",
+    "gerente",
+    "diretor",
+    "csc",
+    "contas_a_pagar",
+    "admin",
+  );
+  const supabase = await ctrlReadClient();
+
+  const { data: req, error } = await supabase
+    .from("ctrl_requests")
+    .select("created_by, attachment_path, invoice_attachment_path, extra_attachment_paths")
+    .eq("id", requestId)
+    .maybeSingle<{
+      created_by: string;
+      attachment_path: string | null;
+      invoice_attachment_path: string | null;
+      extra_attachment_paths: string[] | null;
+    }>();
+
+  if (error) return { error: error.message };
+  if (!req) return { error: "Requisição não encontrada." };
+
+  const hasBroad = ctx.ctrlRoles.some((r) =>
+    ["gerente", "diretor", "csc", "admin", "contas_a_pagar"].includes(r),
+  );
+  if (!hasBroad && req.created_by !== ctx.id) {
+    return { error: "Sem acesso a esta requisição." };
+  }
+
+  const items: Array<{ kind: RequestAttachment["kind"]; path: string }> = [];
+  if (req.attachment_path) items.push({ kind: "pagamento", path: req.attachment_path });
+  if (req.invoice_attachment_path) items.push({ kind: "nota", path: req.invoice_attachment_path });
+  for (const path of req.extra_attachment_paths ?? []) items.push({ kind: "anexo", path });
+  if (items.length === 0) return { attachments: [] };
+
+  const admin = createAdminClientIfAvailable() ?? supabase;
+  const attachments: RequestAttachment[] = [];
+  for (const item of items) {
+    const { data: signed, error: signErr } = await admin.storage
+      .from("ctrl-attachments")
+      .createSignedUrl(item.path, 60 * 5);
+    if (signErr || !signed) continue;
+    // Nome original: o path é `${userId}/${timestamp}-${nomeSeguro}`.
+    const name = (item.path.split("/").pop() ?? "anexo").replace(/^\d+-/, "");
+    attachments.push({ kind: item.kind, name, url: signed.signedUrl });
+  }
+  return { attachments };
+}
+
 export interface RequestComprovante {
   id: number;
   nome: string;
@@ -3624,6 +3690,69 @@ export async function returnRequestToRequisicoes(requestId: string, reason: stri
   return { ok: true as const, status: newStatus, stage: "aprovacao" as const };
 }
 
+// ─── Roteamento depois de uma edição de setor/tipo ───────────────────────────
+//
+// A regra única das três edições que mexem no enquadramento orçamentário de uma
+// requisição: a correção em Contas a Pagar, a reclassificação na tela de
+// Aprovações e o reroteamento da edição administrativa. Recalcula o orçamento
+// com o setor+tipo INFORMADOS (mês/ano pelo vencimento, com fallback para a
+// competência) e decide a etapa como na criação — mas nunca auto-aprova: sempre
+// volta a 'pendente' (ou 'pendente_diretor' no roteamento forçado ao diretor).
+// Três cópias desta conta divergiriam na primeira regra de roteamento nova.
+async function planRerouteAfterEdit(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  req: {
+    sector_id: string;
+    expense_type_id: string | null;
+    amount: number;
+    due_date: string | null;
+    reference_month: number | null;
+    reference_year: number | null;
+    created_by: string;
+  },
+) {
+  const month = req.due_date
+    ? new Date(req.due_date + "T00:00:00").getMonth() + 1
+    : (req.reference_month as number);
+  const year = req.due_date
+    ? new Date(req.due_date + "T00:00:00").getFullYear()
+    : (req.reference_year as number);
+
+  let verification: BudgetVerification | null = null;
+  if (req.expense_type_id) {
+    verification = await performBudgetVerification(
+      supabase,
+      req.sector_id,
+      req.expense_type_id,
+      Number(req.amount),
+      month,
+      year,
+    );
+  }
+  const approvalTier: ApprovalTier = verification?.approvalTier ?? "nivel_2";
+
+  // Roteamento forçado ao diretor (setor Diretoria / solicitante especial), igual
+  // à criação.
+  const directorOnly = req.created_by === APPROVAL_ROUTING.directorOnly.requesterId;
+  const directorSectorOnly = req.sector_id === APPROVAL_ROUTING.directorSector.sectorId;
+  const forceDirector = directorOnly || directorSectorOnly;
+  const newStatus: CtrlRequestStatus = forceDirector ? "pendente_diretor" : "pendente";
+
+  // Quem é avisado da etapa de destino (mesma lógica de roteamento da criação).
+  const stage: "gerente" | "diretor" = forceDirector ? "diretor" : "gerente";
+  let explicitApproverIds: string[] | undefined;
+  if (directorOnly) {
+    explicitApproverIds = [APPROVAL_ROUTING.directorOnly.directorId];
+  } else if (
+    !forceDirector &&
+    req.expense_type_id === APPROVAL_ROUTING.expenseTypeManager.expenseTypeId
+  ) {
+    explicitApproverIds = [APPROVAL_ROUTING.expenseTypeManager.managerId];
+  }
+
+  return { verification, approvalTier, newStatus, stage, explicitApproverIds };
+}
+
 // ─── Editar setor/tipo em Contas a Pagar (retorna à aprovação) ───────────────
 //
 // O usuário de Contas a Pagar (ou admin) corrige o SETOR e/ou o TIPO DE DESPESA
@@ -3762,34 +3891,18 @@ export async function editExpenseRoutingFromContasAPagar(
   const newExpenseName = (newExpenseRes.data as { name?: string } | null)?.name ?? null;
   const requester = requesterRes.data as { name: string | null; email: string | null } | null;
 
-  // Recalcula o orçamento com o NOVO setor+tipo (mês/ano pelo vencimento, com
-  // fallback para a competência) e roteia como na criação.
-  const verificationMonth = req.due_date
-    ? new Date((req.due_date as string) + "T00:00:00").getMonth() + 1
-    : (req.reference_month as number);
-  const verificationYear = req.due_date
-    ? new Date((req.due_date as string) + "T00:00:00").getFullYear()
-    : (req.reference_year as number);
-
-  let verification: BudgetVerification | null = null;
-  if (newExpenseTypeId) {
-    verification = await performBudgetVerification(
-      supabase,
-      newSectorId,
-      newExpenseTypeId,
-      Number(req.amount),
-      verificationMonth,
-      verificationYear,
-    );
-  }
-  const approvalTier: ApprovalTier = verification?.approvalTier ?? "nivel_2";
-
-  // Roteamento forçado ao diretor (setor Diretoria / solicitante especial), igual
-  // à criação. Nunca auto-aprova: sempre volta a 'pendente' (ou 'pendente_diretor').
-  const directorOnly = req.created_by === APPROVAL_ROUTING.directorOnly.requesterId;
-  const directorSectorOnly = newSectorId === APPROVAL_ROUTING.directorSector.sectorId;
-  const forceDirector = directorOnly || directorSectorOnly;
-  const newStatus: CtrlRequestStatus = forceDirector ? "pendente_diretor" : "pendente";
+  // Recalcula o orçamento com o NOVO setor+tipo e roteia como na criação, sem
+  // auto-aprovação.
+  const { verification, approvalTier, newStatus, stage, explicitApproverIds } =
+    await planRerouteAfterEdit(supabase, {
+      sector_id: newSectorId,
+      expense_type_id: newExpenseTypeId,
+      amount: Number(req.amount),
+      due_date: (req.due_date as string | null) ?? null,
+      reference_month: (req.reference_month as number | null) ?? null,
+      reference_year: (req.reference_year as number | null) ?? null,
+      created_by: req.created_by as string,
+    });
 
   const now = new Date().toISOString();
   const { error: updErr } = await supabase
@@ -3839,18 +3952,7 @@ export async function editExpenseRoutingFromContasAPagar(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any);
 
-  // Notifica a etapa de aprovação de destino (mesma lógica de roteamento da criação).
-  const stage: "gerente" | "diretor" = forceDirector ? "diretor" : "gerente";
-  let explicitApproverIds: string[] | undefined;
-  if (directorOnly) {
-    explicitApproverIds = [APPROVAL_ROUTING.directorOnly.directorId];
-  } else if (
-    !forceDirector &&
-    newExpenseTypeId === APPROVAL_ROUTING.expenseTypeManager.expenseTypeId
-  ) {
-    explicitApproverIds = [APPROVAL_ROUTING.expenseTypeManager.managerId];
-  }
-
+  // Notifica a etapa de aprovação de destino.
   await notifyPendingApproval({
     requestId,
     requestNumber: req.request_number as number,
@@ -3878,6 +3980,197 @@ export async function editExpenseRoutingFromContasAPagar(
   revalidatePath("/ctrl/orcamento");
   revalidatePath("/home");
   return { ok: true as const, returnedTo: newStatus, tier: approvalTier };
+}
+
+// ─── Reclassificar setor/tipo na tela de Aprovações (ainda em aprovação) ─────
+//
+// A mesma correção do Contas a Pagar, feita ANTES da aprovação terminar: o tipo
+// (ou o setor) foi lançado errado e a requisição está aguardando o gerente ou o
+// diretor. O orçamento é recalculado com o novo enquadramento e a etapa muda
+// junto — ex.: fora do orçamento em "Treinamentos" (gerente + diretor), mas na
+// verdade é "Cursos", que tem saldo: passa a aguardar só o gerente.
+//
+// Decisões que não se devem "consertar":
+//  - Só Contas a Pagar e admin. A visão completa (override nominal) NÃO entra,
+//    ao contrário da tela de Contas a Pagar: quem tem o override também aprova,
+//    e reclassificar o que vai aprovar seria decidir a própria alçada.
+//  - A aprovação RECOMEÇA no gerente, mesmo que ele já tenha aprovado
+//    (pendente_diretor): ele aprovou outro enquadramento. Nunca auto-aprova.
+//  - Tipo de despesa é obrigatório: "Sem categoria" cai em nivel_2 sem confronto
+//    com orçamento, e viraria o atalho para dispensar o diretor.
+//  - Rateio fica de fora: a alçada é por parcela (ctrl_request_sectors).
+//  - Complementação fica de fora: a conversa com o solicitante está aberta, e
+//    reiniciar a etapa a encerraria por baixo.
+const RECLASSIFY_STATUSES = ["pendente", "pendente_diretor"];
+
+export async function reclassifyRequestInApproval(
+  requestId: string,
+  input: { sector_id: string; expense_type_id: string; reason: string },
+) {
+  const ctx = await requireCtrlRole("contas_a_pagar", "admin");
+
+  if (!input.reason?.trim()) return { error: "Informe o motivo da alteração." };
+  if (!input.sector_id) return { error: "Selecione o setor." };
+  if (!input.expense_type_id) return { error: "Selecione o tipo de despesa." };
+
+  const supabase = createAdminClientIfAvailable() ?? (await createClient());
+
+  const { data: req, error: fetchErr } = await supabase
+    .from("ctrl_requests")
+    .select(
+      `id, org_id, status, deleted_at, is_rateio, request_number, title, description,
+       sector_id, expense_type_id, amount, due_date, reference_month, reference_year,
+       created_by, approval_tier, ctrl_sectors(name), ctrl_expense_types(name)`,
+    )
+    .eq("id", requestId)
+    .maybeSingle();
+
+  if (fetchErr || !req) return { error: "Requisição não encontrada." };
+  if (req.deleted_at) return { error: "Requisição excluída não pode ser editada." };
+  if (!RECLASSIFY_STATUSES.includes(req.status as string)) {
+    return { error: "Só é possível reclassificar requisições aguardando o gerente ou o diretor." };
+  }
+  if (req.is_rateio) {
+    return {
+      error:
+        "Requisição rateada: o orçamento é aprovado por parcela de cada setor. Para mudar o " +
+        "tipo de despesa, rejeite e recrie a requisição.",
+    };
+  }
+
+  const newSectorId = input.sector_id;
+  const newExpenseTypeId = input.expense_type_id;
+  const sectorChanged = newSectorId !== ((req.sector_id as string | null) ?? null);
+  const expenseChanged = newExpenseTypeId !== ((req.expense_type_id as string | null) ?? null);
+  if (!sectorChanged && !expenseChanged) {
+    return { error: "Nada foi alterado — escolha outro setor ou tipo de despesa." };
+  }
+
+  // Setor e tipo precisam ser da MESMA empresa da requisição: sem isso, um id de
+  // outra empresa mandaria o consumo para o orçamento dela.
+  const [newSectorRes, newExpenseRes] = await Promise.all([
+    supabase.from("ctrl_sectors").select("name, org_id").eq("id", newSectorId).maybeSingle(),
+    supabase.from("ctrl_expense_types").select("name, org_id").eq("id", newExpenseTypeId).maybeSingle(),
+  ]);
+  const newSector = newSectorRes.data as { name: string; org_id: string | null } | null;
+  const newExpense = newExpenseRes.data as { name: string; org_id: string | null } | null;
+  if (!newSector || newSector.org_id !== req.org_id) return { error: "Setor não encontrado nesta empresa." };
+  if (!newExpense || newExpense.org_id !== req.org_id) {
+    return { error: "Tipo de despesa não encontrado nesta empresa." };
+  }
+
+  const { approvalTier, newStatus, stage, explicitApproverIds, verification } =
+    await planRerouteAfterEdit(supabase, {
+      sector_id: newSectorId,
+      expense_type_id: newExpenseTypeId,
+      amount: Number(req.amount),
+      due_date: (req.due_date as string | null) ?? null,
+      reference_month: (req.reference_month as number | null) ?? null,
+      reference_year: (req.reference_year as number | null) ?? null,
+      created_by: req.created_by as string,
+    });
+
+  const now = new Date().toISOString();
+  const { data: updated, error: updErr } = await supabase
+    .from("ctrl_requests")
+    .update({
+      sector_id: newSectorId,
+      expense_type_id: newExpenseTypeId,
+      // O "fora do orçamento" foi recalculado: o prefixo "NÃO ORÇADO -" sai ou
+      // entra junto.
+      title: syncNaoOrcadoPrefix(req.title as string | null, approvalTier === "nivel_3"),
+      description: syncNaoOrcadoPrefix(req.description as string | null, approvalTier === "nivel_3"),
+      is_budgeted: verification?.isBudgeted ?? false,
+      approval_tier: approvalTier,
+      approval_level: approvalTier === "nivel_3" ? 2 : 1,
+      status: newStatus,
+      approved_by: null,
+      approved_at: null,
+      complement_return_status: null,
+      updated_at: now,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any)
+    .eq("id", requestId)
+    // Guarda contra corrida: se alguém aprovou no meio do caminho, não reverte.
+    .in("status", RECLASSIFY_STATUSES)
+    .select("id");
+  if (updErr) return { error: updErr.message };
+  if (!updated || updated.length === 0) {
+    return { error: "A requisição acabou de mudar de etapa — atualize a tela e confira." };
+  }
+
+  const resolveName = (v: unknown): string | null => {
+    if (!v) return null;
+    if (Array.isArray(v)) return (v[0] as { name?: string } | undefined)?.name ?? null;
+    return (v as { name?: string }).name ?? null;
+  };
+  const changes: Record<string, [string | null, string | null]> = {};
+  if (sectorChanged) changes.setor = [resolveName(req.ctrl_sectors), newSector.name];
+  if (expenseChanged) changes.tipo_despesa = [resolveName(req.ctrl_expense_types), newExpense.name];
+
+  await supabase.from("ctrl_history").insert({
+    request_id: requestId,
+    user_id: ctx.id,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    action: "editado" as any,
+    comment: input.reason.trim(),
+    metadata: {
+      source: "aprovacoes",
+      changes,
+      reason: input.reason.trim(),
+      from_status: req.status,
+      returned_to: newStatus,
+      from_tier: req.approval_tier,
+      approval_tier: approvalTier,
+      edited_by_roles: ctx.ctrlRoles,
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any);
+
+  // Avisa a etapa de destino só quando quem aprova mudou (etapa, setor ou o
+  // gerente fixo do tipo) — reclassificar sem mudar de mãos não é pendência nova.
+  const oldExplicitManager =
+    req.expense_type_id === APPROVAL_ROUTING.expenseTypeManager.expenseTypeId;
+  const newExplicitManager = newExpenseTypeId === APPROVAL_ROUTING.expenseTypeManager.expenseTypeId;
+  if (newStatus !== req.status || sectorChanged || oldExplicitManager !== newExplicitManager) {
+    const { data: requester } = await supabase
+      .from("users")
+      .select("name, email")
+      .eq("id", req.created_by as string)
+      .maybeSingle<{ name: string | null; email: string | null }>();
+    await notifyPendingApproval({
+      requestId,
+      requestNumber: req.request_number as number,
+      requesterName: requester?.name ?? requester?.email ?? "Solicitante",
+      sectorId: newSectorId,
+      sectorName: newSector.name,
+      amount: Number(req.amount),
+      stage,
+      explicitApproverIds,
+    });
+  }
+
+  await notifyRequester({
+    userId: req.created_by as string,
+    requestId,
+    requestNumber: req.request_number as number,
+    title: "Requisição reclassificada",
+    message:
+      `Sua requisição #${req.request_number} teve o setor/tipo de despesa ajustado durante a aprovação ` +
+      `e segue para ${newStatus === "pendente_diretor" ? "o diretor" : "o gerente"}.`,
+    type: "info_solicitada",
+  });
+
+  revalidatePath("/ctrl/aprovacoes");
+  revalidatePath("/ctrl/requisicoes");
+  revalidatePath("/ctrl/orcamento");
+  revalidatePath("/home");
+  return {
+    ok: true as const,
+    status: newStatus,
+    tier: approvalTier,
+    budgetLabel: verification?.statusLabel ?? null,
+  };
 }
 
 // ─── Correção de tipo de despesa PÓS-PAGAMENTO (admin) ────────────────────────
@@ -3991,29 +4284,16 @@ export async function rerouteAfterAdminEdit(
   const PENDING: string[] = ["pendente", "pendente_diretor", "aguardando_complementacao"];
   if (!PENDING.includes(req.status as string)) return { ok: true, rerouted: false };
 
-  const month = req.due_date
-    ? new Date((req.due_date as string) + "T00:00:00").getMonth() + 1
-    : (req.reference_month as number);
-  const year = req.due_date
-    ? new Date((req.due_date as string) + "T00:00:00").getFullYear()
-    : (req.reference_year as number);
-
-  let verification: BudgetVerification | null = null;
-  if (req.expense_type_id) {
-    verification = await performBudgetVerification(
-      supabase,
-      req.sector_id as string,
-      req.expense_type_id as string,
-      Number(req.amount),
-      month,
-      year,
-    );
-  }
-  const approvalTier: ApprovalTier = verification?.approvalTier ?? "nivel_2";
-  const directorOnly = req.created_by === APPROVAL_ROUTING.directorOnly.requesterId;
-  const directorSectorOnly = req.sector_id === APPROVAL_ROUTING.directorSector.sectorId;
-  const forceDirector = directorOnly || directorSectorOnly;
-  const newStatus: CtrlRequestStatus = forceDirector ? "pendente_diretor" : "pendente";
+  const { verification, approvalTier, newStatus, stage, explicitApproverIds } =
+    await planRerouteAfterEdit(supabase, {
+      sector_id: req.sector_id as string,
+      expense_type_id: (req.expense_type_id as string | null) ?? null,
+      amount: Number(req.amount),
+      due_date: (req.due_date as string | null) ?? null,
+      reference_month: (req.reference_month as number | null) ?? null,
+      reference_year: (req.reference_year as number | null) ?? null,
+      created_by: req.created_by as string,
+    });
   const now = new Date().toISOString();
 
   const { error: updErr } = await supabase
@@ -4042,17 +4322,6 @@ export async function rerouteAfterAdminEdit(
   const creator = (Array.isArray(creatorRaw) ? creatorRaw[0] : creatorRaw) as
     | { name: string | null; email: string | null }
     | null;
-
-  const stage: "gerente" | "diretor" = forceDirector ? "diretor" : "gerente";
-  let explicitApproverIds: string[] | undefined;
-  if (directorOnly) {
-    explicitApproverIds = [APPROVAL_ROUTING.directorOnly.directorId];
-  } else if (
-    !forceDirector &&
-    req.expense_type_id === APPROVAL_ROUTING.expenseTypeManager.expenseTypeId
-  ) {
-    explicitApproverIds = [APPROVAL_ROUTING.expenseTypeManager.managerId];
-  }
 
   await notifyPendingApproval({
     requestId,

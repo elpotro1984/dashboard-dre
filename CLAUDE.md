@@ -108,6 +108,8 @@ Purchase requests move through a status machine driven by a **budget check** aga
 - Side states: `aguardando_complementacao` (info requested), `aguardando_aprovacao_fornecedor`, `rejeitado`
 Approval tier is computed from remaining annual balance at request time. Once `aprovado`, a request can be launched into Omie *contas a pagar* via `contapagar-launch.ts`. Guard every action with `requireCtrlRole(...)`.
 
+**Reenquadrar uma requisição recalcula a alçada por UMA função** (`planRerouteAfterEdit`, em `requests.ts`), usada pelas três edições de setor/tipo: a correção em Contas a Pagar (`editExpenseRoutingFromContasAPagar`, depois da aprovação), a **reclassificação na tela de Aprovações** (`reclassifyRequestInApproval`, 28/10/2026, enquanto aguarda gerente ou diretor) e o reroteamento da edição administrativa (`rerouteAfterAdminEdit`). Nunca auto-aprova: volta a `pendente` (ou `pendente_diretor` no roteamento forçado). Na reclassificação em Aprovações: só Contas a Pagar e admin — a visão completa (`full-view.ts`) fica de fora porque também aprova, e reclassificar o que vai aprovar seria decidir a própria alçada; a aprovação **recomeça pelo gerente** mesmo que ele já tenha aprovado (aprovou outro enquadramento); tipo de despesa é obrigatório ("sem categoria" cai em `nivel_2` sem confronto e viraria atalho para dispensar o diretor); rateio e complementação ficam de fora. O consumo do orçamento muda sozinho porque é soma dinâmica de `ctrl_requests`; a verificação só soma o que está APROVADO, então a requisição pendente reclassificada não conta duas vezes.
+
 ### Vencimento das requisições (Compras)
 
 Duas regras, ambas com fonte única:

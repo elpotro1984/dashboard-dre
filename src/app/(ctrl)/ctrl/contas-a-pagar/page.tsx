@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { getCtrlUser, hasCtrlRole } from "@/lib/ctrl/auth";
+import { listCadastrosAtivos } from "@/lib/ctrl/cadastros-ativos";
 import { hasCtrlFullView } from "@/lib/ctrl/full-view";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClientIfAvailable } from "@/lib/supabase/admin";
@@ -214,22 +215,6 @@ async function getContasAPagar(orgId: string | null) {
   return { requests };
 }
 
-// Cadastros para o modal de correção de setor/tipo. Busca TODOS os ativos via
-// admin client — o perfil contas_a_pagar não é coberto pelo gate de getSectors/
-// getExpenseTypes (e getSectors ainda filtraria por vínculo de setor do usuário).
-async function getCadastros(orgId: string | null) {
-  const supabase = createAdminClientIfAvailable() ?? (await createClient());
-  if (!orgId) return { sectors: [], expenseTypes: [] };
-  const [sec, exp] = await Promise.all([
-    supabase.from("ctrl_sectors").select("id, name").eq("active", true).eq("org_id", orgId).order("name"),
-    supabase.from("ctrl_expense_types").select("id, name").eq("active", true).eq("org_id", orgId).order("name"),
-  ]);
-  return {
-    sectors: (sec.data ?? []) as { id: string; name: string }[],
-    expenseTypes: (exp.data ?? []) as { id: string; name: string }[],
-  };
-}
-
 export default async function ContasAPagarPage() {
   const ctx = await getCtrlUser();
   if (!ctx) redirect("/login");
@@ -252,7 +237,7 @@ export default async function ContasAPagarPage() {
   const [{ requests = [], error }, companies, cadastros] = await Promise.all([
     getContasAPagar(ctx.orgId),
     getCompanies(ctx.orgId),
-    canEditRouting ? getCadastros(ctx.orgId) : Promise.resolve({ sectors: [], expenseTypes: [] }),
+    canEditRouting ? listCadastrosAtivos(ctx.orgId) : Promise.resolve({ sectors: [], expenseTypes: [] }),
   ]);
 
   const fmt = new Intl.NumberFormat("pt-BR", { style: "decimal", minimumFractionDigits: 2, maximumFractionDigits: 2 });

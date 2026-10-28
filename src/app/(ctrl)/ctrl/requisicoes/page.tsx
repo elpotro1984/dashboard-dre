@@ -97,6 +97,7 @@ export default async function RequisicoesPage() {
       favorecido: (r.favorecido as string | null) ?? null,
       supplier_issues_invoice: (r.supplier_issues_invoice as string | null) ?? null,
       attachment_path: (r.attachment_path as string | null) ?? null,
+      invoice_attachment_path: (r.invoice_attachment_path as string | null) ?? null,
       // Anexos diversos: sem eles o modal de detalhes e o de edição não listam
       // o que a requisição já tem.
       extra_attachment_paths: (r.extra_attachment_paths as string[] | null) ?? null,

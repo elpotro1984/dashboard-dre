@@ -28,7 +28,7 @@ const PAYMENT_METHODS: { value: string; label: string }[] = [
 
 // Garante que o vínculo atual apareça no select mesmo se o cadastro estiver
 // inativo (e por isso fora da lista de ativos).
-function withCurrent(
+export function withCurrent(
   options: CadastroOption[],
   currentId: string | null | undefined,
   currentName: string | null,

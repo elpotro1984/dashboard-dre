@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Eye, FileText, Loader2, MessageCircle, Pencil, Receipt, RefreshCw, Trash2, X } from "lucide-react";
+import { Copy, Eye, FileText, Loader2, MessageCircle, Paperclip, Pencil, Receipt, RefreshCw, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
@@ -20,8 +20,10 @@ import {
   type RequestDetail,
 } from "@/components/ctrl/request-detail-modal";
 import {
+  getRequestAttachments,
   getRequestAttachmentUrl,
   getRequestComprovantes,
+  type RequestAttachment,
   type RequestComprovante,
 } from "@/lib/ctrl/actions/requests";
 import { refreshPaymentStatuses } from "@/lib/ctrl/actions/payment-status";
@@ -139,11 +141,12 @@ export function RequisicoesTable({
     number: number;
     title: string;
   } | null>(null);
-  // Modal de comprovantes (anexos do título no Omie).
+  // Modal de anexos: os da requisição e, depois do envio, os do título no Omie.
   const [comprovanteModal, setComprovanteModal] = useState<{
     id: string;
     number: number;
     title: string;
+    launched: boolean;
   } | null>(null);
   // Edição/exclusão administrativa (admin-only).
   const [editReq, setEditReq] = useState<RequestDetail | null>(null);
@@ -362,25 +365,34 @@ export function RequisicoesTable({
                       <StatusBadge status={req.status} paid={isPaid(req)} />
                     </td>
                     <td className="px-3 py-3">
-                      {req.omie_contapagar_codigo ? (
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setComprovanteModal({
-                              id: req.id,
-                              number: req.request_number,
-                              title: req.title,
-                            })
-                          }
-                          className="inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-muted"
-                          title="Ver anexos do Omie"
-                        >
-                          <Receipt className="h-3.5 w-3.5" />
-                          Anexos
-                        </button>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
+                      {/* Os anexos da requisição aparecem desde a criação (e os
+                          que a edição acrescenta); depois do envio, o mesmo botão
+                          mostra também os do título no Omie. */}
+                      {(() => {
+                        const count = attachmentCount(req);
+                        const launched = Boolean(req.omie_contapagar_codigo);
+                        if (count === 0 && !launched) {
+                          return <span className="text-xs text-muted-foreground">—</span>;
+                        }
+                        return (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setComprovanteModal({
+                                id: req.id,
+                                number: req.request_number,
+                                title: req.title,
+                                launched,
+                              })
+                            }
+                            className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-muted"
+                            title={launched ? "Ver os anexos da requisição e do título no Omie" : "Ver os anexos da requisição"}
+                          >
+                            <Paperclip className="h-3.5 w-3.5" />
+                            Anexos{count > 0 ? ` (${count})` : ""}
+                          </button>
+                        );
+                      })()}
                     </td>
                     <td className="px-3 py-3 text-right">
                       <div className="flex items-center justify-end gap-1.5">
@@ -527,6 +539,7 @@ export function RequisicoesTable({
           requestId={comprovanteModal.id}
           requestNumber={comprovanteModal.number}
           requestTitle={comprovanteModal.title}
+          launched={comprovanteModal.launched}
           onClose={() => setComprovanteModal(null)}
         />
       )}
@@ -558,38 +571,70 @@ export function RequisicoesTable({
   );
 }
 
-// ── Comprovantes (anexos do título no Omie) ───────────────────────────────────
+// ── Anexos (os da requisição + os do título no Omie) ──────────────────────────
+
+// Quantos arquivos a requisição guarda: documento de pagamento, nota fiscal e
+// anexos diversos (inclusive os acrescentados pela edição).
+function attachmentCount(req: RequestDetail): number {
+  return (
+    (req.attachment_path ? 1 : 0) +
+    (req.invoice_attachment_path ? 1 : 0) +
+    (req.extra_attachment_paths?.length ?? 0)
+  );
+}
+
+const ATTACHMENT_KIND_LABEL: Record<RequestAttachment["kind"], string> = {
+  pagamento: "Pagamento",
+  nota: "Nota fiscal",
+  anexo: "Anexo",
+};
 
 function ComprovantesModal({
   requestId,
   requestNumber,
   requestTitle,
+  launched,
   onClose,
 }: {
   requestId: string;
   requestNumber: number;
   requestTitle: string;
+  /** Já tem título no Omie: mostra também os anexos de lá. */
+  launched: boolean;
   onClose: () => void;
 }) {
-  const [loading, setLoading] = useState(true);
+  // Anexos da requisição (bucket do sistema).
+  const [ownLoading, setOwnLoading] = useState(true);
+  const [ownError, setOwnError] = useState<string | null>(null);
+  const [own, setOwn] = useState<RequestAttachment[]>([]);
+  // Anexos do título no Omie — só depois do envio ao pagamento.
+  const [loading, setLoading] = useState(launched);
   const [error, setError] = useState<string | null>(null);
   const [comprovantes, setComprovantes] = useState<RequestComprovante[]>([]);
 
   useEffect(() => {
     let active = true;
-    getRequestComprovantes(requestId).then((res) => {
+    getRequestAttachments(requestId).then((res) => {
       if (!active) return;
-      if ("error" in res) {
-        setError(res.error);
-      } else {
-        setComprovantes(res.comprovantes);
-      }
-      setLoading(false);
+      if ("error" in res) setOwnError(res.error);
+      else setOwn(res.attachments);
+      setOwnLoading(false);
     });
+    if (launched) {
+      getRequestComprovantes(requestId).then((res) => {
+        if (!active) return;
+        if ("error" in res) {
+          setError(res.error);
+        } else {
+          setComprovantes(res.comprovantes);
+        }
+        setLoading(false);
+      });
+    }
     return () => {
       active = false;
     };
-  }, [requestId]);
+  }, [requestId, launched]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
@@ -608,42 +653,93 @@ function ComprovantesModal({
           </button>
         </div>
 
-        <div className="px-6 py-4">
-          {loading ? (
-            <p className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> Buscando anexos no Omie...
-            </p>
-          ) : error ? (
-            <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {error}
-            </div>
-          ) : comprovantes.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Nenhum anexo neste título no Omie.
-            </p>
-          ) : (
-            <ul className="divide-y rounded-md border">
-              {comprovantes.map((c) => (
-                <li key={c.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
-                  <span className="flex min-w-0 items-center gap-2 text-sm">
-                    <Receipt className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <span className="truncate">{c.nome}</span>
-                  </span>
-                  {c.url ? (
+        <div className="max-h-[65vh] space-y-5 overflow-y-auto px-6 py-4">
+          <section className="space-y-2">
+            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Na requisição
+            </h4>
+            {ownLoading ? (
+              <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" /> Gerando links...
+              </p>
+            ) : ownError ? (
+              <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {ownError}
+              </div>
+            ) : own.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Nenhum anexo na requisição.</p>
+            ) : (
+              <ul className="divide-y rounded-md border">
+                {own.map((a, i) => (
+                  <li key={`${a.url}-${i}`} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                    <span className="flex min-w-0 items-center gap-2 text-sm">
+                      <Paperclip className="h-4 w-4 shrink-0 text-muted-foreground" />
+                      <span className="truncate">{a.name}</span>
+                      <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                        {ATTACHMENT_KIND_LABEL[a.kind]}
+                      </span>
+                    </span>
                     <a
-                      href={c.url}
+                      href={a.url}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="shrink-0 rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-muted"
                     >
                       Abrir
                     </a>
-                  ) : (
-                    <span className="shrink-0 text-xs text-muted-foreground">indisponível</span>
-                  )}
-                </li>
-              ))}
-            </ul>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {!launched && (
+              <p className="text-xs text-muted-foreground">
+                Vão para o Omie junto com o título, quando a requisição for enviada ao pagamento.
+              </p>
+            )}
+          </section>
+
+          {launched && (
+            <section className="space-y-2">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                No título do Omie
+              </h4>
+              {loading ? (
+                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Buscando anexos no Omie...
+                </p>
+              ) : error ? (
+                <div className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  {error}
+                </div>
+              ) : comprovantes.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Nenhum anexo neste título no Omie.
+                </p>
+              ) : (
+                <ul className="divide-y rounded-md border">
+                  {comprovantes.map((c) => (
+                    <li key={c.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                      <span className="flex min-w-0 items-center gap-2 text-sm">
+                        <Receipt className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        <span className="truncate">{c.nome}</span>
+                      </span>
+                      {c.url ? (
+                        <a
+                          href={c.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="shrink-0 rounded-md border px-2.5 py-1 text-xs font-medium hover:bg-muted"
+                        >
+                          Abrir
+                        </a>
+                      ) : (
+                        <span className="shrink-0 text-xs text-muted-foreground">indisponível</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
           )}
         </div>
 

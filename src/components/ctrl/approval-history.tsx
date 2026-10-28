@@ -166,6 +166,11 @@ function ApprovalHistoryItem({ entry }: { entry: ApprovalHistoryEntry }) {
           {entry.editSource === "contas_a_pagar" && (
             <p className="text-xs text-muted-foreground">Retornada à aprovação para nova validação.</p>
           )}
+          {entry.editSource === "aprovacoes" && (
+            <p className="text-xs text-muted-foreground">
+              Reclassificada durante a aprovação — orçamento e alçada recalculados; a aprovação recomeçou.
+            </p>
+          )}
         </>
       ) : entry.action === "aprovado" && entry.autoApproved ? (
         <>
