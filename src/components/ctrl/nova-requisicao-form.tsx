@@ -4,8 +4,11 @@ import { useRouter } from "next/navigation";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { AlertTriangle, CheckCircle2, ChevronDown, Loader2, Paperclip, RefreshCcw, Search, X, Zap } from "lucide-react";
 
+import { CaixinhaCard } from "@/components/ctrl/caixinha-card";
 import { CtrlOrgChip, useCtrlActiveOrg } from "@/components/ctrl/ctrl-active-org";
+import { caixinhaDoTipo, type SaldoCaixinha } from "@/lib/ctrl/caixinha";
 import type { ClonePrefill } from "@/lib/ctrl/clone-request";
+import { getSaldoCaixinha } from "@/lib/ctrl/actions/caixinha";
 import { createRequest, verifyBudget } from "@/lib/ctrl/actions/requests";
 import { atualizarProjetosAgora } from "@/lib/ctrl/actions/projetos";
 import { extractAttachmentData } from "@/lib/ctrl/actions/attachment-ocr";
@@ -386,6 +389,12 @@ export function NovaRequisicaoForm({
     { sectorId: string; amount: number; verification: BudgetVerification }[] | null
   >(null);
 
+  // Caixinha da Puxada (Vendas / Pós-Vendas): saldo informativo, consultado
+  // sozinho ao escolher o tipo — não depende do botão de verificação.
+  const [caixinha, setCaixinha] = useState<SaldoCaixinha | null>(null);
+  const [caixinhaLoading, setCaixinhaLoading] = useState(false);
+  const [caixinhaError, setCaixinhaError] = useState<string | null>(null);
+
   // ── Derived values ───────────────────────────────────────────────────────────
 
   // Brazilian currency mask: digits flow in as cents from the right.
@@ -533,6 +542,34 @@ export function NovaRequisicaoForm({
     isRateio,
     rateioRows,
   ]);
+
+  // Saldo da caixinha: relê a planilha a cada troca para um tipo Puxada. A
+  // resposta que chega depois de o tipo mudar de novo é descartada.
+  useEffect(() => {
+    setCaixinha(null);
+    setCaixinhaError(null);
+    if (!caixinhaDoTipo(expenseTypeId)) {
+      setCaixinhaLoading(false);
+      return;
+    }
+    let ativo = true;
+    setCaixinhaLoading(true);
+    getSaldoCaixinha(expenseTypeId)
+      .then((res) => {
+        if (!ativo) return;
+        if ("error" in res) setCaixinhaError(res.error);
+        else setCaixinha(res.saldo);
+      })
+      .catch(() => {
+        if (ativo) setCaixinhaError("Não foi possível consultar a caixinha agora.");
+      })
+      .finally(() => {
+        if (ativo) setCaixinhaLoading(false);
+      });
+    return () => {
+      ativo = false;
+    };
+  }, [expenseTypeId]);
 
   // Clear recurrence when incompatible with installments
   useEffect(() => {
@@ -1761,6 +1798,16 @@ export function NovaRequisicaoForm({
               {verifying ? "Verificando..." : verificationDone ? "Reverificar" : "Verificar Orçamento"}
             </button>
           </div>
+
+          {/* Recorrência cria uma requisição por mês, todas com o valor cheio —
+              é o total delas que sai da caixinha. Parcelas já somam o valor. */}
+          <CaixinhaCard
+            saldo={caixinha}
+            loading={caixinhaLoading}
+            error={caixinhaError}
+            valorDaRequisicao={parsedAmount * (isRecurring ? 1 + recurMonths.length : 1)}
+            ocorrencias={isRecurring ? 1 + recurMonths.length : 1}
+          />
 
           {!competenciaOk && (
             <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
