@@ -159,7 +159,7 @@ export async function lerSaldoCaixinha(caixinha: CaixinhaConfig, userId: string)
     origem = "agora";
     if (!tabelaOk) {
       // Sem histórico não há como saber se a planilha está atrasada: o corte
-      // fica no dia 10 do ciclo de hoje, como se ela estivesse em dia.
+      // fica no dia 1º do mês de hoje, como se ela estivesse em dia.
       vigente = { valor, corte: inicioDoCiclo(hoje), lidoEm: hoje };
     } else {
       const nova = novaLeitura(ultima, valor, hoje);

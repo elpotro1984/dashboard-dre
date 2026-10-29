@@ -10,15 +10,16 @@ import { dayKeyBR } from "@/lib/ctrl/datetime";
 //
 //   saldo = valor da planilha − requisições que ainda não estão nela
 //
-// O fechamento é CRAVADO NO DIA 10 (decisão do dono do projeto): a planilha
-// atualizada no dia 10 traz tudo que venceu até o dia 9, e o Control Hub
-// desconta o que vence do dia 10 em diante. O corte NÃO é o dia em que o
-// sistema percebeu a mudança — se ninguém abrir uma requisição Puxada até o
-// dia 15, as de 10 a 14 ainda não estão na planilha e continuam descontando.
+// O fechamento é NO DIA 1º (decisão do dono do projeto em 29/10/2026; até ali
+// era o dia 10): a planilha atualizada no dia 1º traz tudo que venceu no mês
+// anterior, e o Control Hub desconta o que vence do dia 1º em diante — o ciclo
+// é o mês do calendário. O corte NÃO é o dia em que o sistema percebeu a
+// mudança — se ninguém abrir uma requisição Puxada até o dia 15, as de 1 a 14
+// ainda não estão na planilha e continuam descontando.
 //
 // Como saber se a planilha já foi fechada: cada valor DIFERENTE lido é gravado
 // (ctrl_caixinha_leituras). Mudou num ciclo novo → é o fechamento, o corte vai
-// para o dia 10 desse ciclo. Mudou no mesmo ciclo → é correção, o corte fica.
+// para o dia 1º desse ciclo. Mudou no mesmo ciclo → é correção, o corte fica.
 // Não mudou ainda no ciclo novo → a planilha está atrasada, e o corte continua
 // no ciclo anterior: o saldo segue certo, só com um aviso. Isso é o que impede
 // o erro mais perigoso (planilha atrasada fazendo o saldo parecer MAIOR).
@@ -97,14 +98,16 @@ export function valorQueConsome(input: {
   return centavos(base * Math.max(1, input.ocorrencias));
 }
 
-export const DIA_DO_FECHAMENTO = 10;
+/** Dia do mês em que a planilha é fechada (era 10 até 29/10/2026). */
+export const DIA_DO_FECHAMENTO = 1;
 
 const pad = (n: number) => String(n).padStart(2, "0");
 const centavos = (n: number) => Math.round(n * 100) / 100;
 
 /**
  * Dia em que começou o ciclo vigente no dia informado ('YYYY-MM-DD', já em
- * Brasília): o dia 10 mais recente que não passa dele.
+ * Brasília): o dia de fechamento mais recente que não passa dele — com o
+ * fechamento no dia 1º, o primeiro dia do próprio mês.
  */
 export function inicioDoCiclo(dia: string): string {
   const [ano, mes, d] = dia.slice(0, 10).split("-").map(Number);
@@ -126,7 +129,7 @@ export interface LeituraGravada {
  * O que gravar ao ler `valor` hoje. `null` = igual à última leitura, nada a
  * gravar. Mudou no mesmo ciclo da última leitura → correção (mantém o corte,
  * inclusive um corte ajustado à mão). Mudou num ciclo posterior → fechamento,
- * corte no dia 10 do ciclo de hoje.
+ * corte no dia de fechamento do ciclo de hoje.
  */
 export function novaLeitura(
   ultima: LeituraGravada | null,
@@ -142,8 +145,8 @@ export function novaLeitura(
 }
 
 /**
- * A planilha ainda não mudou desde que o ciclo virou: o fechamento do dia 10
- * não foi lançado (ou o saldo coincidiu). O corte segue no ciclo anterior, e o
+ * A planilha ainda não mudou desde que o ciclo virou: o fechamento do mês
+ * anterior não foi lançado (ou o saldo coincidiu). O corte segue no ciclo anterior, e o
  * número continua certo — o aviso é para quem atualiza a planilha.
  */
 export function planilhaAtrasada(ultima: LeituraGravada, hoje: string): boolean {

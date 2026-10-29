@@ -151,13 +151,13 @@ function Detalhe({ saldo, valor, ocorrencias }: { saldo: SaldoCaixinha; valor: n
       )}
       {saldo.atrasada && (
         <p className="text-xs text-amber-700 dark:text-amber-300">
-          A planilha ainda não trouxe o fechamento do dia 10. Até ela ser atualizada, o Control Hub segue descontando
-          tudo que vence desde {desde}.
+          A planilha ainda não trouxe o fechamento do mês anterior. Até ela ser atualizada, o Control Hub segue
+          descontando tudo que vence desde {desde}.
         </p>
       )}
       <p className="text-[11px] text-muted-foreground">
-        Só descontam as requisições dos setores {SETORES_DA_CAIXINHA_TEXTO}. A planilha é fechada todo dia 10; até
-        lá, o Control Hub desconta o que vence a partir de {desde}. Não bloqueia o envio nem muda a aprovação.
+        Só descontam as requisições dos setores {SETORES_DA_CAIXINHA_TEXTO}. A planilha é fechada todo dia 1º com o
+        mês anterior; o Control Hub desconta o que vence a partir de {desde}. Não bloqueia o envio nem muda a aprovação.
       </p>
     </div>
   );

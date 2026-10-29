@@ -3,6 +3,7 @@ import { test } from "node:test";
 
 import {
   CAIXINHAS,
+  DIA_DO_FECHAMENTO,
   SETORES_DA_CAIXINHA_TEXTO,
   caixinhaDoTipo,
   dataQueConta,
@@ -53,7 +54,7 @@ test("somarConsumo: setor fora da lista não desconta", () => {
       req(999, "pendente", "2026-10-20", undefined, CSC),
       req(999, "aprovado", "2026-10-20", undefined, null),
     ],
-    "2026-10-10",
+    "2026-10-01",
   );
   assert.deepEqual(c, { consumido: 300, qtdConsumido: 2, pendente: 0, qtdPendente: 0 });
 });
@@ -89,41 +90,46 @@ test("caixinhaDoTipo: só os dois tipos Puxada, por id", () => {
   assert.equal(caixinhaDoTipo(null), null);
 });
 
-test("inicioDoCiclo: o dia 10 mais recente", () => {
-  assert.equal(inicioDoCiclo("2026-10-28"), "2026-10-10");
-  assert.equal(inicioDoCiclo("2026-10-10"), "2026-10-10");
-  assert.equal(inicioDoCiclo("2026-11-09"), "2026-10-10");
-  assert.equal(inicioDoCiclo("2026-11-10"), "2026-11-10");
+test("inicioDoCiclo: fechamento no dia 1º — o ciclo é o mês do calendário", () => {
+  assert.equal(DIA_DO_FECHAMENTO, 1);
+  assert.equal(inicioDoCiclo("2026-10-29"), "2026-10-01");
+  assert.equal(inicioDoCiclo("2026-10-01"), "2026-10-01");
+  assert.equal(inicioDoCiclo("2026-10-31"), "2026-10-01");
+  assert.equal(inicioDoCiclo("2026-11-01"), "2026-11-01");
   // Virada do ano.
-  assert.equal(inicioDoCiclo("2027-01-05"), "2026-12-10");
+  assert.equal(inicioDoCiclo("2027-01-05"), "2027-01-01");
 });
 
 test("novaLeitura: primeira leitura abre o ciclo de hoje", () => {
-  assert.deepEqual(novaLeitura(null, 1000, "2026-10-28"), { valor: 1000, corte: "2026-10-10" });
+  assert.deepEqual(novaLeitura(null, 1000, "2026-10-29"), { valor: 1000, corte: "2026-10-01" });
 });
 
 test("novaLeitura: valor igual não grava nada", () => {
-  const ultima: LeituraGravada = { valor: 1000, corte: "2026-10-10", lidoEm: "2026-10-12" };
+  const ultima: LeituraGravada = { valor: 1000, corte: "2026-10-01", lidoEm: "2026-10-12" };
   assert.equal(novaLeitura(ultima, 1000, "2026-11-20"), null);
   assert.equal(novaLeitura(ultima, 1000.004, "2026-10-20"), null);
 });
 
-test("novaLeitura: mudou no MESMO ciclo é correção e preserva o corte (até o ajustado à mão)", () => {
-  const ultima: LeituraGravada = { valor: 1000, corte: "2026-10-01", lidoEm: "2026-10-28" };
-  assert.deepEqual(novaLeitura(ultima, 1200, "2026-11-05"), { valor: 1200, corte: "2026-10-01" });
+test("novaLeitura: mudou no MESMO mês é correção e preserva o corte (até o ajustado à mão)", () => {
+  const ultima: LeituraGravada = { valor: 1000, corte: "2026-10-01", lidoEm: "2026-10-03" };
+  assert.deepEqual(novaLeitura(ultima, 1200, "2026-10-30"), { valor: 1200, corte: "2026-10-01" });
+  const ajustadoAMao: LeituraGravada = { valor: 1000, corte: "2026-10-10", lidoEm: "2026-10-29" };
+  assert.deepEqual(novaLeitura(ajustadoAMao, 1200, "2026-10-30"), { valor: 1200, corte: "2026-10-10" });
 });
 
-test("novaLeitura: mudou num ciclo novo é o fechamento — corte no dia 10, não no dia da leitura", () => {
-  const ultima: LeituraGravada = { valor: 1000, corte: "2026-10-10", lidoEm: "2026-10-12" };
-  // Ninguém abriu requisição Puxada até o dia 25: o corte continua sendo o dia 10.
-  assert.deepEqual(novaLeitura(ultima, 500, "2026-11-25"), { valor: 500, corte: "2026-11-10" });
+test("novaLeitura: mudou num mês novo é o fechamento — corte no dia 1º, não no dia da leitura", () => {
+  const ultima: LeituraGravada = { valor: 1000, corte: "2026-10-01", lidoEm: "2026-10-12" };
+  // Ninguém abriu requisição Puxada até o dia 25: o corte continua sendo o dia 1º.
+  assert.deepEqual(novaLeitura(ultima, 500, "2026-11-25"), { valor: 500, corte: "2026-11-01" });
+  // Planilha fechada com atraso, no dia 5: o corte também é o dia 1º.
+  assert.deepEqual(novaLeitura(ultima, 500, "2026-11-05"), { valor: 500, corte: "2026-11-01" });
 });
 
-test("planilhaAtrasada: ciclo virou e a planilha não mudou", () => {
-  const ultima: LeituraGravada = { valor: 1000, corte: "2026-10-10", lidoEm: "2026-10-12" };
-  assert.equal(planilhaAtrasada(ultima, "2026-11-09"), false);
-  assert.equal(planilhaAtrasada(ultima, "2026-11-10"), true);
-  assert.equal(planilhaAtrasada({ ...ultima, lidoEm: "2026-11-10" }, "2026-11-30"), false);
+test("planilhaAtrasada: o mês virou e a planilha não mudou", () => {
+  const ultima: LeituraGravada = { valor: 1000, corte: "2026-10-01", lidoEm: "2026-10-12" };
+  assert.equal(planilhaAtrasada(ultima, "2026-10-31"), false);
+  assert.equal(planilhaAtrasada(ultima, "2026-11-01"), true);
+  assert.equal(planilhaAtrasada({ ...ultima, lidoEm: "2026-11-01" }, "2026-11-30"), false);
 });
 
 test("dataQueConta: vencimento; sem ele, a criação no dia de Brasília", () => {
@@ -143,10 +149,10 @@ test("somarConsumo: aprovadas × em aprovação × fora; só do corte em diante"
       req(999, "rejeitado", "2026-10-15"),
       req(999, "estornado", "2026-10-15"),
       req(999, "inativado_csc", "2026-10-15"),
-      req(999, "aprovado", "2026-10-09"), // antes do corte: já está na planilha
+      req(999, "aprovado", "2026-09-30"), // antes do corte: já está na planilha
       req(70, "aprovado", "2027-01-05"), // parcela futura: conta desde já
     ],
-    "2026-10-10",
+    "2026-10-01",
   );
   assert.deepEqual(c, { consumido: 620, qtdConsumido: 4, pendente: 140, qtdPendente: 2 });
 });
@@ -155,7 +161,7 @@ test("o exemplo do dono do projeto: R$ 1.000, gasta R$ 500 em outubro, fechament
   const outubro = [req(500, "agendado", "2026-10-20")];
 
   // Outubro: planilha com 1.000, o Control Hub desconta os 500.
-  const ultimaOut: LeituraGravada = { valor: 1000, corte: "2026-10-10", lidoEm: "2026-10-10" };
+  const ultimaOut: LeituraGravada = { valor: 1000, corte: "2026-10-01", lidoEm: "2026-10-01" };
   const emOutubro = montarSaldo({
     caixinha: vendas,
     saldoPlanilha: 1000,
@@ -168,15 +174,15 @@ test("o exemplo do dono do projeto: R$ 1.000, gasta R$ 500 em outubro, fechament
   });
   assert.equal(emOutubro.disponivel, 500);
 
-  // 10/11: a planilha passa a 500 (os 500 de outubro foram lançados nela).
-  const nova = novaLeitura(ultimaOut, 500, "2026-11-12");
-  assert.deepEqual(nova, { valor: 500, corte: "2026-11-10" });
+  // 01/11: a planilha passa a 500 (os 500 de outubro foram lançados nela).
+  const nova = novaLeitura(ultimaOut, 500, "2026-11-02");
+  assert.deepEqual(nova, { valor: 500, corte: "2026-11-01" });
   const emNovembro = montarSaldo({
     caixinha: vendas,
     saldoPlanilha: 500,
     corte: nova!.corte,
     origem: "agora",
-    lidoEm: "2026-11-12",
+    lidoEm: "2026-11-02",
     atrasada: false,
     erroPlanilha: null,
     consumo: somarConsumo(outubro, nova!.corte),
@@ -186,9 +192,9 @@ test("o exemplo do dono do projeto: R$ 1.000, gasta R$ 500 em outubro, fechament
 });
 
 test("planilha atrasada: o corte fica no ciclo anterior e o saldo não infla", () => {
-  const ultima: LeituraGravada = { valor: 1000, corte: "2026-10-10", lidoEm: "2026-10-10" };
+  const ultima: LeituraGravada = { valor: 1000, corte: "2026-10-01", lidoEm: "2026-10-01" };
   const reqs = [req(500, "aprovado", "2026-10-20"), req(100, "aprovado", "2026-11-12")];
-  // 15/11 e a planilha ainda mostra 1.000 (o fechamento não foi lançado).
+  // 15/11 e a planilha ainda mostra 1.000 (o fechamento de outubro não foi lançado).
   assert.equal(novaLeitura(ultima, 1000, "2026-11-15"), null);
   const s = montarSaldo({
     caixinha: vendas,
@@ -209,7 +215,7 @@ test("montarSaldo: projetado desconta as em aprovação; sem planilha, sem saldo
   const s = montarSaldo({
     caixinha: vendas,
     saldoPlanilha: 1000,
-    corte: "2026-10-10",
+    corte: "2026-10-01",
     origem: "agora",
     lidoEm: "2026-10-28",
     atrasada: false,
@@ -222,7 +228,7 @@ test("montarSaldo: projetado desconta as em aprovação; sem planilha, sem saldo
   const semPlanilha = montarSaldo({
     caixinha: vendas,
     saldoPlanilha: null,
-    corte: "2026-10-10",
+    corte: "2026-10-01",
     origem: null,
     lidoEm: null,
     atrasada: false,
