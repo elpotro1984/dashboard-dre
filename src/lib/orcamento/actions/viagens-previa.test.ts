@@ -89,12 +89,26 @@ test("a viagem é rotulada pela CATEGORIA, nunca pelo código cru", () => {
   // nunca tem método marcado (a viagem não depende da marcação, regra de
   // 01/10/2026). Caindo direto no código, a prévia do setor rotulava o grupo
   // "2.01.98" e o diretor aprovava sem saber em que conta a viagem cai.
+  //
+  // Desde 29/10/2026 o mapeamento vem do resolvedor compartilhado com "Método por
+  // categoria" (`mapeamento-categoria.ts`), que lê `category_mapping` E o de-para
+  // dos departamentos roteados — o nome tem de vir nas DUAS consultas.
   const texto = fs.readFileSync(ARQUIVO, "utf8");
   assert.match(
     texto,
-    /omie_category_name/,
-    "o nome da categoria saiu do select de category_mapping",
+    /lerMapeamentoEfetivo\(/,
+    "a Prévia deixou de usar o resolvedor de mapeamento compartilhado",
   );
+  const resolvedor = fs.readFileSync(
+    path.join(process.cwd(), "src", "lib", "orcamento", "mapeamento-categoria.ts"),
+    "utf8",
+  );
+  for (const tabela of ["category_mapping", "routed_category_mapping"]) {
+    const i = resolvedor.indexOf(`.from("${tabela}")`);
+    assert.notEqual(i, -1, `o resolvedor deixou de ler ${tabela}`);
+    const select = resolvedor.slice(i, resolvedor.indexOf(")", resolvedor.indexOf(".select(", i)));
+    assert.match(select, /omie_category_name/, `o nome da categoria saiu do select de ${tabela}`);
+  }
   assert.match(
     texto,
     /nomeByCode\.get\(code\)/,

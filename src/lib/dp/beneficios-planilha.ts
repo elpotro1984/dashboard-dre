@@ -21,6 +21,8 @@ import {
 import type { DpBeneficiosDados } from "@/lib/dp/beneficios-config";
 
 export const ABA_COMO = "Como preencher";
+/** A aba de preenchimento: uma linha por colaborador, agrupada por empresa. */
+export const ABA_BENEFICIOS = "Benefícios";
 export const ABA_FILHOS = "Filhos";
 export const ABA_OUTROS = "Outros benefícios";
 export const ABA_OPCOES = "Opções";
@@ -31,12 +33,16 @@ export const ABA_LISTAS = "_listas";
 export const COLUNAS_ESCOLHA = ["alimentacao", "transporte", "gasolina", "carona", "homeOffice", "sesi", "assiduidade"] as const;
 export type DpColunaEscolha = (typeof COLUNAS_ESCOLHA)[number];
 
+/**
+ * Colunas de identificação da aba Benefícios: Empresa e Colaborador na frente,
+ * o Código (ID da Sólides) no fim — é por ele que a importação acha a pessoa
+ * sem confundir homônimos (28/10/2026: o modelo ficou só com isto + uma coluna
+ * por benefício, a pedido; valor nenhum vai na planilha).
+ */
 export const CABECALHO_PESSOA = {
-  id: "ID Sólides (não altere)",
+  empresa: "Empresa",
   nome: "Colaborador",
-  departamento: "Departamento",
-  cargo: "Cargo",
-  contrato: "Contrato",
+  id: "Código (não altere)",
 } as const;
 
 export const CABECALHO_ESCOLHA: Record<DpColunaEscolha, string> = {

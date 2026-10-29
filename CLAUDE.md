@@ -238,6 +238,16 @@ O método foi reconstruído do zero. O caminho é **filtrar setores → escolher
 - As colunas `cancelado`, `cancelado_motivo` e `diretoria_travado` existem na despesa e **ninguém escreve nelas**. `diretoria_travado` seguiu sem leitor mesmo depois da validação voltar: a trava de lá deriva do status, de propósito (ver a seção da validação). A Prévia continua filtrando `cancelado = false`. **Não recrie a marcação em jsonb** que existia antes.
 - As tabelas antigas `orcamento_planejamento_socios` / `_itens` **não existem mais** — a migration `20260926120000` as removeu (aplicada em 25/09/2026, junto com todas as outras do módulo).
 
+### Orçamento — categorias de DEPARTAMENTO ROTEADO (29/10/2026)
+
+Empresa que vive de departamento enviado por outra ("Enviar para" na tela de Departamentos) tem a DRE mapeada em `routed_category_mapping`, não em `category_mapping`. O Orçamento lia só o segundo, então **Salvaterra Estacionamento** (ESTACIONAMENTO da Mall e da Feat) e **Sirena** (SIRENA da Feat) viam em "Método por categoria" só as categorias globais — nenhuma da própria DRE.
+
+- **O mapeamento efetivo categoria → conta é UM resolvedor** (`lerMapeamentoEfetivo` / `resolverMapeamento`, em `mapeamento-categoria.ts`, puro e testado), usado pela lista de "Método por categoria" (e por tabela as telas de montagem) **e** pela Prévia — e portanto pelo Finalizar. Se só a lista mudasse, a categoria roteada ganharia método e cairia em "categorias não mapeadas" na Prévia. Ao ligar categoria a conta num lugar novo do Orçamento, use ele.
+- **Precedência: empresa > roteado > global.** O da empresa vence para a mudança ser aditiva (conferido em 29/10/2026: nenhuma empresa tem o mesmo código em contas diferentes nos dois cadastros; Feat, Viva Go e Salvaterra Mall saíram com a lista idêntica). O roteado vence o global porque é o que a DRE usa no lançamento roteado. Linha da empresa sem conta continua escondendo a global.
+- **Só rota ATIVA**: o de-para roteado só vale com o departamento de origem ainda enviado para a empresa, como na DRE. Linha de rota desfeita fica no banco sem efeito.
+- O REALIZADO já recebia o roteado (`orcamento_media_realizado`, migration `20261027140000`); o que faltava era a lista e a conta.
+- Fica de fora o fallback da DRE para o mapeamento da EMPRESA DE ORIGEM (`category_mapping` dela): ele aponta para o plano de outra empresa, e listá-lo traria todas as categorias da origem, não só as do departamento.
+
 ### Orçamento — o quadro de pessoal vem do DP (27/10/2026)
 
 Botão **Configuração da empresa › Colaboradores do DP**: puxa nome, cargo e salário atual dos colaboradores que o Departamento Pessoal já espelha da Sólides para a tela de **Despesas com Pessoal**, empresa a empresa. O gestor digitava à mão um quadro que o DP mantém. Regras puras e testadas em `src/lib/orcamento/dp-sync.ts`; o lado DP em `dp-fonte.ts`; actions em `actions/dp-sync.ts`; tela em `dp-sync-manager.tsx`. Migration `20261027120000`.

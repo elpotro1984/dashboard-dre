@@ -1,7 +1,10 @@
 // Gera o MODELO da carga inicial dos benefícios por colaborador (o card
-// "Benefícios" da ficha do DP), já preenchido com os colaboradores ativos da
-// Sólides, uma aba por empresa, e com LISTAS SUSPENSAS das opções que cada
-// empresa tem em Configurações › Benefícios.
+// "Benefícios" da ficha do DP): uma aba só, com Empresa, Colaborador e uma
+// coluna por benefício, já preenchida com os colaboradores ativos da Sólides e
+// com LISTAS SUSPENSAS das opções que a empresa de cada linha tem em
+// Configurações › Benefícios. A planilha diz QUAL opção a pessoa recebe — o
+// valor nunca vai nela: vem do cadastro da empresa (pedido de 28/10/2026, que
+// tirou as colunas de referência com valor, departamento, cargo e contrato).
 //
 //   npx tsx scripts/dp-beneficios-modelo.ts <arquivo.xlsx>
 //
@@ -24,7 +27,6 @@ import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx-js-style";
 
 import {
-  avaliarFilhos,
   lerBeneficiosColaborador,
   ROTULO_DESTINO,
   rotuloPresenciais,
@@ -39,6 +41,7 @@ import {
   type DpBlocoBeneficio,
 } from "@/lib/dp/beneficios-config";
 import {
+  ABA_BENEFICIOS,
   ABA_COMO,
   ABA_FILHOS,
   ABA_LISTAS,
@@ -76,7 +79,6 @@ if (destino.toLowerCase().startsWith(projeto.toLowerCase() + path.sep)) {
 }
 
 const db = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!, { auth: { persistSession: false } });
-const hoje = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Sao_Paulo" }).format(new Date());
 const agora = new Intl.DateTimeFormat("pt-BR", { timeZone: "America/Sao_Paulo", dateStyle: "short", timeStyle: "short" }).format(new Date());
 
 /** Lê a tabela inteira (o PostgREST corta em 1.000 linhas). */
@@ -98,21 +100,16 @@ async function todas(tabela: string, colunas: string, filtro?: (q: any) => any):
 interface Pessoa {
   solidesId: number;
   nome: string;
-  departamento: string;
-  cargo: string;
-  contrato: string;
-  dependentes: Array<{ nome: string; nascimento: string | null; parentesco: string | null }>;
 }
 
 // ── Estilos ────────────────────────────────────────────────────────────────
 const cab = (rgb: string) => ({ font: { bold: true, color: { rgb: "FFFFFF" } }, fill: { patternType: "solid", fgColor: { rgb } }, alignment: { wrapText: true, vertical: "center" } });
 const CAB_ID = cab("334155");
 const CAB_ESCOLHA = cab("AE1800");
-const CAB_SEM = cab("6B7280");
-const CAB_REF = cab("94A3B8");
+const CAB_CODIGO = cab("94A3B8");
 const PREENCHER = { fill: { patternType: "solid", fgColor: { rgb: "FFF7E6" } } };
 const SEM_LISTA = { fill: { patternType: "solid", fgColor: { rgb: "E5E7EB" } } };
-const REF = { font: { color: { rgb: "64748B" } }, fill: { patternType: "solid", fgColor: { rgb: "F1F5F9" } } };
+const CODIGO = { font: { color: { rgb: "94A3B8" } } };
 const MOEDA = "R$ #,##0.00";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -146,14 +143,11 @@ const congelar = new Map<string, { colunas: number; linhas: number }>();
 const col = (c: number) => XLSX.utils.encode_col(c);
 
 (async () => {
-  const [colabs, regras, empresas, configs, cadastros, cards] = await Promise.all([
-    todas("dp_colaboradores", "solides_id, nome, unidade_id, departamento_id, departamento_nome, cargo_nome, tipo_contrato, dependentes", (q) =>
-      q.eq("ativo", true),
-    ),
+  const [colabs, regras, empresas, configs, cards] = await Promise.all([
+    todas("dp_colaboradores", "solides_id, nome, unidade_id, departamento_id", (q) => q.eq("ativo", true)),
     todas("dp_empresa_regras", "origem, solides_id, company_id"),
     todas("companies", "id, name"),
     todas("dp_beneficios_config", "company_id, bloco, dados"),
-    todas("dp_folha_cadastro", "solides_id, alimentacao, transporte_tipo, transporte_opcao, transporte_valor, home_office, salario_familia_cotas"),
     todas("dp_colaborador_beneficios", "solides_id, dados"),
   ]);
 
@@ -172,7 +166,6 @@ const col = (c: number) => XLSX.utils.encode_col(c);
   }
   const cfgDe = (companyId: string) => cfgPorEmpresa.get(companyId)?.dados ?? BENEFICIOS_VAZIOS;
 
-  const cadastroDe = new Map(cadastros.map((c) => [Number(c.solides_id), c]));
   const cardDe = new Map<number, DpBeneficiosColaborador>(cards.map((c) => [Number(c.solides_id), lerBeneficiosColaborador(c.dados)]));
 
   // Colaboradores ativos por empresa, pela MESMA regra de empresa das telas.
@@ -188,14 +181,7 @@ const col = (c: number) => XLSX.utils.encode_col(c);
       continue;
     }
     const lista = porEmpresa.get(e.companyId) ?? [];
-    lista.push({
-      solidesId: Number(r.solides_id),
-      nome: String(r.nome ?? "").trim(),
-      departamento: String(r.departamento_nome ?? ""),
-      cargo: String(r.cargo_nome ?? ""),
-      contrato: String(r.tipo_contrato ?? ""),
-      dependentes: Array.isArray(r.dependentes) ? r.dependentes : [],
-    });
+    lista.push({ solidesId: Number(r.solides_id), nome: String(r.nome ?? "").trim() });
     porEmpresa.set(e.companyId, lista);
   }
   const ordemEmpresas = Array.from(porEmpresa.keys()).sort((a, b) => nomeEmpresa.get(a)!.localeCompare(nomeEmpresa.get(b)!, "pt-BR"));
@@ -216,36 +202,29 @@ const col = (c: number) => XLSX.utils.encode_col(c);
   }
   const listaColabs = refLista("Colaboradores", Array.from(rotuloDe.values()).sort((a, b) => a.localeCompare(b, "pt-BR")));
 
-  // ── Uma aba por empresa ────────────────────────────────────────────────
-  const nomesAbas = new Set<string>([ABA_COMO, ABA_FILHOS, ABA_OUTROS, ABA_OPCOES, ABA_LISTAS]);
-  const nomeDeAba = (nome: string) => {
-    let base = nome.replace(/[[\]:*?/\\]/g, " ").replace(/\s+/g, " ").trim().slice(0, 31) || "Empresa";
-    for (let n = 2; nomesAbas.has(base); n += 1) base = `${base.slice(0, 27)} (${n})`;
-    nomesAbas.add(base);
-    return base;
-  };
-
-  const abasEmpresa: Array<{ nome: string; ws: XLSX.WorkSheet }> = [];
+  // ── A aba Benefícios: uma só, em blocos por empresa ─────────────────────
+  // A lista de cada célula é a da empresa da LINHA — por isso as linhas vêm
+  // agrupadas por empresa (uma validação por bloco × coluna) e a pessoa nunca
+  // escolhe a faixa de outra empresa.
   const resumo: Array<{ empresa: string; pessoas: number; salvos: number; comCard: number }> = [];
   const filhosLinhas: Celula[][] = [];
   const outrosLinhas: Celula[][] = [];
-  let comCard = 0;
-
-  const REF_CAB = [
-    "Na folha hoje: alimentação (R$/mês)",
-    "Na folha hoje: vale-transporte",
-    "Na folha hoje: gasolina (R$/mês)",
-    "Na folha hoje: home office (R$/mês)",
-    "Na folha hoje: cotas de salário-família",
-    "Filhos até 14 anos na Sólides",
+  const beneficiosLinhas: Celula[][] = [
+    [
+      cel(CABECALHO_PESSOA.empresa, CAB_ID),
+      cel(CABECALHO_PESSOA.nome, CAB_ID),
+      ...COLUNAS_ESCOLHA.map((c) => cel(CABECALHO_ESCOLHA[c], CAB_ESCOLHA)),
+      cel(CABECALHO_PESSOA.id, CAB_CODIGO),
+    ],
   ];
+  const validacoesBeneficios: Validacao[] = [];
+  let comCard = 0;
 
   for (const companyId of ordemEmpresas) {
     const empresa = nomeEmpresa.get(companyId)!;
     const pessoas = porEmpresa.get(companyId)!;
     const cfg = cfgDe(companyId);
     const opcoes = opcoesDaPlanilha(cfg);
-    const nomeAba = nomeDeAba(empresa);
     let comCardEmpresa = 0;
 
     // A lista de cada coluna (nenhuma quando a empresa não tem opção naquele bloco).
@@ -255,32 +234,16 @@ const col = (c: number) => XLSX.utils.encode_col(c);
       else listaDe[c] = opcoes[c].length > 0 ? refLista(`${empresa} · ${CABECALHO_ESCOLHA[c]}`, opcoes[c]) : null;
     }
 
-    const cabecalho: Celula[] = [
-      ...Object.values(CABECALHO_PESSOA).map((t) => cel(t, CAB_ID)),
-      ...COLUNAS_ESCOLHA.map((c) => cel(CABECALHO_ESCOLHA[c], listaDe[c] ? CAB_ESCOLHA : CAB_SEM)),
-      ...REF_CAB.map((t) => cel(t, CAB_REF)),
-    ];
-    const linhas: Celula[][] = [cabecalho];
+    const primeira = beneficiosLinhas.length + 1; // linha do Excel (1 = cabeçalho)
     for (const p of pessoas) {
       const card = cardDe.get(p.solidesId) ?? null;
       if (card) comCardEmpresa += 1;
       const ja = card ? escolhasNaPlanilha(card, cfg) : null;
-      const cad = cadastroDe.get(p.solidesId);
-      const num = (v: unknown) => (Number(v) > 0 ? cel(Number(v), REF, MOEDA) : cel("", REF));
-      const filhos = avaliarFilhos(p.dependentes, [], hoje).filter((f) => f.conta).length;
-      linhas.push([
-        cel(p.solidesId),
+      beneficiosLinhas.push([
+        cel(empresa),
         cel(p.nome),
-        cel(p.departamento),
-        cel(p.cargo),
-        cel(p.contrato),
         ...COLUNAS_ESCOLHA.map((c) => cel(ja?.[c] ?? "", listaDe[c] ? PREENCHER : SEM_LISTA)),
-        num(cad?.alimentacao),
-        cel(cad?.transporte_tipo === "bilhete" ? String(cad.transporte_opcao ?? "bilhete") : "", REF),
-        cad?.transporte_tipo === "gasolina" ? num(cad.transporte_valor) : cel("", REF),
-        num(cad?.home_office),
-        Number(cad?.salario_familia_cotas) > 0 ? cel(Number(cad!.salario_familia_cotas), REF) : cel("", REF),
-        filhos > 0 ? cel(filhos, REF) : cel("", REF),
+        cel(p.solidesId, CODIGO),
       ]);
       for (const f of card?.filhos ?? []) {
         const [y, m, d] = f.nascimento.split("-");
@@ -290,30 +253,31 @@ const col = (c: number) => XLSX.utils.encode_col(c);
         outrosLinhas.push([cel(rotuloDe.get(p.solidesId)!), cel(o.rotulo), cel(o.valor, undefined, MOEDA), cel(ROTULO_DESTINO[o.destino])]);
       }
     }
-    const ws = aba(linhas, [12, 34, 26, 30, 14, 20, 20, 24, 24, 20, 18, 14, 16, 18, 16, 16, 16, 14]);
-    ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: linhas.length - 1, c: cabecalho.length - 1 } }) };
-    ws["!rows"] = [{ hpt: 42 }];
-
-    const ultima = pessoas.length + 1;
-    const v: Validacao[] = [];
-    COLUNAS_ESCOLHA.forEach((c, i) => {
-      const lista = listaDe[c];
-      if (!lista || pessoas.length === 0) return;
-      const letra = col(5 + i);
-      const km = c === "gasolina" || c === "carona";
-      v.push({
-        sqref: `${letra}2:${letra}${ultima}`,
-        lista,
-        estrito: !km,
-        erro: "Escolha uma opção da lista — ela vem de Configurações › Benefícios da empresa.",
+    const ultima = beneficiosLinhas.length;
+    if (pessoas.length > 0) {
+      COLUNAS_ESCOLHA.forEach((c, i) => {
+        const lista = listaDe[c];
+        if (!lista) return;
+        const letra = col(2 + i);
+        const km = c === "gasolina" || c === "carona";
+        validacoesBeneficios.push({
+          sqref: `${letra}${primeira}:${letra}${ultima}`,
+          lista,
+          estrito: !km,
+          erro: `Escolha uma opção da lista — são as de ${empresa} em Configurações › Benefícios.`,
+        });
       });
-    });
-    validacoes.set(nomeAba, v);
-    congelar.set(nomeAba, { colunas: 2, linhas: 1 });
-    abasEmpresa.push({ nome: nomeAba, ws });
+    }
     resumo.push({ empresa, pessoas: pessoas.length, salvos: cfgPorEmpresa.get(companyId)?.salvos ?? 0, comCard: comCardEmpresa });
     comCard += comCardEmpresa;
   }
+  const beneficiosWs = aba(beneficiosLinhas, [30, 36, 20, 22, 24, 24, 22, 20, 12, 12]);
+  beneficiosWs["!autofilter"] = {
+    ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: beneficiosLinhas.length - 1, c: beneficiosLinhas[0].length - 1 } }),
+  };
+  beneficiosWs["!rows"] = [{ hpt: 32 }];
+  validacoes.set(ABA_BENEFICIOS, validacoesBeneficios);
+  congelar.set(ABA_BENEFICIOS, { colunas: 2, linhas: 1 });
 
   // ── Filhos e Outros benefícios (linhas em branco para preencher) ─────────
   const LINHAS_LIVRES = 300;
@@ -371,16 +335,16 @@ const col = (c: number) => XLSX.utils.encode_col(c);
     [cel(`Gerado em ${agora}. Arquivo SIGILOSO: tem dados do DP. Não salve na pasta do projeto nem envie para fora.`)],
     [cel("")],
     [cel("Como preencher", B)],
-    [cel("• Uma aba por empresa, com os colaboradores ATIVOS da Sólides. Preencha as colunas de cabeçalho vermelho; em branco = não recebe.")],
-    [cel("• As listas suspensas trazem as opções de Configurações › Benefícios de cada empresa (aba Opções, com valor e unidade).")],
-    [cel("• Benefício com cabeçalho e células cinza = a empresa não o tem cadastrado: cadastre lá e gere o modelo de novo.")],
+    [cel("• Aba Benefícios: uma linha por colaborador ativo da Sólides, agrupados por empresa. Em cada coluna, escolha na lista")],
+    [cel("  QUAL opção a pessoa recebe (a faixa do vale-alimentação, o bilhete do VT, a modalidade do SESI…). Em branco = não recebe.")],
+    [cel("• Não se digita valor: o valor de cada opção vem de Configurações › Benefícios da empresa. A aba Opções só mostra, para consulta.")],
+    [cel("• Célula cinza = a empresa não tem aquele benefício cadastrado: cadastre lá e gere o modelo de novo.")],
     [cel("• Gasolina e carona: escolha a faixa na lista ou digite a distância em km (a importação acha a faixa).")],
-    [cel("• Colunas 'Na folha hoje…' são só referência — vêm do cadastro da folha (planilha do DP) e NÃO são importadas.")],
-    [cel("• Salário-família sai das regras (CLT/aprendiz, limite de remuneração, filhos até 14 anos). Filhos da Sólides já contam.")],
+    [cel("• Salário-família não tem coluna: sai das regras (CLT/aprendiz, limite de remuneração, filhos até 14 anos). Filhos da Sólides já contam.")],
     [cel("  Na aba Filhos, cadastre só os que faltam na Sólides — ou, com o MESMO nome, para corrigir a data ou marcar inválido.")],
     [cel("• Outros benefícios: uma linha por benefício; Destino = o benefício em que o valor soma (na unidade dele) ou Separado.")],
     [cel("• Quem já tem benefícios cadastrados na ficha vem com eles preenchidos.")],
-    [cel("• Não altere a coluna ID Sólides nem os nomes das abas.")],
+    [cel("• Não altere a coluna Código nem os nomes das abas: é pelo código que a importação acha cada pessoa.")],
     [cel("")],
     [cel("Empresa", CAB_ID), cel("Colaboradores ativos", CAB_ID), cel("Benefícios cadastrados", CAB_ID), cel("Já com benefícios na ficha", CAB_ID)],
     ...resumo.map((r) => [cel(r.empresa), cel(r.pessoas), cel(r.salvos === 0 ? "nenhum — cadastre antes" : `${r.salvos} de 8 blocos`), cel(r.comCard)]),
@@ -397,7 +361,7 @@ const col = (c: number) => XLSX.utils.encode_col(c);
   const wb = XLSX.utils.book_new();
   const ordem: Array<[string, XLSX.WorkSheet]> = [
     [ABA_COMO, comoWs],
-    ...abasEmpresa.map((a) => [a.nome, a.ws] as [string, XLSX.WorkSheet]),
+    [ABA_BENEFICIOS, beneficiosWs],
     [ABA_FILHOS, filhosWs],
     [ABA_OUTROS, outrosWs],
     [ABA_OPCOES, opcoesWs],

@@ -11,6 +11,7 @@ import {
   SEM_ACESSO,
 } from "@/lib/orcamento/auth";
 import { isSchemaMissing } from "@/lib/orcamento/errors";
+import { lerMapeamentoEfetivo } from "@/lib/orcamento/mapeamento-categoria";
 import { isOrcamentoMetodo, type OrcamentoMetodo } from "@/lib/orcamento/metodos";
 import { unificarGemeas } from "@/lib/orcamento/planejamento-calc";
 import { isValidBudgetYear } from "@/lib/orcamento/years";
@@ -31,17 +32,10 @@ export interface CategoriaMetodoItem {
 
 const PATH = "/orcamento/configuracoes/categoria-metodo";
 
-interface MappingRow {
-  omie_category_code: string;
-  omie_category_name: string;
-  dre_account_id: string | null;
-  company_id: string | null;
-}
-
 /**
- * Lista as categorias de DESPESA de uma empresa (do mapeamento efetivo:
- * mapeamento global + override específico da empresa, filtrado às categorias
- * cuja linha DRE é de despesa) já com o método de orçamento salvo NO ANO, se
+ * Lista as categorias de DESPESA de uma empresa (do mapeamento efetivo: o da
+ * empresa, o dos departamentos roteados para ela e o global, filtrado às
+ * categorias cuja linha DRE é de despesa) já com o método de orçamento salvo NO ANO, se
  * houver. A lista de categorias vem do mapeamento (estrutural, não versionada);
  * só o vínculo categoria→método é por ano.
  */
@@ -85,29 +79,19 @@ async function listarCategoriasDespesa(companyId: string, year: number): Promise
 
   const supabase = createAdminClientIfAvailable() ?? (await createClient());
 
-  // 1) Mapeamentos que valem para a empresa: específicos dela + globais (null).
-  const { data: mappings, error: mapError } = await supabase
-    .from("category_mapping")
-    .select("omie_category_code, omie_category_name, dre_account_id, company_id")
-    .or(`company_id.eq.${companyId},company_id.is.null`);
-  if (mapError) return { error: mapError.message };
-
-  // Resolução efetiva por código: o específico da empresa vence o global.
-  const globalByCode = new Map<string, MappingRow>();
-  const companyByCode = new Map<string, MappingRow>();
-  for (const raw of (mappings ?? []) as MappingRow[]) {
-    const target = raw.company_id === companyId ? companyByCode : globalByCode;
-    if (!target.has(raw.omie_category_code)) target.set(raw.omie_category_code, raw);
-  }
-  const effective = new Map<string, MappingRow>();
-  globalByCode.forEach((row, code) => effective.set(code, row));
-  companyByCode.forEach((row, code) => effective.set(code, row));
+  // 1) Mapeamento efetivo: o da empresa, o dos departamentos ROTEADOS para ela
+  //    e o global, nessa ordem. Sem o roteado, empresa que vive de departamento
+  //    de outra (Salvaterra Estacionamento, Sirena) não via nenhuma categoria
+  //    da própria DRE aqui — ver `mapeamento-categoria.ts`.
+  const lido = await lerMapeamentoEfetivo(supabase, companyId);
+  if (lido.error !== undefined) return { error: lido.error };
+  const effective = lido.mapa;
 
   // 2) Tipo/rótulo da linha DRE de cada categoria (para filtrar despesas).
   const accountIds = Array.from(
     new Set(
       Array.from(effective.values())
-        .map((r) => r.dre_account_id)
+        .map((r) => r.dreAccountId)
         .filter((id): id is string => Boolean(id)),
     ),
   );
@@ -144,16 +128,16 @@ async function listarCategoriasDespesa(companyId: string, year: number): Promise
 
   // 4) Só categorias cuja linha DRE é de despesa.
   const brutos: Omit<CategoriaMetodoItem, "codigos">[] = [];
-  Array.from(effective.values()).forEach((row) => {
-    if (!row.dre_account_id) return;
-    const account = accountById.get(row.dre_account_id);
+  effective.forEach((row, code) => {
+    if (!row.dreAccountId) return;
+    const account = accountById.get(row.dreAccountId);
     if (!account || account.type !== "despesa") return;
     brutos.push({
-      categoryCode: row.omie_category_code,
-      categoryName: row.omie_category_name,
+      categoryCode: code,
+      categoryName: row.nome ?? code,
       dreLineCode: account.code,
       dreLineName: account.name,
-      metodo: metodoByCode.get(row.omie_category_code) ?? null,
+      metodo: metodoByCode.get(code) ?? null,
     });
   });
 

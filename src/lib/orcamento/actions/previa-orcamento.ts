@@ -13,6 +13,7 @@ import {
 } from "@/lib/orcamento/auth";
 import { orcaPorSetor } from "@/lib/orcamento/setor-gravacao";
 import { isSchemaMissing } from "@/lib/orcamento/errors";
+import { lerMapeamentoEfetivo } from "@/lib/orcamento/mapeamento-categoria";
 import { isValidBudgetYear } from "@/lib/orcamento/years";
 import { SETOR_TODOS, setorEspecifico } from "@/lib/orcamento/setor-filtro";
 import {
@@ -249,14 +250,6 @@ interface ValorFixoSnapshotRow {
   /** Rótulo do contrato — só preenchido quando a categoria tem 2+. */
   descricao: string | null;
 }
-interface CategoryMappingRow {
-  omie_category_code: string;
-  /** Nome da categoria na Omie — o rótulo de quem não tem método marcado. */
-  omie_category_name: string | null;
-  dre_account_id: string | null;
-  company_id: string | null;
-}
-
 const MESES_CURTO = ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"];
 
 /** Moeda curta para o texto de detalhe do item (sem centavos quando redondo). */
@@ -574,29 +567,23 @@ export async function getPreviaOrcamento(
       return v == null ? null : Number(v);
     };
 
-    // Mapeamento categoria→conta (override da empresa > global), uma vez só.
-    const { data: mapRows, error: mapErr } = await supabase
-      .from("category_mapping")
-      .select("omie_category_code, omie_category_name, dre_account_id, company_id")
-      .in("omie_category_code", allCodes)
-      .or(`company_id.eq.${companyId},company_id.is.null`);
-    if (mapErr) return { error: mapErr.message };
+    // Mapeamento categoria→conta (empresa > departamento roteado > global), uma
+    // vez só. É o MESMO resolvedor da tela "Método por categoria": se a lista
+    // oferecesse a categoria roteada e a Prévia não a mapeasse, o valor orçado
+    // cairia em "categorias não mapeadas" (e o Finalizar não a publicaria).
+    const lido = await lerMapeamentoEfetivo(supabase, companyId, allCodes);
+    if (lido.error !== undefined) return { error: lido.error };
     const mapByCode = new Map<string, string | null>();
     // O NOME da categoria na Omie, para a linha que não tem método marcado — o
     // caso normal da VIAGEM, cuja categoria vem do de-para tipo → categoria e não
     // da marcação. Sem isto a prévia do setor rotula o grupo com o código cru
     // ("2.01.98"), e quem valida não sabe que conta está aprovando.
     const nomeByCode = new Map<string, string>();
-    for (const r of (mapRows ?? []) as CategoryMappingRow[]) {
-      // Override da empresa tem prioridade: sobrescreve o global.
-      if (r.company_id === companyId) mapByCode.set(r.omie_category_code, r.dre_account_id);
-      else if (!mapByCode.has(r.omie_category_code)) mapByCode.set(r.omie_category_code, r.dre_account_id);
-
-      const nome = texto(r.omie_category_name);
-      if (!nome) continue;
-      if (r.company_id === companyId) nomeByCode.set(r.omie_category_code, nome);
-      else if (!nomeByCode.has(r.omie_category_code)) nomeByCode.set(r.omie_category_code, nome);
-    }
+    lido.mapa.forEach((m, code) => {
+      mapByCode.set(code, m.dreAccountId);
+      const nome = texto(m.nome);
+      if (nome) nomeByCode.set(code, nome);
+    });
 
     // Resolve o code para a folha escopada; empurra os 12 meses ou registra o órfão.
     const aplicar = (
