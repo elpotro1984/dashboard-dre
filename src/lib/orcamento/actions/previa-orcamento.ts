@@ -21,7 +21,7 @@ import {
   loadScopedDreAccounts,
   type DashboardRow,
 } from "@/lib/dashboard/dre";
-import { projetarMedia } from "@/lib/orcamento/media-calc";
+import { normalizarMesesIncidencia, projetarMedia, serieMediaMensal } from "@/lib/orcamento/media-calc";
 import { combinarRealizados, fetchRealizados } from "@/lib/orcamento/media-realizado";
 import { projetarValorFixoSerie } from "@/lib/orcamento/valor-fixo-calc";
 import {
@@ -236,6 +236,8 @@ interface MediaSnapshotRow {
   media_valor: number | string | null;
   indice_key: string | null;
   updated_at?: string | null;
+  /** Meses (1..12) em que a média incide. NULL/ausente = os 12. */
+  meses_incidencia?: number[] | null;
 }
 interface ValorFixoSnapshotRow {
   id?: string;
@@ -618,20 +620,29 @@ export async function getPreviaOrcamento(
       });
     };
 
-    // MÉDIA — valor mensal médio, igual nos 12 meses.
+    // MÉDIA — valor mensal médio, nos meses de incidência da linha (todos, se
+    // nenhum foi escolhido); os meses fora da seleção ficam zerados.
     if (mediaCats.length > 0) {
-      const { data: snapRows, error: snapErr } = await supabase
-        .from("orcamento_media_categorias")
-        .select("category_code, setor_id, media_valor, indice_key, updated_at")
-        .eq("company_id", companyId)
-        .eq("year", year);
+      // Com os meses de incidência; sem a migration `20261029120000`, cai para
+      // a leitura antiga (12 meses) em vez de derrubar a Prévia inteira (42703).
+      const MEDIA_COLS = "category_code, setor_id, media_valor, indice_key, updated_at";
+      const lerMedia = (cols: string) =>
+        supabase
+          .from("orcamento_media_categorias")
+          .select(cols)
+          .eq("company_id", companyId)
+          .eq("year", year);
+      let { data: snapRows, error: snapErr } = await lerMedia(`${MEDIA_COLS}, meses_incidencia`);
+      if (snapErr && isSchemaMissing(snapErr.message)) {
+        ({ data: snapRows, error: snapErr } = await lerMedia(MEDIA_COLS));
+      }
       if (snapErr) {
         if (isSchemaMissing(snapErr.message)) return { needsMigration: true };
         return { error: snapErr.message };
       }
       // Uma linha POR SETOR: a categoria pode ser orçada pelo Comercial e pelo
       // Produto. Agrupa em lista e soma — um Map por código perderia setores.
-      const todasSnaps = (snapRows ?? []) as MediaSnapshotRow[];
+      const todasSnaps = (snapRows ?? []) as unknown as MediaSnapshotRow[];
       // Códigos com linha gravada em QUALQUER setor: é o que impede a média
       // viva de reaparecer no setor filtrado quando o valor salvo é de outro.
       const comLinhaNoAno = new Set(todasSnaps.map((r) => r.category_code));
@@ -664,7 +675,9 @@ export async function getPreviaOrcamento(
         // pertence a ele, e ressuscitá-lo aqui contaria a despesa duas vezes.
         if (filtroSetor && snaps.length === 0 && comLinhaNoAno.has(cat.category_code)) continue;
         const parcelas = snaps.length > 0 ? snaps : [null];
-        let projetado = 0;
+        // Soma das séries de cada setor: cada linha pode incidir em meses
+        // diferentes, então a categoria não é mais "um valor × 12".
+        const serieCategoria = Array<number>(12).fill(0);
         // UM ITEM POR LINHA GRAVADA (categoria × setor) — que é a unidade que o
         // gestor edita e que a diretoria decide. Agregar as parcelas num item
         // único (como era até 25/09/2026) dava um ✓ que valia por vários
@@ -681,7 +694,9 @@ export async function getPreviaOrcamento(
               : combinarRealizados(realizados, cat.codigos, year - 1)?.media ?? null;
           const proj = projetarMedia(brutoParcela, indicePercent(s?.indice_key ?? null));
           if (proj == null) continue;
-          projetado += proj;
+          const mesesIncidencia = normalizarMesesIncidencia(s?.meses_incidencia ?? null);
+          const serie = serieMediaMensal(proj, mesesIncidencia);
+          serie.forEach((v, i) => (serieCategoria[i] += v));
           // O item explica de onde saiu o número (média do realizado do
           // ano-base + índice aplicado). A média não tem sublinhas.
           const indiceNome = s?.indice_key
@@ -695,6 +710,7 @@ export async function getPreviaOrcamento(
                   ? `média ${formatBRLSimples(brutoParcela)}/mês em ${year - 1}`
                   : null,
                 indiceNome ? `corrigida por ${indiceNome}` : "sem correção",
+                mesesIncidencia ? `só em ${mesesIncidencia.length} mês(es)` : null,
               ]
                 .filter(Boolean)
                 .join(" · ") + etiquetaSetor(s?.setor_id),
@@ -704,18 +720,18 @@ export async function getPreviaOrcamento(
             alvoId: chaveMedia(cat.category_code, s?.setor_id ?? null),
             setorId: s?.setor_id ?? null,
             atualizadoEm: s?.updated_at ?? null,
-            meses: Array<number>(12).fill(proj),
-            totalAno: proj * 12,
+            meses: serie,
+            totalAno: somar(serie),
           });
         }
-        if (projetado === 0) {
+        if (serieCategoria.every((v) => v === 0)) {
           mediaSemValor += 1;
           continue;
         }
         aplicar(
           cat.category_code,
           cat.category_name ?? cat.category_code,
-          Array<number>(12).fill(projetado),
+          serieCategoria,
           "media",
           itensMedia,
         );

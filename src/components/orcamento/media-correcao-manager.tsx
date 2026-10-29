@@ -16,11 +16,12 @@ import {
   getMediaCategorias,
   recalcularTodasMedias,
   setMediaIndice,
+  setMediaMeses,
   setMediaValor,
   type IndiceOption,
   type MediaCategoriaItem,
 } from "@/lib/orcamento/actions/media";
-import { projetarMedia } from "@/lib/orcamento/media-calc";
+import { normalizarMesesIncidencia, projetarMedia } from "@/lib/orcamento/media-calc";
 import { formatBRL, numberToInput, parseBrNumber } from "@/lib/orcamento/format";
 import type { IndiceKey } from "@/lib/orcamento/indices";
 import { getSetores, type OrcamentoSetor } from "@/lib/orcamento/actions/setores";
@@ -79,6 +80,75 @@ function CurrencyCell({
       disabled={disabled}
       className={className}
     />
+  );
+}
+
+/**
+ * Meses em que a média entra no orçamento. Marcado = recebe o valor mensal
+ * projetado; desmarcado = zero. Não mexe no cálculo da média nem no índice.
+ * `null` = os 12 meses. Pelo menos um mês fica sempre marcado: quem quer tirar
+ * a despesa zera a média.
+ */
+function MesesIncidencia({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: number[] | null;
+  onChange: (next: number[] | null) => void;
+  disabled?: boolean;
+}) {
+  const marcados = new Set(value ?? MESES.map((_, i) => i + 1));
+  function toggle(m: number) {
+    const next = new Set(marcados);
+    if (next.has(m)) {
+      if (next.size === 1) return;
+      next.delete(m);
+    } else {
+      next.add(m);
+    }
+    onChange(normalizarMesesIncidencia(Array.from(next)));
+  }
+  return (
+    <div>
+      <div className="grid w-[168px] grid-cols-6 gap-0.5">
+        {MESES.map((label, i) => {
+          const m = i + 1;
+          const on = marcados.has(m);
+          return (
+            <button
+              key={m}
+              type="button"
+              onClick={() => toggle(m)}
+              disabled={disabled}
+              aria-pressed={on}
+              title={on ? `Desmarcar ${label}` : `Incluir ${label}`}
+              className={cn(
+                "rounded border px-0.5 py-0.5 text-[10px] uppercase leading-tight transition-colors",
+                on
+                  ? "border-primary/60 bg-primary/10 text-foreground"
+                  : "border-dashed text-muted-foreground/60",
+                disabled ? "cursor-not-allowed opacity-60" : "hover:bg-muted",
+              )}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+        <span>{value == null ? "todos os meses" : `${value.length} de 12 meses`}</span>
+        {value != null && !disabled && (
+          <button
+            type="button"
+            onClick={() => onChange(null)}
+            className="underline-offset-2 hover:text-foreground hover:underline"
+          >
+            marcar todos
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -190,6 +260,21 @@ function MediaRow({
     });
   }
 
+  function handleMeses(next: number[] | null) {
+    onPatch(item.categoryCode, item.setorId, { mesesIncidencia: next });
+    startTransition(async () => {
+      const res = await setMediaMeses(
+        companyId,
+        budgetYear,
+        item.categoryCode,
+        item.categoryName,
+        next,
+        item.setorId ?? setorEspecifico(setorId),
+      );
+      if (res?.error) onError(res.error);
+    });
+  }
+
   function handleRecalcular() {
     setRecalcing(true);
     startTransition(async () => {
@@ -223,6 +308,7 @@ function MediaRow({
   const indiceValue = indiceSel?.value ?? null;
   const indiceIndefinido = item.indiceKey != null && indiceValue == null;
   const projetado = projetarMedia(efetiva, indiceValue);
+  const qtdMeses = item.mesesIncidencia?.length ?? 12;
 
   return (
     <>
@@ -345,12 +431,27 @@ function MediaRow({
           )}
         </td>
 
+        {/* Meses de incidência */}
+        <td className="px-3 py-2">
+          <MesesIncidencia
+            value={item.mesesIncidencia}
+            onChange={handleMeses}
+            disabled={!editavel}
+          />
+        </td>
+
         {/* Projeção mensal */}
         <td className="px-3 py-2 text-right">
           <span className="font-semibold tabular-nums">{formatBRL(projetado)}</span>
           {indiceValue != null && efetiva != null && (
             <div className="text-[11px] text-muted-foreground">
               {formatBRL(efetiva)} + {indiceValue.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%
+            </div>
+          )}
+          {projetado != null && (
+            <div className="text-[11px] text-muted-foreground">
+              ano: <span className="tabular-nums">{formatBRL(projetado * qtdMeses)}</span>
+              {qtdMeses < 12 ? ` (${qtdMeses} mês(es))` : ""}
             </div>
           )}
         </td>
@@ -393,7 +494,7 @@ function MediaRow({
       {/* Detalhe: realizado mês a mês do ano-base */}
       {expanded && (
         <tr className="bg-muted/20">
-          <td colSpan={5} className="px-3 pb-3 pt-1">
+          <td colSpan={6} className="px-3 pb-3 pt-1">
             <div className="rounded-md border bg-background p-3">
               <p className="mb-2 text-xs font-medium text-muted-foreground">
                 Realizado {baseYear} (Omie) — mês fechado zerado entra como 0; o mês em curso e os
@@ -707,6 +808,12 @@ export function MediaCorrecaoManager({
                   <th className="px-3 py-2.5 font-medium">Categoria</th>
                   <th className="px-3 py-2.5 font-medium">Média {baseYear}</th>
                   <th className="px-3 py-2.5 font-medium">Correção</th>
+                  <th
+                    className="px-3 py-2.5 font-medium"
+                    title="Meses em que a despesa entra no orçamento. Os desmarcados ficam zerados; a média e a correção não mudam."
+                  >
+                    Meses {year}
+                  </th>
                   <th className="px-3 py-2.5 text-right font-medium">Projeção mensal {year}</th>
                   <th className="px-3 py-2.5 text-right font-medium">Validação</th>
                 </tr>
@@ -739,7 +846,7 @@ export function MediaCorrecaoManager({
                 ))}
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-sm text-muted-foreground">
+                    <td colSpan={6} className="px-4 py-8 text-center text-sm text-muted-foreground">
                       Nenhuma categoria encontrada para “{search}”.
                     </td>
                   </tr>

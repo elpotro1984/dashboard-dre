@@ -25,6 +25,7 @@ import { isValidBudgetYear } from "@/lib/orcamento/years";
 import { setorEspecifico } from "@/lib/orcamento/setor-filtro";
 import { orcaPorSetor, setorParaGravar } from "@/lib/orcamento/setor-gravacao";
 import { INDICES, type IndiceKey } from "@/lib/orcamento/indices";
+import { normalizarMesesIncidencia } from "@/lib/orcamento/media-calc";
 import { getCategoriasOrcamento } from "@/lib/orcamento/actions/categoria-metodo";
 import {
   combinarRealizados,
@@ -58,6 +59,9 @@ export interface MediaCategoriaItem {
   manual: boolean;
   /** Índice de correção escolhido (null = sem correção). */
   indiceKey: IndiceKey | null;
+  /** Meses (1..12) em que a média entra no orçamento; os outros ficam
+   * zerados. null = os 12 meses. Não altera o cálculo da média nem a correção. */
+  mesesIncidencia: number[] | null;
   baseYear: number | null;
   mesesConsiderados: number | null;
   calculadoEm: string | null;
@@ -238,13 +242,17 @@ export async function getMediaCategorias(
   // Snapshots salvos. A chave é (categoria, setor): a mesma categoria pode ter
   // uma linha em cada setor, e ler só por código faria os dois setores
   // mostrarem o mesmo valor.
-  const { data: saved, error: savedError } = await supabase
-    .from("orcamento_media_categorias")
-    .select(
-      "category_code, setor_id, media_valor, manual, indice_key, base_year, meses_considerados, calculado_em, updated_at",
-    )
-    .eq("company_id", companyId)
-    .eq("year", year);
+  // Com os meses de incidência; sem a migration `20261029120000`, lê sem eles
+  // (12 meses) em vez de derrubar a tela inteira (42703).
+  const SAVED_COLS =
+    "category_code, setor_id, media_valor, manual, indice_key, base_year, meses_considerados, calculado_em, updated_at";
+  const lerSalvas = (cols: string) =>
+    supabase.from("orcamento_media_categorias").select(cols).eq("company_id", companyId).eq("year", year);
+  let { data: savedRaw, error: savedError } = await lerSalvas(`${SAVED_COLS}, meses_incidencia`);
+  if (savedError && isSchemaMissing(savedError.message)) {
+    ({ data: savedRaw, error: savedError } = await lerSalvas(SAVED_COLS));
+  }
+  const saved = (savedRaw ?? null) as unknown as Array<Record<string, unknown>> | null;
   if (savedError) {
     if (isSchemaMissing(savedError.message)) return { needsMigration: true };
     return { error: savedError.message };
@@ -340,6 +348,7 @@ export async function getMediaCategorias(
       mediaValor: row?.media_valor == null ? null : Number(row.media_valor),
       manual: Boolean(row?.manual),
       indiceKey,
+      mesesIncidencia: normalizarMesesIncidencia(row?.meses_incidencia ?? null),
       baseYear: row?.base_year == null ? null : Number(row.base_year),
       mesesConsiderados: row?.meses_considerados == null ? null : Number(row.meses_considerados),
       calculadoEm: (row?.calculado_em as string) ?? null,
@@ -440,6 +449,7 @@ export async function calcularMedia(
       mediaValor: realizado.media,
       manual: false,
       indiceKey: null, // preservado no banco; a tela recarrega o índice do estado local
+      mesesIncidencia: null, // idem: o recálculo não toca nos meses
       baseYear,
       mesesConsiderados: realizado.mesesConsiderados,
       calculadoEm,
@@ -759,6 +769,87 @@ export async function setMediaIndice(
     alvoRotulo: categoryName,
     acao: "alterou",
     depois: { indice_key: indiceKey },
+    autorId: auth.user.userId,
+    autorPapel: auth.user.papel,
+  });
+  revalidatePath(PATH);
+  return { ok: true };
+}
+
+/**
+ * Define em quais meses a média entra no orçamento (os outros ficam zerados).
+ * `null` ou os 12 marcados = o ano todo. Não mexe na média nem no índice: é só
+ * a distribuição do valor mensal projetado pelos meses.
+ */
+export async function setMediaMeses(
+  companyId: string,
+  year: number,
+  categoryCode: string,
+  categoryName: string,
+  meses: number[] | null,
+  /** Setor da tela — a linha do orçamento pertence a ele. */
+  setorId: string | null = null,
+): Promise<{ ok?: true; error?: string; needsMigration?: boolean }> {
+  if (!companyId || !categoryCode) return { error: "Categoria inválida." };
+  if (!isValidBudgetYear(year)) return { error: "Ano do orçamento inválido." };
+  if (meses != null && (!Array.isArray(meses) || meses.length === 0)) {
+    return { error: "Selecione pelo menos um mês." };
+  }
+  const mesesIncidencia = normalizarMesesIncidencia(meses);
+
+  const supabase = db() ?? (await createClient());
+  const auth = await autorizarEscrita(supabase, companyId, year);
+  if (!auth.ok) return { error: auth.error };
+  // GERENTE E GERENTE SÓCIO NÃO EDITAM este método — ver `podeEditarMetodo`.
+  if (!podeEditarMetodo(auth.user.papel, "media")) return { error: SEM_EDICAO_METODO };
+  const admin = { userId: auth.user.userId };
+  // O upsert casa por (empresa, ano, categoria, setor): setor NULL nunca
+  // encontra a linha anterior e duplicaria a categoria a cada gravação.
+  const alvo = await setorParaGravar(supabase, companyId, year, setorId, admin.userId);
+  if (alvo.error) return { error: alvo.error };
+  if (!podeEscreverNoSetor(auth.setores, alvo.id)) return { error: SEM_ACESSO_SETOR };
+  // Mesmas travas do valor e do índice: finalização e decisão da diretoria.
+  const travado = await travaDaLinhaDeMedia(
+    supabase,
+    companyId,
+    year,
+    categoryCode,
+    alvo.id,
+    auth.user.papel,
+  );
+  if (travado) return { error: travado };
+  const { error } = await supabase.from("orcamento_media_categorias").upsert(
+    {
+      company_id: companyId,
+      year,
+      category_code: categoryCode,
+      category_name: categoryName,
+      setor_id: alvo.id,
+      meses_incidencia: mesesIncidencia,
+      updated_by: admin.userId,
+    },
+    { onConflict: "company_id,year,category_code,setor_id" },
+  );
+  if (error) {
+    // A GRAVAÇÃO não tem como degradar: nomeia a migration que falta.
+    if (isSchemaMissing(error.message)) {
+      return {
+        error:
+          "Falta aplicar a migration 20261029120000_orcamento_media_meses_incidencia para escolher os meses.",
+      };
+    }
+    return { error: error.message };
+  }
+  await registrarAlteracao({
+    companyId,
+    year,
+    categoryCode,
+    setorId: alvo.id,
+    metodo: "media",
+    alvoTipo: "media_linha",
+    alvoRotulo: categoryName,
+    acao: "alterou",
+    depois: { meses_incidencia: mesesIncidencia },
     autorId: auth.user.userId,
     autorPapel: auth.user.papel,
   });
