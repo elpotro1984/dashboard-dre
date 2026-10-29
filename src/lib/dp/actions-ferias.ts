@@ -113,6 +113,35 @@ export async function salvarFerias(input: {
   }
 }
 
+/**
+ * Marca ou desmarca o FK, direto da tabela. FK marcado = férias fake: só a Gestão
+ * de benefícios lê o campo (não tiram dias de VT, gasolina, carona e VA por dia);
+ * a folha não lê, por decisão de 28/10/2026. Por isso a folha FECHADA não trava
+ * aqui — o retrato dela não muda com o FK.
+ */
+export async function marcarFkFerias(input: { companyId: string; id: string; fk: boolean }): Promise<DpFeriasResult> {
+  try {
+    const user = await requireDpEmpresa(input.companyId);
+    const admin = createAdminClient();
+    const { data: linha, error } = await admin.from("dp_ferias").select("solides_id").eq("id", input.id).maybeSingle();
+    if (error) throw error;
+    if (!linha) throw new Error("Estas férias não existem mais — recarregue a página.");
+    await pessoaDaEmpresa(admin, Number(linha.solides_id), input.companyId);
+    const { error: eUp } = await admin
+      .from("dp_ferias")
+      .update({ fk: input.fk === true, updated_by: user.id, updated_at: new Date().toISOString() })
+      .eq("id", input.id);
+    if (eUp?.code === "42703" || eUp?.code === "PGRST204") {
+      throw new Error("Para marcar FK, falta aplicar no banco a migration 20261028140000_dp_ferias_fk.sql.");
+    }
+    if (eUp) throw eUp;
+    revalidar();
+    return { ok: true };
+  } catch (error) {
+    return falha(error);
+  }
+}
+
 export async function excluirFerias(input: { companyId: string; id: string }): Promise<DpFeriasResult> {
   try {
     await requireDpEmpresa(input.companyId);

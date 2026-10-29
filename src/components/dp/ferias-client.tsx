@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Check, ChevronLeft, ChevronRight, Loader2, Lock, Pencil, Plus, Trash2 } from "lucide-react";
@@ -9,7 +9,7 @@ import { FilterTable, type FilterColumn } from "@/components/data-table/filter-t
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/toaster";
 import { formatDayBR } from "@/lib/ctrl/datetime";
-import { excluirFerias, salvarFerias } from "@/lib/dp/actions-ferias";
+import { excluirFerias, marcarFkFerias, salvarFerias } from "@/lib/dp/actions-ferias";
 import { diasDeFerias, erroDasFerias, reciboDeFerias, type DpReciboFerias } from "@/lib/dp/ferias";
 import type { DpFeriasDoMes, DpFeriasLinha } from "@/lib/dp/ferias-queries";
 import { rotuloCompetencia, somarMeses } from "@/lib/dp/folha/parametros";
@@ -57,11 +57,6 @@ export function DpFeriasClient({ companyId, dados }: { companyId: string; dados:
           <button type="button" onClick={() => setEdicao({ linha: l })} className="inline-flex items-center gap-1 text-left text-ink-primary hover:underline">
             {l.travada && <Lock className="h-3.5 w-3.5 text-ink-muted" aria-label="Folha fechada" />}
             {l.nome}
-            {l.fk && (
-              <span className="rounded bg-violet-500/10 px-1 text-[11px] font-medium text-violet-800 dark:text-violet-300" title="FK: não reduzem os dias dos benefícios">
-                FK
-              </span>
-            )}
           </button>
         ),
       },
@@ -70,6 +65,14 @@ export function DpFeriasClient({ companyId, dados }: { companyId: string; dados:
       data("inicio", "Início", (l) => l.inicio),
       data("fim", "Término", (l) => l.fim),
       { key: "dias", label: "Dias", kind: "number", align: "right", plain: (l) => String(l.dias), sortVal: (l) => l.dias, numeric: (l) => l.dias },
+      {
+        key: "fk",
+        label: "FK",
+        // Filtrável por Sim/Não: é como se acha as férias fake do mês.
+        plain: (l) => (l.fk ? "Sim" : "Não"),
+        sortVal: (l) => (l.fk ? 1 : 0),
+        cell: (l) => <FkCheckbox companyId={companyId} linha={l} />,
+      },
       {
         key: "valor",
         label: "Valor líquido",
@@ -138,7 +141,7 @@ export function DpFeriasClient({ companyId, dados }: { companyId: string; dados:
         ),
       },
     ];
-  }, []);
+  }, [companyId]);
 
   return (
     <div className="space-y-4">
@@ -163,7 +166,8 @@ export function DpFeriasClient({ companyId, dados }: { companyId: string; dados:
         recibo, com as regras do salário: salário ÷ 30 × dias + 1/3 (estágio: sem o terço), menos INSS e IRRF pelas tabelas dos
         Parâmetros da folha ({dados.vigencia ? `vigência de ${rotuloCompetencia(dados.vigencia)}` : "padrão do sistema"}), calculados à
         parte do salário do mês, como no recibo. Pode ser trocado à mão. A Folha do mês tira daqui os dias de férias de cada mês,
-        inclusive quando as férias atravessam a virada.
+        inclusive quando as férias atravessam a virada. <span className="font-medium">FK</span> marcado = férias fake: na Gestão de
+        benefícios elas não tiram dias de VT, gasolina, carona nem do vale-alimentação por dia (a folha segue contando como férias).
       </p>
 
       {linhas.length === 0 ? (
@@ -180,6 +184,7 @@ export function DpFeriasClient({ companyId, dados }: { companyId: string; dados:
                 Total ({vis.length})
               </td>
               <td className="px-3 py-2 text-right font-medium tabular-nums text-ink-primary">{vis.reduce((s, l) => s + l.dias, 0)}</td>
+              <td className="px-3 py-2 text-ink-muted">{vis.filter((l) => l.fk).length || ""}</td>
               <td className="whitespace-nowrap px-3 py-2 text-right font-medium tabular-nums text-ink-primary">{brl(vis.reduce((s, l) => s + l.valor, 0))}</td>
               <td />
               <td />
@@ -482,5 +487,38 @@ function ExcluirDialog({ companyId, linha, onClose }: { companyId: string; linha
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** O checkbox FK da linha: grava no clique (marcarFkFerias) e desfaz se o servidor recusar. */
+function FkCheckbox({ companyId, linha }: { companyId: string; linha: DpFeriasLinha }) {
+  const [marcado, setMarcado] = useState(linha.fk);
+  const [pending, start] = useTransition();
+  const router = useRouter();
+  const { showToast } = useToast();
+  // Depois do refresh, o que vale é o gravado.
+  useEffect(() => setMarcado(linha.fk), [linha.fk]);
+
+  if (pending) return <Loader2 className="h-4 w-4 animate-spin text-ink-muted" aria-label="Gravando FK" />;
+  return (
+    <input
+      type="checkbox"
+      checked={marcado}
+      aria-label={`FK — férias de ${linha.nome}`}
+      title="FK marcado = férias fake: não tiram dias dos benefícios"
+      onChange={(e) => {
+        const fk = e.target.checked;
+        setMarcado(fk);
+        start(async () => {
+          const r = await marcarFkFerias({ companyId, id: linha.id, fk });
+          if (!r.ok) {
+            setMarcado(!fk);
+            showToast({ title: "FK não gravado", description: r.error, variant: "destructive" });
+            return;
+          }
+          router.refresh();
+        });
+      }}
+    />
   );
 }
