@@ -84,10 +84,14 @@ export default async function NovaRequisicaoPage({
   // Clonar: a original passa pelo recorte da tela de Requisições (só se clona o
   // que se vê na lista). O que é herdado é decidido em buildClonePrefill, contra
   // os cadastros que ESTE usuário tem disponíveis agora.
+  // Clonar é só do Contas a Pagar e do admin: para os demais o ?clonar= é
+  // ignorado, com aviso (getRequestForClone recusaria de qualquer forma).
   const cloneId = searchParams?.clonar;
+  const canClone = hasCtrlRole(ctx, "contas_a_pagar", "admin");
   let clone: ClonePrefill | null = null;
   let cloneNotFound = false;
-  if (cloneId) {
+  const cloneDenied = Boolean(cloneId) && !canClone;
+  if (cloneId && canClone) {
     const source = UUID_RE.test(cloneId) ? await getRequestForClone(cloneId).catch(() => null) : null;
     if (!source) {
       cloneNotFound = true;
@@ -123,6 +127,13 @@ export default async function NovaRequisicaoPage({
         <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300">
           Não foi possível carregar a requisição para clonar (ela não existe ou você não tem acesso a ela).
           Preencha uma requisição nova abaixo.
+        </p>
+      )}
+
+      {cloneDenied && (
+        <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-300">
+          Clonar requisição é liberado só para o Contas a Pagar e o administrador. Preencha uma
+          requisição nova abaixo.
         </p>
       )}
 

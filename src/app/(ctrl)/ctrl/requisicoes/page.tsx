@@ -40,6 +40,10 @@ export default async function RequisicoesPage() {
   // e marca como "Pago" os títulos já baixados).
   const canReconcile = hasCtrlRole(ctx, "contas_a_pagar", "csc", "diretor", "admin");
 
+  // Clonar é só do Contas a Pagar e do admin. A trava de verdade está em
+  // getRequestForClone; aqui é só não oferecer o botão.
+  const canClone = hasCtrlRole(ctx, "contas_a_pagar", "admin");
+
   // Exclusão continua só admin. A EDIÇÃO é liberada também ao Contas a Pagar
   // (correção antes/durante a aprovação; muda de orçamento reroteia a alçada).
   // Carrega setor/tipo para o form quando qualquer um dos dois pode editar.
@@ -152,7 +156,7 @@ export default async function RequisicoesPage() {
           isAdmin={isAdmin}
           canEdit={canEdit}
           canReconcile={canReconcile}
-          canClone={canCreateRequest}
+          canClone={canClone}
           sectors={sectors}
           expenseTypes={expenseTypes}
         />

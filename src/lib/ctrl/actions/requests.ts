@@ -1653,10 +1653,15 @@ export async function getRequests(filters?: {
  * (getRequests): quem não vê a requisição na lista não consegue cloná-la pela
  * URL. Só leitura — a nova é criada por createRequest, no fluxo normal.
  * O que é herdado é decidido em @/lib/ctrl/clone-request (puro e testado).
+ *
+ * Clonar é só do Contas a Pagar e do admin (decisão do dono do projeto,
+ * 29/10/2026). A tela esconde o botão e a página ignora o ?clonar= de quem não
+ * pode; esta trava é a que vale, porque a action é chamável direto.
  */
 export async function getRequestForClone(
   requestId: string,
 ): Promise<{ row: CloneSourceRow; installmentGroupTotal: number | null } | null> {
+  await requireCtrlRole("contas_a_pagar", "admin");
   const { requests } = await getRequests({ id: requestId });
   const r = requests?.[0] as Record<string, unknown> | undefined;
   if (!r) return null;
