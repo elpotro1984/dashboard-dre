@@ -17,9 +17,9 @@ export const maxDuration = 120;
 
 /**
  * Configurações › Benefícios (empresa ativa): os oito blocos de benefícios que
- * a futura tela de gestão vai usar, com os valores desta empresa e o reajuste %
- * de cada bloco. Todos do DP veem e copiam de outra empresa; só a Visão
- * Estratégica salva à mão, reajusta e busca na web.
+ * a Gestão de benefícios usa, com os valores desta empresa e o reajuste % de
+ * cada bloco. Todos do DP (as duas visões) salvam, reajustam, buscam na web e
+ * copiam de outra empresa — desde 29/10/2026; antes só a Estratégica gravava.
  */
 export default async function DpBeneficiosPage() {
   const user = await getDpUser();
@@ -48,8 +48,8 @@ export default async function DpBeneficiosPage() {
             key={ativa.id}
             companyId={ativa.id}
             beneficios={beneficios}
-            podeEditar={user.role === "gestor"}
-            // Copiar de outra empresa: os dois papéis (a Visão Operacional também, 27/10/2026).
+            // As duas visões do DP editam e copiam (29/10/2026); o escopo de empresa já foi conferido acima.
+            podeEditar
             podeCopiar
           />
         ) : (

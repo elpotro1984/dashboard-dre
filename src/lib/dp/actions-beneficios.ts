@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { DP_BENEFICIOS_PATH } from "@/lib/auth/dp";
 import { todayBR } from "@/lib/ctrl/datetime";
-import { exigirEmpresa, requireDpEmpresa, requireDpGestor } from "@/lib/dp/auth";
+import { exigirEmpresa, requireDpEmpresa } from "@/lib/dp/auth";
 import {
   BLOCOS_BENEFICIO,
   blocoValido,
@@ -21,11 +21,12 @@ import { podeVerEmpresa } from "@/lib/dp/escopo";
 import { buscarSalarioFamiliaNaWeb, type SalarioFamiliaEncontrado } from "@/lib/dp/salario-familia-web";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-// Configurações › Benefícios da EMPRESA. Só a Visão Estratégica (gestor) grava, reajusta
-// e busca na web — exceto COPIAR de outra empresa, que a Visão Operacional também faz
-// (27/10/2026), entre as empresas que ela vê. No resto,
-// como os Encargos da empresa: são premissas que mudam o custo dela; a Visão
-// Operacional lê. A regra de cada bloco é @/lib/dp/beneficios-config (pura e testada).
+// Configurações › Benefícios da EMPRESA. Os dois papéis do DP gravam, reajustam,
+// buscam na web e copiam de outra empresa, sempre nas empresas que veem
+// (requireDpEmpresa; na cópia, a origem também). Até 29/10/2026 só a Visão
+// Estratégica gravava, reajustava e buscava — a Visão Operacional passou a fazer
+// tudo, a pedido, porque é ela quem mantém o cadastro no dia a dia. A regra de
+// cada bloco é @/lib/dp/beneficios-config (pura e testada).
 
 export type DpBeneficioResult<T> = ({ ok: true } & T) | { ok: false; error: string };
 
@@ -52,8 +53,7 @@ export async function salvarBlocoBeneficio(input: {
   dados: unknown;
 }): Promise<DpBeneficioResult<{ dados: DpBeneficiosDados[DpBlocoBeneficio]; atualizadoEm: string }>> {
   try {
-    const user = await requireDpGestor();
-    exigirEmpresa(user, input.companyId);
+    const user = await requireDpEmpresa(input.companyId);
     const bloco = exigirBloco(input.bloco);
     const v = validarBloco(bloco, input.dados);
     if ("erro" in v) return { ok: false, error: v.erro };
@@ -85,8 +85,7 @@ export async function aplicarReajusteBeneficio(input: {
   base: unknown;
 }): Promise<DpBeneficioResult<{ dados: DpBeneficiosDados[DpBlocoBeneficio] }>> {
   try {
-    const user = await requireDpGestor();
-    exigirEmpresa(user, input.companyId);
+    const user = await requireDpEmpresa(input.companyId);
     const bloco = exigirBloco(input.bloco);
     const erroPct = erroDoPercentual(input.percentual);
     if (erroPct) return { ok: false, error: erroPct };
@@ -121,15 +120,14 @@ export async function aplicarReajusteBeneficio(input: {
 
 /**
  * Tabela ATUAL do salário-família, pesquisada na web. Não grava: a tela preenche
- * o formulário com a proposta, e quem conferiu salva. Gasta busca na OpenAI, por
- * isso o mesmo gate de quem grava.
+ * o formulário com a proposta, e quem conferiu salva. Gasta busca na OpenAI; o
+ * gate é o mesmo de quem grava (qualquer pessoa do DP na empresa).
  */
 export async function buscarSalarioFamiliaAtualizado(input: {
   companyId: string;
 }): Promise<DpBeneficioResult<{ encontrado: SalarioFamiliaEncontrado }>> {
   try {
-    const user = await requireDpGestor();
-    exigirEmpresa(user, input.companyId);
+    await requireDpEmpresa(input.companyId);
     const r = await buscarSalarioFamiliaNaWeb(Number(todayBR().slice(0, 4)));
     if (!r.ok) return { ok: false, error: `A busca não encontrou os valores agora (${r.error.slice(0, 160)}). Preencha à mão.` };
     return { ok: true, encontrado: r.dados };
@@ -152,7 +150,7 @@ export interface DpOrigemBeneficios {
  */
 export async function origensDeCopiaBeneficios(input: { companyId: string }): Promise<DpBeneficioResult<{ origens: DpOrigemBeneficios[] }>> {
   try {
-    // Os dois papéis copiam; a lista é recortada pelas empresas que a pessoa vê.
+    // A lista é recortada pelas empresas que a pessoa vê.
     const user = await requireDpEmpresa(input.companyId);
     const admin = createAdminClient();
     const { data, error } = await admin.from("dp_beneficios_config").select("company_id, bloco, dados").neq("company_id", input.companyId);
@@ -188,7 +186,7 @@ export async function copiarBeneficiosDeEmpresa(input: {
   blocos: DpBlocoBeneficio[];
 }): Promise<DpBeneficioResult<{ copiados: number }>> {
   try {
-    // Os dois papéis copiam (a Visão Operacional também, 27/10/2026) — origem e destino no escopo.
+    // Origem e destino no escopo de quem copia.
     const user = await requireDpEmpresa(input.companyId);
     exigirEmpresa(user, input.origemId);
     if (input.origemId === input.companyId) throw new Error("Escolha outra empresa para copiar.");

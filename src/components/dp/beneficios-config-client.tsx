@@ -71,7 +71,7 @@ export function DpBeneficiosConfigClient({
   companyId: string;
   beneficios: DpBeneficiosEmpresa;
   podeEditar: boolean;
-  /** Copiar de outra empresa — os dois papéis do DP; salvar e reajustar seguem `podeEditar`. */
+  /** Copiar de outra empresa; salvar e reajustar seguem `podeEditar`. */
   podeCopiar: boolean;
 }) {
   const [copiando, setCopiando] = useState(false);
@@ -94,7 +94,7 @@ export function DpBeneficiosConfigClient({
         tela de gestão de benefícios.{" "}
         {podeEditar
           ? "Cada bloco é salvo e reajustado separadamente."
-          : "Só a Visão Estratégica do DP altera e reajusta estes valores; copiar de outra empresa, você também pode."}
+          : "Aqui você só consulta estes valores."}
       </p>
       {BLOCOS_BENEFICIO.map((b) => (
         <BlocoCard
