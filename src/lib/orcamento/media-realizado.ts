@@ -86,20 +86,48 @@ export const REALIZADO_VAZIO: MediaRealizado = {
 };
 
 /** Lê o realizado do ano-base para um conjunto de categorias (via RPC). */
+/**
+ * Realizado do ano-base, com UMA nova tentativa e o erro DEVOLVIDO.
+ *
+ * Falha de leitura não pode virar "não houve gasto": era o que acontecia —
+ * o RPC falhou uma vez (Viva Curitiba, Tarifas Bancárias, 28/10/2026), o mapa
+ * voltou vazio e o ↻ gravou "média sobre 0 mês(es)" com R$ 0,00, embora a
+ * categoria tivesse R$ ~110/mês. Quem GRAVA usa esta função e recusa no erro.
+ */
+export async function fetchRealizadosOuErro(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  companyId: string,
+  baseYear: number,
+  codes: string[],
+): Promise<{ map: Map<string, MediaRealizado>; error?: string }> {
+  if (codes.length === 0) return { map: new Map() };
+  let ultimoErro = "";
+  for (let tentativa = 0; tentativa < 2; tentativa += 1) {
+    const { data, error } = await supabase.rpc("orcamento_media_realizado", {
+      p_company_id: companyId,
+      p_base_year: baseYear,
+      p_category_codes: codes,
+    });
+    if (!error) {
+      return { map: buildRealizados((data ?? []) as RealizadoRow[], mesesFechados(baseYear)) };
+    }
+    ultimoErro = error.message;
+  }
+  console.error("[orcamento] realizado da Omie indisponível:", ultimoErro);
+  return { map: new Map(), error: ultimoErro };
+}
+
+/**
+ * Versão TOLERANTE, para telas de leitura: sem realizado a tela ainda abre.
+ * Não use num caminho que GRAVA — lá a falha viraria um zero no banco.
+ */
 export async function fetchRealizados(
   supabase: Awaited<ReturnType<typeof createClient>>,
   companyId: string,
   baseYear: number,
   codes: string[],
 ): Promise<Map<string, MediaRealizado>> {
-  if (codes.length === 0) return new Map();
-  const { data, error } = await supabase.rpc("orcamento_media_realizado", {
-    p_company_id: companyId,
-    p_base_year: baseYear,
-    p_category_codes: codes,
-  });
-  if (error) return new Map();
-  return buildRealizados((data ?? []) as RealizadoRow[], mesesFechados(baseYear));
+  return (await fetchRealizadosOuErro(supabase, companyId, baseYear, codes)).map;
 }
 
 /**

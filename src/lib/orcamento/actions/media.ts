@@ -29,10 +29,15 @@ import { getCategoriasOrcamento } from "@/lib/orcamento/actions/categoria-metodo
 import {
   combinarRealizados,
   fetchRealizados,
+  fetchRealizadosOuErro,
   type MediaRealizado,
 } from "@/lib/orcamento/media-realizado";
 
 const PATH = "/orcamento/despesas/media";
+
+/** Falha ao LER o realizado: recusa em vez de gravar uma média zerada. */
+const SEM_REALIZADO =
+  "Não consegui ler o realizado da Omie agora, e nada foi gravado. Tente de novo em instantes.";
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -391,8 +396,9 @@ export async function calcularMedia(
   const baseYear = year - 1;
   const irmasUma = await mapaDeIrmas(companyId, year);
   const codigosDaCategoria = irmasUma.get(categoryCode) ?? [categoryCode];
-  const realizados = await fetchRealizados(supabase, companyId, baseYear, codigosDaCategoria);
-  const realizado = combinarRealizados(realizados, codigosDaCategoria, baseYear);
+  const lido = await fetchRealizadosOuErro(supabase, companyId, baseYear, codigosDaCategoria);
+  if (lido.error) return { error: SEM_REALIZADO };
+  const realizado = combinarRealizados(lido.map, codigosDaCategoria, baseYear);
   const calculadoEm = new Date().toISOString();
 
   // O upsert casa por (empresa, ano, categoria, setor): setor NULL nunca
@@ -483,7 +489,9 @@ export async function recalcularTodasMedias(
   const baseYear = year - 1;
   const irmasTodas = await mapaDeIrmas(companyId, year);
   const codigosTodos = Array.from(new Set(codes.flatMap((c) => irmasTodas.get(c) ?? [c])));
-  const realizados = await fetchRealizados(supabase, companyId, baseYear, codigosTodos);
+  const lido = await fetchRealizadosOuErro(supabase, companyId, baseYear, codigosTodos);
+  if (lido.error) return { error: SEM_REALIZADO };
+  const realizados = lido.map;
   const calculadoEm = new Date().toISOString();
 
   // O upsert casa por (empresa, ano, categoria, setor): setor NULL nunca
