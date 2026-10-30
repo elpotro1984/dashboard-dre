@@ -9,7 +9,7 @@ import {
   getRequestExtraAttachments,
 } from "@/lib/ctrl/actions/requests";
 import { extError, withExtCtrl } from "@/lib/ext-api/handler";
-import { getOwnRequest } from "@/lib/ext-api/requisicoes-db";
+import { getApprovableRequest, getOwnRequest } from "@/lib/ext-api/requisicoes-db";
 
 export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
@@ -18,12 +18,13 @@ function ok<T, K extends string>(r: ({ [P in K]?: T } & { error?: string }) | { 
   return "error" in r && r.error ? null : ((r as Record<K, T>)[key] ?? null);
 }
 
-// Detalhe para o solicitante. A posse é conferida ANTES de chamar as actions
-// (getOwnRequest recorta por empresa + criador): algumas delas confiam só no
-// papel e dariam a requisição de outra pessoa a um gerente.
+// Detalhe para o solicitante ou para quem tem a requisição na fila de
+// aprovação. O acesso é conferido ANTES de chamar as actions (recorte por
+// empresa + criador, ou pela fila): algumas delas confiam só no papel e dariam
+// a requisição de outra pessoa a um gerente.
 export async function GET(request: Request, { params }: { params: { id: string } }) {
   return withExtCtrl(request, async ({ ctx }) => {
-    const requisicao = await getOwnRequest(ctx, params.id);
+    const requisicao = (await getOwnRequest(ctx, params.id)) ?? (await getApprovableRequest(ctx, params.id));
     if (!requisicao) return extError(404, "Requisição não encontrada.");
 
     const [historico, complemento, infoPagamento, anexo, extras, comprovantes] = await Promise.all([

@@ -99,6 +99,84 @@ export async function getOwnRequest(ctx: CtrlUserContext, id: string): Promise<R
   return data ? toView(data as unknown as Row) : null;
 }
 
+// ─── Aprovação pelo hubfeat ───────────────────────────────────────────────────
+//
+// Fila de quem aprova: requisições da empresa da chave na etapa que o papel de
+// quem age decide — gerente: `pendente` dos setores vinculados a ele; diretor,
+// csc e admin: `pendente` e `pendente_diretor` de qualquer setor. Rateio fica
+// fora (a API não cria e o hubfeat não sabe aprovar por setor). A action de
+// aprovação refaz as travas de alçada; este recorte só decide o que aparece.
+
+const APPROVAL_COLUMNS = `${COLUMNS},
+  justification, observations, created_by,
+  creator:users!ctrl_requests_created_by_fkey(name, email)`;
+
+interface ApprovalRow extends Row {
+  justification: string | null;
+  observations: string | null;
+  created_by: string;
+  creator: { name: string | null; email: string | null } | null;
+}
+
+function toApprovalView(r: ApprovalRow) {
+  return {
+    ...toView(r),
+    solicitante: { id: r.created_by, nome: r.creator?.name ?? r.creator?.email ?? null },
+    justificativa: r.justification,
+    observacoes: r.observations,
+  };
+}
+
+export type AprovacaoView = ReturnType<typeof toApprovalView>;
+
+function approvalScope(ctx: CtrlUserContext): { statuses: CtrlRequestStatus[]; sectorIds: string[] | null } | null {
+  const wide = ctx.ctrlRoles.some((r) => ["diretor", "csc", "admin"].includes(r));
+  if (wide) return { statuses: ["pendente", "pendente_diretor"], sectorIds: null };
+  // Gerente sem setor vinculado não tem fila pela API (falha fechada): o
+  // fallback "vê tudo" da tela do Compras não vale aqui.
+  if (ctx.ctrlRoles.includes("gerente") && ctx.sectorIds.length > 0) {
+    return { statuses: ["pendente"], sectorIds: ctx.sectorIds };
+  }
+  return null;
+}
+
+export async function listApprovable(ctx: CtrlUserContext): Promise<AprovacaoView[]> {
+  const scope = approvalScope(ctx);
+  if (!scope) return [];
+  let q = createAdminClient()
+    .from("ctrl_requests")
+    .select(APPROVAL_COLUMNS)
+    .eq("org_id", ctx.orgId!)
+    .in("status", scope.statuses)
+    .is("deleted_at", null)
+    .or("is_rateio.is.null,is_rateio.eq.false")
+    .order("created_at", { ascending: true })
+    .limit(200);
+  if (scope.sectorIds) q = q.in("sector_id", scope.sectorIds);
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as unknown as ApprovalRow[]).map(toApprovalView);
+}
+
+/** A requisição, se está na fila de aprovação de quem age; senão null. */
+export async function getApprovableRequest(ctx: CtrlUserContext, id: string): Promise<AprovacaoView | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  const scope = approvalScope(ctx);
+  if (!scope) return null;
+  const { data, error } = await createAdminClient()
+    .from("ctrl_requests")
+    .select(APPROVAL_COLUMNS)
+    .eq("id", id)
+    .eq("org_id", ctx.orgId!)
+    .is("deleted_at", null)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  const row = data as unknown as (ApprovalRow & { is_rateio?: boolean }) | null;
+  if (!row || !scope.statuses.includes(row.status)) return null;
+  if (scope.sectorIds && !scope.sectorIds.includes(row.sector_id)) return null;
+  return toApprovalView(row);
+}
+
 /**
  * Id do fornecedor do Compras que corresponde ao `fornecedor_hub` do hubfeat,
  * na empresa da chave: por CNPJ/CPF, depois por código Omie; se não houver,
