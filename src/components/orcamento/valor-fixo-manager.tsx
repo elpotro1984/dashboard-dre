@@ -659,12 +659,26 @@ function ValorFixoCategoryGroup({
     </tr>
   );
 
-  // ── Modo LINHA ÚNICA (1 contrato): igual à tela de hoje, sem descrição ──────
+  // ── Modo LINHA ÚNICA (1 contrato) ───────────────────────────────────────────
+  // A descrição aparece aqui também, OPCIONAL (só é obrigatória com 2+). Ela
+  // ficava escondida no contrato único — e o contrato criado pelo "Puxar
+  // fornecedores" tem o nome do fornecedor justamente ali, que sumia da tela.
   if (!isMulti) {
     const c = contratos[0];
     const firstCell = (
       <div className="space-y-0.5">
         {chevron}
+        <div className="pl-5">
+          <input
+            value={c.descricao}
+            onChange={(e) => commit(c.key, { descricao: e.target.value }, false)}
+            onBlur={() => schedulePersist(c.key, contratosRef.current.find((x) => x.key === c.key)!)}
+            disabled={!podeEditar}
+            placeholder="fornecedor / descrição (opcional)"
+            title={c.descricao || undefined}
+            className={cn(INPUT_CLS, "mt-1 w-52 py-1 text-xs")}
+          />
+        </div>
         <div className="pl-5">{addBtn}</div>
         <div className="pl-5">{botaoFinalizar}</div>
       </div>
@@ -681,11 +695,15 @@ function ValorFixoCategoryGroup({
           onCommitBase={(parsed) =>
             commit(c.key, parsed == null ? { valorBase: null, valorNegociado: null } : { valorBase: parsed }, true)
           }
+          // Faltava aqui (só o modo de vários passava): o contrato único ficava
+          // editável numa categoria finalizada e para quem só lê — e o erro só
+          // aparecia ao salvar.
+          podeEditar={podeEditar}
           onRemove={() => {}}
           decisao={c.id ? decisaoPorId.get(c.id) ?? null : null}
           companyId={companyId}
           setorId={setorEspecifico(setorId)}
-          rotulo={item.categoryName}
+          rotulo={(c.descricao || "").trim() || item.categoryName}
           podeValidar={podeValidar}
           onDecidiu={onDecidiu}
           onError={onError}
