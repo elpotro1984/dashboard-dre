@@ -138,8 +138,11 @@ export function PlanejamentoDespesas({
   }
 
   return (
-    <section className="rounded-xl border bg-card">
-      <header className="flex flex-wrap items-baseline justify-between gap-2 border-b px-4 py-3">
+    // A altura vem de FORA (a montagem a amarra à da entrevista ao lado), e só a
+    // lista rola: o cabeçalho com o total fica sempre à vista. Sem isso cada
+    // despesa confirmada esticava o painel e, junto, a linha da grade inteira.
+    <section className="flex h-full flex-col rounded-xl border bg-card">
+      <header className="flex shrink-0 flex-wrap items-baseline justify-between gap-2 border-b px-4 py-3">
         <div>
           <h3 className="font-semibold">Despesas orçadas</h3>
           <p className="text-xs text-muted-foreground">
@@ -152,7 +155,9 @@ export function PlanejamentoDespesas({
         </div>
       </header>
 
-      {erro && <div className="bg-destructive/10 px-4 py-2 text-xs text-destructive">{erro}</div>}
+      {erro && (
+        <div className="shrink-0 bg-destructive/10 px-4 py-2 text-xs text-destructive">{erro}</div>
+      )}
 
       {despesas.length === 0 ? (
         <p className="p-6 text-center text-sm text-muted-foreground">
@@ -160,7 +165,9 @@ export function PlanejamentoDespesas({
           aqui.
         </p>
       ) : (
-        <div className="divide-y">
+        // Empilhado (telas estreitas) não há painel ao lado para dar a altura,
+        // então a lista ganha um teto próprio; lado a lado ela ocupa o que sobra.
+        <div className="max-h-[28rem] min-h-0 flex-1 divide-y overflow-y-auto lg:max-h-none">
           {agrupadas.map((g) => (
             <div key={g.grupoId ?? "sem"}>
               <div

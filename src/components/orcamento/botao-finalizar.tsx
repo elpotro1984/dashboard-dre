@@ -33,6 +33,7 @@ export function BotaoFinalizar({
   finalizacao,
   isAdmin,
   onMudou,
+  onFinalizou,
   compacto = false,
 }: {
   companyId: string;
@@ -47,6 +48,8 @@ export function BotaoFinalizar({
   isAdmin: boolean;
   /** Recarrega a tela: a trava muda o que é editável. */
   onMudou: () => void;
+  /** Só depois de um Finalizar que DEU CERTO (nunca no Reabrir nem no erro). */
+  onFinalizou?: () => void;
   /** Versão miúda, para caber na linha de uma categoria. */
   compacto?: boolean;
 }) {
@@ -85,6 +88,7 @@ export function BotaoFinalizar({
       );
     }
     onMudou();
+    onFinalizou?.();
   }
 
   async function reabrir() {

@@ -11,11 +11,23 @@ import {
   type PlanejamentoMontagemDetalhe,
   type PreviaSetorResumo,
 } from "@/lib/orcamento/actions/planejamento-categoria";
+import {
+  getPlanejamentoPendentes,
+  type PlanejamentoPendente,
+} from "@/lib/orcamento/actions/planejamento";
 import { formatBRL } from "@/lib/orcamento/format";
 import { BotaoFinalizar } from "@/components/orcamento/botao-finalizar";
 import { getFinalizacoes } from "@/lib/orcamento/actions/finalizacao";
 import { finalizacaoDe, indexarFinalizacoes, type Finalizacao } from "@/lib/orcamento/finalizacao";
-import { workspaceTabHref } from "@/lib/orcamento/workspace-tabs";
+import { planejamentoCategoriaHref, workspaceTabHref } from "@/lib/orcamento/workspace-tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { PlanejamentoBaseEditor } from "@/components/orcamento/planejamento-base-editor";
 import { PlanejamentoDespesas } from "@/components/orcamento/planejamento-despesas";
 import { PlanejamentoEntrevista } from "@/components/orcamento/planejamento-entrevista";
@@ -53,6 +65,12 @@ export function PlanejamentoMontagem({
   const [carregandoPrevia, setCarregandoPrevia] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [needsMigration, setNeedsMigration] = useState(false);
+  // O que ainda falta finalizar, depois de um Finalizar que deu certo. `null` =
+  // caixa fechada.
+  const [faltam, setFaltam] = useState<{
+    pendentes: PlanejamentoPendente[];
+    proxima: PlanejamentoPendente | null;
+  } | null>(null);
 
   const recarregar = useCallback(async () => {
     const res = await getPlanejamentoMontagem(companyId, year, categoryCode, setorDaUrl);
@@ -99,6 +117,34 @@ export function PlanejamentoMontagem({
       if (d?.orcaPorSetor) void recarregarPrevia(d.setorId, d.categoryName);
     });
   }, [recarregar, recarregarPrevia]);
+
+  /**
+   * Depois de FINALIZAR: se ainda há categoria em aberto no Planejamento, a
+   * caixa diz quais e oferece seguir para a próxima. Tudo fechado = sem caixa
+   * (o aviso do botão já diz o que foi publicado). Falha na leitura também não
+   * abre nada: a finalização deu certo, e a caixa é só o atalho para a próxima.
+   */
+  const aposFinalizar = useCallback(async () => {
+    if (!detalhe) return;
+    const res = await getPlanejamentoPendentes(companyId, year, {
+      categoryCode,
+      categoryName: detalhe.categoryName,
+      setorId: detalhe.setorId,
+      setorNome: detalhe.setorNome,
+    });
+    if (res.error || !res.pendentes || res.pendentes.length === 0) return;
+    setFaltam({ pendentes: res.pendentes, proxima: res.proxima ?? null });
+  }, [companyId, year, categoryCode, detalhe]);
+
+  function seguirParaProxima() {
+    const proxima = faltam?.proxima;
+    setFaltam(null);
+    if (!proxima) return;
+    const base = planejamentoCategoriaHref(companyId, year, proxima.categoryCode);
+    // Com setor, abre direto no setor que falta — sem ele a montagem pediria
+    // para escolher, e poderia abrir num setor já finalizado.
+    router.push(proxima.setorId ? `${base}?setor=${encodeURIComponent(proxima.setorId)}` : base);
+  }
 
   if (needsMigration) {
     return (
@@ -171,10 +217,63 @@ export function PlanejamentoMontagem({
               })}
               isAdmin={detalhe.isAdmin}
               onMudou={() => void recarregar()}
+              onFinalizou={() => void aposFinalizar()}
             />
           )}
         </div>
       </div>
+
+      <Dialog open={faltam !== null} onOpenChange={(aberto) => !aberto && setFaltam(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Ainda há categorias em aberto</DialogTitle>
+            <DialogDescription>
+              {faltam?.pendentes.length === 1 ? (
+                <>
+                  Ainda falta finalizar a categoria{" "}
+                  <strong className="text-foreground">&quot;{faltam.pendentes[0].rotulo}&quot;</strong>.
+                </>
+              ) : (
+                <>Ainda faltam {faltam?.pendentes.length} categorias para finalizar:</>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          {faltam && faltam.pendentes.length > 1 && (
+            <ul className="max-h-48 space-y-1 overflow-y-auto rounded-md border bg-muted/20 px-3 py-2 text-sm">
+              {faltam.pendentes.map((p) => (
+                <li
+                  key={`${p.categoryCode}|${p.setorId ?? ""}`}
+                  className={cn(
+                    p.categoryCode === faltam.proxima?.categoryCode &&
+                      p.setorId === faltam.proxima?.setorId &&
+                      "font-semibold",
+                  )}
+                >
+                  {p.rotulo}
+                </li>
+              ))}
+            </ul>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0">
+            <button
+              type="button"
+              onClick={() => setFaltam(null)}
+              className="rounded-md border px-3 py-1.5 text-sm hover:bg-muted"
+            >
+              Continuar depois
+            </button>
+            {faltam?.proxima && (
+              <button
+                type="button"
+                onClick={seguirParaProxima}
+                className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
+              >
+                Seguir para a próxima: {faltam.proxima.rotulo}
+              </button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Grupos disponíveis ─────────────────────────────────────────────── */}
       {/* Empresa com a chave dos grupos DESLIGADA não mostra nem a faixa nem o
@@ -300,15 +399,23 @@ export function PlanejamentoMontagem({
               onConversaMudou={aposMudanca}
             />
 
-            <PlanejamentoDespesas
-              companyId={companyId}
-              year={year}
-              despesas={detalhe.despesas}
-              grupos={detalhe.grupos}
-              usaGrupos={detalhe.usaGrupos}
-              podeEscrever={detalhe.podeEscrever}
-              onMudou={aposMudanca}
-            />
+            {/* Lado a lado, quem dá a altura da linha é a ENTREVISTA: o painel
+                de despesas é posto em absoluto dentro da célula e rola por
+                dentro, em vez de crescer a cada despesa e esticar a conversa
+                junto. O min-h segura o painel quando a entrevista está curta. */}
+            <div className="relative lg:min-h-[20rem]">
+              <div className="lg:absolute lg:inset-0">
+                <PlanejamentoDespesas
+                  companyId={companyId}
+                  year={year}
+                  despesas={detalhe.despesas}
+                  grupos={detalhe.grupos}
+                  usaGrupos={detalhe.usaGrupos}
+                  podeEscrever={detalhe.podeEscrever}
+                  onMudou={aposMudanca}
+                />
+              </div>
+            </div>
           </div>
 
           {/* Empresa sem "Orçar por setor" não tem setor para prever: a

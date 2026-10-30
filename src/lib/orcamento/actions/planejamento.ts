@@ -5,8 +5,16 @@ import { createAdminClientIfAvailable } from "@/lib/supabase/admin";
 import { autorizarLeitura, setoresDeEscrita } from "@/lib/orcamento/auth";
 import { isSchemaMissing } from "@/lib/orcamento/errors";
 import { isValidBudgetYear } from "@/lib/orcamento/years";
-import { orcaPorSetor } from "@/lib/orcamento/setor-gravacao";
+import { orcaPorSetor, setorNaoAtribuido } from "@/lib/orcamento/setor-gravacao";
 import { getCategoriasOrcamento } from "@/lib/orcamento/actions/categoria-metodo";
+import {
+  chaveFatiaPlanejamento,
+  fatiaFinalizada,
+  pendentesDeFinalizacao,
+  proximaPendente,
+  rotuloFatia,
+  type FatiaPlanejamento,
+} from "@/lib/orcamento/planejamento-finalizadas";
 import {
   categoriaTotal,
   toPeriodicidade,
@@ -57,6 +65,8 @@ export interface PlanejamentoCardSetor {
   baseSalva: boolean;
   despesas: number;
   total: number;
+  /** A fatia (categoria × setor) foi FINALIZADA — ver `planejamento-finalizadas.ts`. */
+  finalizada: boolean;
 }
 
 export interface PlanejamentoCategoriaCard {
@@ -73,6 +83,18 @@ export interface PlanejamentoCategoriaCard {
   setores: PlanejamentoCardSetor[];
   /** Base finalizada em TODOS os setores onde a categoria existe. */
   basePronta: boolean;
+  /**
+   * Orçamento FINALIZADO em todos os setores do card. Um setor em aberto deixa a
+   * categoria em aberto: o card verde diz "não há mais nada a fazer aqui".
+   */
+  finalizada: boolean;
+}
+
+/** Uma fatia que ainda falta finalizar, como a caixa da montagem a nomeia. */
+export interface PlanejamentoPendente {
+  categoryCode: string;
+  setorId: string | null;
+  rotulo: string;
 }
 
 /**
@@ -211,9 +233,14 @@ export async function getPlanejamentoCategorias(
     { valorMensal: number; mesInicio: number; mesFim: number | null; periodicidade: ReturnType<typeof toPeriodicidade> }[]
   >();
   const contagem = new Map<string, number>();
+  // Sem "Orçar por setor" o card tem UM setor (""), e a chave ignora o setor da
+  // linha: a despesa dessas empresas mora no balde "Não atribuído", e com a
+  // chave pelo setor o card procurava em "" e mostrava 0 despesa e R$ 0 com
+  // tudo gravado (Salvaterra Estacionamento, 30/10/2026).
+  const setorDaChave = (setorId: string | null) => (porSetor ? (setorId ?? "") : "");
   (despRows ?? []).forEach((r) => {
     if (r.cancelado === true) return;
-    const chave = `${r.category_code as string}|${(r.setor_id as string | null) ?? ""}`;
+    const chave = `${r.category_code as string}|${setorDaChave((r.setor_id as string | null) ?? null)}`;
     if (!porChave.has(chave)) porChave.set(chave, []);
     porChave.get(chave)!.push({
       valorMensal: Number(r.valor) || 0,
@@ -236,9 +263,28 @@ export async function getPlanejamentoCategorias(
   const baseSalvaPorChave = new Set<string>();
   (entrevRows ?? []).forEach((r) => {
     if (r.base_salva === true) {
-      baseSalvaPorChave.add(`${r.category_code as string}|${(r.setor_id as string | null) ?? ""}`);
+      baseSalvaPorChave.add(
+        `${r.category_code as string}|${setorDaChave((r.setor_id as string | null) ?? null)}`,
+      );
     }
   });
+
+  // ── Fatias finalizadas ────────────────────────────────────────────────────
+  // Só pinta o card: falha de leitura deixa tudo "em aberto" em vez de
+  // derrubar a lista por causa de uma marca.
+  const { data: finRows, error: finErr } = await supabase
+    .from("orcamento_finalizacoes")
+    .select("category_code, setor_id")
+    .eq("company_id", companyId)
+    .eq("year", year)
+    .eq("metodo", "planejamento_socios")
+    .in("category_code", codes);
+  const fechadas = new Set(
+    (finErr ? [] : (finRows ?? [])).map((r) =>
+      chaveFatiaPlanejamento(r.category_code as string, (r.setor_id as string | null) ?? null),
+    ),
+  );
+  const baldeId = porSetor ? null : (await setorNaoAtribuido(supabase, companyId, year)).id;
 
   // ── Realizado do ano anterior, somando as irmãs "(*)" ─────────────────────
   const irmaosPorCat = new Map<string, string[]>();
@@ -274,6 +320,7 @@ export async function getPlanejamentoCategorias(
           baseSalva: baseSalvaPorChave.has(chave),
           despesas: contagem.get(chave) ?? 0,
           total: categoriaTotal(itens),
+          finalizada: fatiaFinalizada(fechadas, c.categoryCode, setorId || null, porSetor, baldeId),
         };
       })
       .sort((a, b) => a.setorNome.localeCompare(b.setorNome, "pt-BR", { sensitivity: "base" }));
@@ -293,6 +340,7 @@ export async function getPlanejamentoCategorias(
       realizadoAnterior: gastoAnterior > 0 ? gastoAnterior : null,
       setores: linhas,
       basePronta: linhas.length > 0 && linhas.every((l) => l.baseSalva),
+      finalizada: linhas.length > 0 && linhas.every((l) => l.finalizada),
     };
   });
 
@@ -300,4 +348,47 @@ export async function getPlanejamentoCategorias(
     a.categoryName.localeCompare(b.categoryName, "pt-BR", { sensitivity: "base" }),
   );
   return { items };
+}
+
+/**
+ * O que ainda falta FINALIZAR no Planejamento, e qual é a próxima depois de
+ * `atual` — a caixa que a montagem abre depois de finalizar uma categoria.
+ *
+ * Lê pela MESMA função da lista (`getPlanejamentoCategorias`, com todos os
+ * setores que a pessoa alcança), para a caixa e o card verde nunca discordarem
+ * sobre o que está fechado.
+ */
+export async function getPlanejamentoPendentes(
+  companyId: string,
+  year: number,
+  atual: { categoryCode: string; categoryName: string; setorId: string | null; setorNome: string },
+): Promise<{ pendentes?: PlanejamentoPendente[]; proxima?: PlanejamentoPendente | null; error?: string }> {
+  const setores = await getPlanejamentoSetores(companyId, year);
+  if (setores.error) return { error: setores.error };
+  const cards = await getPlanejamentoCategorias(
+    companyId,
+    year,
+    setores.items.map((s) => s.id),
+  );
+  if (cards.error) return { error: cards.error };
+
+  const fatias: FatiaPlanejamento[] = (cards.items ?? []).flatMap((card) =>
+    card.setores.map((s) => ({
+      categoryCode: card.categoryCode,
+      categoryName: card.categoryName,
+      setorId: s.setorId,
+      setorNome: s.setorNome,
+      finalizada: s.finalizada,
+    })),
+  );
+  const paraTela = (f: FatiaPlanejamento): PlanejamentoPendente => ({
+    categoryCode: f.categoryCode,
+    setorId: f.setorId,
+    rotulo: rotuloFatia(f),
+  });
+  const proxima = proximaPendente(fatias, atual);
+  return {
+    pendentes: pendentesDeFinalizacao(fatias).map(paraTela),
+    proxima: proxima ? paraTela(proxima) : null,
+  };
 }

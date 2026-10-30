@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ArrowRight, Loader2, ListChecks } from "lucide-react";
+import { AlertTriangle, ArrowRight, Loader2, ListChecks, Lock } from "lucide-react";
 
 import {
   getPlanejamentoCategorias,
@@ -199,12 +199,24 @@ export function PlanejamentoLista({
             <Link
               key={card.categoryCode}
               href={planejamentoCategoriaHref(companyId, year, card.categoryCode)}
-              className="group flex flex-col rounded-xl border bg-card p-4 transition-colors hover:border-emerald-500/40 hover:bg-muted/40"
+              className={cn(
+                "group flex flex-col rounded-xl border p-4 transition-colors",
+                card.finalizada
+                  ? "border-emerald-500/50 bg-emerald-500/5 hover:bg-emerald-500/10"
+                  : "bg-card hover:border-emerald-500/40 hover:bg-muted/40",
+              )}
             >
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="truncate font-semibold" title={card.categoryName}>
-                    {card.categoryName}
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="truncate font-semibold" title={card.categoryName}>
+                      {card.categoryName}
+                    </span>
+                    {card.finalizada && (
+                      <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
+                        <Lock className="h-3 w-3" /> Finalizada
+                      </span>
+                    )}
                   </div>
                   <p className="mt-0.5 truncate text-xs text-muted-foreground">
                     {card.dreLineCode} · {card.dreLineName}
@@ -250,7 +262,17 @@ export function PlanejamentoLista({
                       key={s.setorId ?? "sem"}
                       className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground"
                     >
-                      <span className="truncate">{s.setorNome}</span>
+                      <span className="inline-flex min-w-0 items-center gap-1">
+                        <span className="truncate">{s.setorNome}</span>
+                        {/* Com vários setores o card só fica verde quando TODOS
+                            fecham; a marca por setor diz qual falta. */}
+                        {s.finalizada && !card.finalizada && (
+                          <Lock
+                            className="h-3 w-3 shrink-0 text-emerald-600"
+                            aria-label="Finalizado"
+                          />
+                        )}
+                      </span>
                       <span className={cn("tabular-nums", s.total === 0 && "opacity-60")}>
                         {formatBRL(s.total)}
                       </span>
