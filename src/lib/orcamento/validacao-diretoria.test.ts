@@ -34,6 +34,22 @@ test("SÓ o aprovado compõe o número da empresa", () => {
   assert.equal(entraNoNumero("revisar"), false);
 });
 
+test("empresa SEM diretor: o pendente entra; reprovado e revisar continuam fora", () => {
+  // Decisão de 30/10/2026: sem diretor não há etapa de aprovação. Era isto que
+  // fazia o Finalizar recusar "nada foi aprovado pela diretoria" numa empresa
+  // que não tem diretoria.
+  assert.equal(entraNoNumero("pendente", false), true);
+  assert.equal(entraNoNumero("aprovado", false), true);
+  assert.equal(entraNoNumero("reprovado", false), false);
+  assert.equal(entraNoNumero("revisar", false), false);
+});
+
+test("sem informar a chave, vale a regra COM diretor (o lado seguro)", () => {
+  // Publicar o não aprovado por esquecer o parâmetro seria o erro caro.
+  assert.equal(entraNoNumero("pendente"), entraNoNumero("pendente", true));
+  assert.equal(entraNoNumero("pendente"), false);
+});
+
 // ─── Quem edita ──────────────────────────────────────────────────────────────
 
 test("o gestor edita o pendente e o que voltou para revisar", () => {

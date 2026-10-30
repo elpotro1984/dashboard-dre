@@ -1254,6 +1254,11 @@ export interface PreviaSetorResumo {
    * e as telas não a mostram.
    */
   orcaPorSetor: boolean;
+  /**
+   * A empresa exige aprovação do diretor? Desligada, o pendente já entra no
+   * aprovado — e `aplicarDecisao` refaz essa conta no clique. Ausente = sim.
+   */
+  aprovacaoDiretor?: boolean;
 }
 
 /**
@@ -1342,7 +1347,10 @@ export async function getPreviaSetor(
         nome: g.nome,
         grupoId: g.grupoId,
         total: g.itens.reduce((a, i) => a + i.total, 0),
-        totalAprovado: g.itens.reduce((a, i) => a + (entraNoNumero(i.estado) ? i.total : 0), 0),
+        totalAprovado: g.itens.reduce(
+          (a, i) => a + (entraNoNumero(i.estado, res.data!.resumo.aprovacaoDiretor) ? i.total : 0),
+          0,
+        ),
         itens: g.itens.map((i) => ({
           nome: i.nome,
           detalhe: i.detalhe,
@@ -1383,6 +1391,7 @@ export async function getPreviaSetor(
       podeValidar: res.data.resumo.podeValidar,
       pessoalIndisponivel: res.data.resumo.pessoalIndisponivel,
       orcaPorSetor: true,
+      aprovacaoDiretor: res.data.resumo.aprovacaoDiretor,
     },
   };
 }

@@ -212,7 +212,9 @@ function ItemRow({ item, aprovado }: { item: PreviaFonteItem; aprovado: boolean 
   // continua listado (some-lo esconderia o que ficou de fora), mas com o valor
   // que ele de fato contribui ali: nenhum. Era exatamente o contrário disso
   // que fazia a despesa reprovada parecer contada.
-  const entra = !aprovado || item.estado === "aprovado";
+  // `noAprovado` é a decisão da Prévia (sem diretor, o pendente entra); o
+  // estado é a reserva para item calculado antes desse campo existir.
+  const entra = !aprovado || (item.noAprovado ?? item.estado === "aprovado");
   const meses = entra ? item.meses : Array<number>(12).fill(0);
   const totalAno = entra ? item.totalAno : 0;
   return (

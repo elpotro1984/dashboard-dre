@@ -101,9 +101,17 @@ export function estadoDoItem(
  * `publicarOrcamentoNoBudget` publica. Pendente e reprovado ficam de fora — e
  * a tela nomeia quanto ficou, porque total menor sem dizer o que faltou é o
  * tipo de número que leva à decisão errada.
+ *
+ * ── Empresa SEM DIRETOR (`aprovacao_diretor` desligada) ─────────────────────
+ * Não há etapa de aprovação (decisão do dono do projeto em 30/10/2026): o que
+ * está orçado entra, e sai só o que alguém marcou como REPROVADO ou mandou
+ * REVISAR. Antes a chave só trocava QUEM aprovava (o gestor no lugar do
+ * diretor), e o Finalizar da Salvaterra Estacionamento recusava com "nada foi
+ * aprovado pela diretoria" numa empresa que não tem diretoria.
  */
-export function entraNoNumero(estado: ValidacaoEstado): boolean {
-  return estado === "aprovado";
+export function entraNoNumero(estado: ValidacaoEstado, aprovacaoDiretor = true): boolean {
+  if (estado === "aprovado") return true;
+  return estado === "pendente" && !aprovacaoDiretor;
 }
 
 /**

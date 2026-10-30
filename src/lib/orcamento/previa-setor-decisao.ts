@@ -62,7 +62,10 @@ export function aplicarDecisao(
       return {
         ...grupo,
         itens,
-        totalAprovado: itens.reduce((a, i) => a + (entraNoNumero(i.estado) ? i.total : 0), 0),
+        totalAprovado: itens.reduce(
+          (a, i) => a + (entraNoNumero(i.estado, resumo.aprovacaoDiretor ?? true) ? i.total : 0),
+          0,
+        ),
       };
     });
 

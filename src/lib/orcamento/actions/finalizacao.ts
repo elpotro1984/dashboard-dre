@@ -144,8 +144,10 @@ function montarFatia(linhas: readonly PreviaDreLinha[], alvo: AlvoFinalizacao): 
       for (const item of fonte.itens) {
         if ((item.setorId ?? null) !== alvo.setorId) continue;
         havia = true;
-        const estado = item.estado ?? "pendente";
-        if (!entraNoNumero(estado)) {
+        // A Prévia já decidiu se o item entra (`noAprovado`, com a chave de
+        // aprovação do diretor da empresa); o estado é só a reserva.
+        const entra = item.noAprovado ?? entraNoNumero(item.estado ?? "pendente");
+        if (!entra) {
           itensFora += 1;
           continue;
         }
@@ -217,9 +219,13 @@ export async function finalizarFatia(params: {
   }
   if (fatia.itensPublicados === 0) {
     return {
-      error:
-        "Nada foi aprovado pela diretoria nesta categoria — só o aprovado vai para o Budget. " +
-        "Aprove os itens (na linha de cada um) antes de finalizar.",
+      error: previa.data.resumo.aprovacaoDiretor
+        ? "Nada foi aprovado pela diretoria nesta categoria — só o aprovado vai para o Budget. " +
+          "Aprove os itens (na linha de cada um) antes de finalizar."
+        : // Sem diretor o pendente entra: zero publicado só acontece com tudo
+          // reprovado ou devolvido para revisão.
+          "Todos os itens desta categoria estão reprovados ou em revisão — nada vai para o Budget. " +
+          "Ajuste os itens antes de finalizar.",
     };
   }
 

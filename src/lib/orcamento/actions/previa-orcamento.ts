@@ -109,6 +109,13 @@ export interface PreviaFonteItem {
   atualizadoEm?: string | null;
   /** Estado efetivo da validação (já considerando decisão vencida). */
   estado?: ValidacaoEstado;
+  /**
+   * O item entra no APROVADO? Decidido aqui, uma vez, por `entraNoNumero` com
+   * a chave da empresa: sem diretor o pendente entra. Quem soma (Finalizar) e
+   * quem mostra (drilldown) leem isto em vez de comparar o estado de novo — uma
+   * cópia de `estado === "aprovado"` zeraria o pendente da empresa sem diretor.
+   */
+  noAprovado?: boolean;
   /** O "balãozinho": o que o diretor pediu que o gestor mude. */
   comentario?: string | null;
   /** Complemento curto (periodicidade, vínculo, índice…). */
@@ -214,8 +221,17 @@ export interface PreviaOrcamentoData {
     totalDespesa: number;
     /** Só o que a diretoria aprovou — é o número que vai ao Budget. */
     totalDespesaAprovada: number;
-    /** Quantos itens ainda não têm ✓ (pendentes, reprovados ou a revisar). */
+    /**
+     * Quantos itens estão FORA do aprovado (sem ✓, reprovados ou a revisar —
+     * na empresa sem diretor, só reprovados e a revisar).
+     */
     itensPendentes: number;
+    /**
+     * A empresa exige aprovação do diretor? Desligada, o pendente já conta como
+     * aprovado (`entraNoNumero`); a prévia do setor recalcula no clique e
+     * precisa saber disso.
+     */
+    aprovacaoDiretor: boolean;
     /**
      * Quem lê pode decidir? É a resposta que faz a tela mostrar (ou esconder)
      * os botões da decisão. Vem daqui, e não de um segundo carregamento, para
@@ -347,6 +363,11 @@ export async function getPreviaOrcamento(
   // para não calcular a Prévia duas vezes.
   const leafAprovadoByScopedId = new Map<string, number[]>();
 
+  // Sem diretor, o pendente já entra no aprovado (`entraNoNumero`). A leitura
+  // falha para o lado do diretor — o contrário publicaria o não aprovado por
+  // causa de uma falha.
+  const aprovacaoDiretor = await aprovacaoDoDiretor(supabase, companyId, year);
+
   // Decisões da diretoria, indexadas por alvo. Ausência de tabela (migration
   // pendente) vira mapa vazio: a Prévia continua respondendo, com tudo
   // pendente — nunca quebra por causa da validação.
@@ -388,7 +409,8 @@ export async function getPreviaOrcamento(
       const v = chave ? validacoesPorAlvo.get(chave) ?? null : null;
       it.estado = estadoDoItem(v, it.atualizadoEm);
       it.comentario = v?.comentario ?? null;
-      if (!entraNoNumero(it.estado)) return;
+      it.noAprovado = entraNoNumero(it.estado, aprovacaoDiretor);
+      if (!it.noAprovado) return;
       for (let m = 0; m < 12; m += 1) aprovado[m] += it.meses[m] ?? 0;
     });
     return aprovado;
@@ -1187,7 +1209,7 @@ export async function getPreviaOrcamento(
     .flatMap((l) => l.fontes.flatMap((f) => f.itens))
     .forEach((i) => {
       if (!i.alvoTipo || !i.alvoId) return;
-      if (i.estado == null || i.estado === "aprovado") return;
+      if (i.estado == null || i.noAprovado) return;
       alvosPendentes.add(`${i.alvoTipo}|${i.alvoId}`);
     });
   const itensPendentes = alvosPendentes.size;
@@ -1215,6 +1237,7 @@ export async function getPreviaOrcamento(
         totalDespesa,
         totalDespesaAprovada,
         itensPendentes,
+        aprovacaoDiretor,
         podeValidar: await podeValidarNaPrevia(supabase, user, companyId, year, filtroSetor),
         totalReceita,
       },

@@ -114,6 +114,26 @@ test("reprovar tira do total aprovado", () => {
   assert.equal(r.contagem.reprovados, 1);
 });
 
+test("empresa SEM diretor: o pendente conta, e reprovar tira do aprovado no clique", () => {
+  // O servidor manda `aprovacaoDiretor: false` e o total aprovado já inclui o
+  // pendente; o clique tem de refazer a conta pela MESMA regra, senão o
+  // primeiro ✗ zeraria o setor inteiro na tela.
+  const semDiretor: PreviaSetorResumo = { ...resumoBase(), aprovacaoDiretor: false };
+  const outra = { ...item("bia", 500), alvoId: "bia" };
+  semDiretor.categorias[0].grupos[0].itens.push(outra);
+
+  const r = aplicarDecisao(semDiretor, {
+    alvoTipo: "colaborador",
+    alvoId: "ana",
+    estado: "reprovado",
+    comentario: null,
+  });
+  // Sobra a Bia, ainda pendente — e pendente entra.
+  assert.equal(r.categorias[0].grupos[0].totalAprovado, 500);
+  assert.equal(r.categorias[1].grupos[0].totalAprovado, 0);
+  assert.equal(r.totalAprovado, 500);
+});
+
 test("revisar guarda o comentário e fica FORA do número", () => {
   const r = aplicarDecisao(resumoBase(), {
     alvoTipo: "colaborador",
