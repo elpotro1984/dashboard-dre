@@ -162,12 +162,12 @@ export function PlanejamentoMontagem({
               year={year}
               metodo="planejamento_socios"
               categoryCode={categoryCode}
-              setorId={detalhe.setorId}
+              setorId={detalhe.setorFinalizacao}
               rotulo={detalhe.categoryName}
               finalizacao={finalizacaoDe(indexarFinalizacoes(finalizacoes), {
                 metodo: "planejamento_socios",
                 categoryCode,
-                setorId: detalhe.setorId,
+                setorId: detalhe.setorFinalizacao,
               })}
               isAdmin={detalhe.isAdmin}
               onMudou={() => void recarregar()}

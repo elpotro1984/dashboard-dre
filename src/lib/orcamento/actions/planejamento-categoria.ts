@@ -16,7 +16,11 @@ import {
 } from "@/lib/orcamento/auth";
 import { isSchemaMissing } from "@/lib/orcamento/errors";
 import { isValidBudgetYear } from "@/lib/orcamento/years";
-import { orcaPorSetor, setorParaGravar } from "@/lib/orcamento/setor-gravacao";
+import {
+  orcaPorSetor,
+  setorNaoAtribuido,
+  setorParaGravar,
+} from "@/lib/orcamento/setor-gravacao";
 import { getCategoriasOrcamento } from "@/lib/orcamento/actions/categoria-metodo";
 import { registrarAlteracao } from "@/lib/orcamento/actions/trilha";
 import { travaDaValidacao } from "@/lib/orcamento/actions/validacao-diretoria";
@@ -134,6 +138,13 @@ export interface PlanejamentoMontagemDetalhe {
   setores: PlanejamentoSetorDaCategoria[];
   /** Setor efetivamente carregado (o escolhido, ou o único, ou null). */
   setorId: string | null;
+  /**
+   * Setor da FATIA do Finalizar. Com "Orçar por setor" ligado é o `setorId`;
+   * desligado é o balde "Não atribuído", que é onde `adicionarDespesa` grava —
+   * com `null` o Finalizar procuraria itens num setor em que nenhum foi gravado
+   * e responderia "não há nada orçado".
+   */
+  setorFinalizacao: string | null;
   setorNome: string;
   /** `orcar_por_setor` da empresa × ano. Sem ele não há "prévia do setor". */
   orcaPorSetor: boolean;
@@ -387,6 +398,7 @@ export async function getPlanejamentoMontagem(
     dreLineName: cat.dreLineName,
     setores,
     setorId: null,
+    setorFinalizacao: null,
     setorNome: "",
     orcaPorSetor: porSetor,
     grupos,
@@ -429,22 +441,32 @@ export async function getPlanejamentoMontagem(
     setorId,
   ).maybeSingle();
 
-  const { data: despRows, error: despErr } = await comSetor(
-    supabase
-      .from("orcamento_planejamento_despesas")
-      .select(
-        "id, descricao, grupo_id, valor, periodicidade, mes_inicio, mes_fim, fornecedor, origem, cancelado, cancelado_motivo, updated_at, created_at, orcamento_grupos_despesa(name)",
-      )
-      .eq("company_id", companyId)
-      .eq("year", year)
-      .eq("category_code", categoryCode)
-      .order("created_at"),
-    setorId,
-  );
+  // DESPESAS: com "Orçar por setor" DESLIGADO a leitura NÃO casa setor. Base e
+  // entrevista gravam setor nulo, mas a despesa passa por `setorParaGravar` e cai
+  // no balde "Não atribuído" (setor nulo quebraria a chave única) — então o
+  // `.is("setor_id", null)` de `comSetor` não achava nenhuma: a despesa era
+  // gravada e o painel "Despesas orçadas" ficava zerado (Salvaterra
+  // Estacionamento, 30/10/2026). Sem setor, a categoria inteira é uma só, e é
+  // assim que a lista de categorias e a Prévia já as leem.
+  const despQuery = supabase
+    .from("orcamento_planejamento_despesas")
+    .select(
+      "id, descricao, grupo_id, valor, periodicidade, mes_inicio, mes_fim, fornecedor, origem, cancelado, cancelado_motivo, updated_at, created_at, orcamento_grupos_despesa(name)",
+    )
+    .eq("company_id", companyId)
+    .eq("year", year)
+    .eq("category_code", categoryCode)
+    .order("created_at");
+  const { data: despRows, error: despErr } = await (porSetor
+    ? comSetor(despQuery, setorId)
+    : despQuery);
   if (despErr) {
     if (isSchemaMissing(despErr.message)) return { needsMigration: true };
     return { error: despErr.message };
   }
+  const setorFinalizacao = porSetor
+    ? setorId
+    : (await setorNaoAtribuido(supabase, companyId, year)).id;
 
   // Decisões da diretoria sobre estas despesas. Tabela ausente (migration
   // pendente) vira mapa vazio: a tela abre com tudo pendente, nunca quebra.
@@ -498,6 +520,7 @@ export async function getPlanejamentoMontagem(
     data: {
       ...vazio,
       setorId,
+      setorFinalizacao,
       setorNome: escolhido?.name ?? "",
       base: (baseRows ?? [])
         .map((r) => linhaBase(r as Record<string, unknown>))

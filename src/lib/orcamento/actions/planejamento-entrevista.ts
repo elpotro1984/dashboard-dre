@@ -7,6 +7,7 @@ import { createAdminClientIfAvailable } from "@/lib/supabase/admin";
 import { autorizarLeitura } from "@/lib/orcamento/auth";
 import { isSchemaMissing } from "@/lib/orcamento/errors";
 import { isValidBudgetYear } from "@/lib/orcamento/years";
+import { orcaPorSetor } from "@/lib/orcamento/setor-gravacao";
 import { getCategoriasOrcamento } from "@/lib/orcamento/actions/categoria-metodo";
 import {
   buildSystemPrompt,
@@ -94,6 +95,12 @@ export async function montarPromptEntrevista(input: MontarPromptInput): Promise<
     };
     return (setorId ? b.eq("setor_id", setorId) : b.is("setor_id", null)) as Q;
   };
+  // As DESPESAS de empresa sem "Orçar por setor" estão no balde "Não atribuído"
+  // (`setorParaGravar`), não em setor nulo — filtrá-las por nulo escondia da IA
+  // tudo o que o gestor já registrou, e ela não tinha como apontar duplicidade
+  // nem saber o que faltava. Base e entrevista gravam nulo e seguem o filtro.
+  const porSetor = await orcaPorSetor(supabase, companyId, year);
+  const filtroSetorDespesas = <Q,>(q: Q): Q => (porSetor ? filtroSetor(q) : q);
 
   const [empresa, setor, baseRes, despRes, gruposRes, entrevRes] = await Promise.all([
     supabase.from("companies").select("name").eq("id", companyId).maybeSingle(),
@@ -109,7 +116,7 @@ export async function montarPromptEntrevista(input: MontarPromptInput): Promise<
         .eq("category_code", categoryCode)
         .eq("incluir", true),
     ),
-    filtroSetor(
+    filtroSetorDespesas(
       supabase
         .from("orcamento_planejamento_despesas")
         .select("descricao, valor, periodicidade, mes_inicio, mes_fim, orcamento_grupos_despesa(name)")
