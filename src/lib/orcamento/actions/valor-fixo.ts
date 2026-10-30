@@ -46,6 +46,8 @@ export interface ValorFixoContrato {
    * (ver valor-fixo-calc). null = segue o índice.
    */
   valorNegociado: number | null;
+  /** Múltiplo do salário mínimo (só com o índice Salário mínimo). null = 1×. */
+  multiplicador: number | null;
   /**
    * Decisão da diretoria sobre ESTE contrato — o alvo é o próprio `id`, o
    * mesmo que a Prévia usa. A decisão é por contrato, não por categoria: uma
@@ -74,6 +76,8 @@ export interface ValorFixoContratoInput {
   indiceKey: IndiceKey | null;
   mesReajuste: number | null;
   valorNegociado: number | null;
+  /** Múltiplo do salário mínimo. Ausente/null = 1×; ignorado fora do Salário mínimo. */
+  multiplicador?: number | null;
 }
 
 /** Índice de correção disponível, com o valor do ano do orçamento. */
@@ -107,6 +111,7 @@ function db() {
 // Todos os índices servem de correção no valor fixo: os percentuais aplicam
 // base × (1+%); o salário mínimo (unit 'brl') substitui pelo próprio valor em R$.
 const INDICE_KEYS = new Set<string>(INDICES.map((i) => i.key));
+const INDICE_UNIT_DO_CONTRATO = new Map<string, IndiceUnit>(INDICES.map((i) => [i.key, i.unit]));
 
 function isIndiceKey(value: unknown): value is IndiceKey {
   return typeof value === "string" && INDICE_KEYS.has(value);
@@ -168,26 +173,34 @@ interface ContratoRow {
   indice_key: string | null;
   mes_reajuste: number | string | null;
   valor_negociado?: number | string | null;
+  multiplicador?: number | string | null;
   updated_at?: string | null;
 }
 
 const CONTRATO_COLS = "id, category_code, descricao, valor_base, indice_key, mes_reajuste, updated_at";
 
 /**
- * Contratos salvos, com o valor negociado. Cai para a leitura sem a coluna
- * enquanto a migration `20261027150000` não roda: sem isso o SELECT inteiro
+ * Contratos salvos, com as colunas acessórias (valor negociado, multiplicador
+ * do salário mínimo). Cai para a leitura sem elas enquanto as migrations
+ * `20261027150000` e `20261030120000` não rodam: sem isso o SELECT inteiro
  * falha (42703) e a tela de valor fixo some por causa de um campo acessório.
  */
 async function lerContratosValorFixo(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   build: (cols: string) => PromiseLike<{ data: any[] | null; error: { message: string } | null }>,
 ): Promise<{ rows: ContratoRow[]; error?: { message: string } }> {
-  const com = await build(`${CONTRATO_COLS}, valor_negociado`);
-  if (!com.error) return { rows: (com.data ?? []) as ContratoRow[] };
-  if (!isSchemaMissing(com.error.message)) return { rows: [], error: com.error };
-  const sem = await build(CONTRATO_COLS);
-  if (sem.error) return { rows: [], error: sem.error };
-  return { rows: (sem.data ?? []) as ContratoRow[] };
+  let ultimo: { message: string } | null = null;
+  for (const cols of [
+    `${CONTRATO_COLS}, valor_negociado, multiplicador`,
+    `${CONTRATO_COLS}, valor_negociado`,
+    CONTRATO_COLS,
+  ]) {
+    const res = await build(cols);
+    if (!res.error) return { rows: (res.data ?? []) as ContratoRow[] };
+    if (!isSchemaMissing(res.error.message)) return { rows: [], error: res.error };
+    ultimo = res.error;
+  }
+  return { rows: [], error: ultimo ?? { message: "Falha ao ler os contratos." } };
 }
 
 // ─── Leitura ────────────────────────────────────────────────────────────────
@@ -271,6 +284,7 @@ export async function getValorFixoCategorias(
       indiceKey: isIndiceKey(raw.indice_key) ? (raw.indice_key as IndiceKey) : null,
       mesReajuste: raw.mes_reajuste == null ? null : Number(raw.mes_reajuste),
       valorNegociado: raw.valor_negociado == null ? null : Number(raw.valor_negociado),
+      multiplicador: raw.multiplicador == null ? null : Number(raw.multiplicador),
       ...estadoDaLinha(
         decisoes.get(raw.id),
         raw.updated_at ?? null,
@@ -326,25 +340,62 @@ function validarContrato(
   if (contrato.valorNegociado != null && contrato.valorBase == null) {
     return "Informe o valor atual antes do valor negociado.";
   }
+  if (
+    contrato.multiplicador != null &&
+    (!Number.isFinite(contrato.multiplicador) ||
+      contrato.multiplicador <= 0 ||
+      contrato.multiplicador > 20)
+  ) {
+    return "Multiplicador do salário mínimo inválido (entre 0 e 20×).";
+  }
   return null;
 }
 
+/** Colunas acessórias, cada uma da sua migration (negociado, multiplicador). */
+const COLUNAS_OPCIONAIS = ["valor_negociado", "multiplicador"] as const;
+const MIGRATION_DA_COLUNA: Record<(typeof COLUNAS_OPCIONAIS)[number], string> = {
+  valor_negociado: "20261027150000_orcamento_valor_fixo_negociado",
+  multiplicador: "20261030120000_orcamento_valor_fixo_multiplicador",
+};
+
 /**
- * Grava (insert/update) tentando com a coluna do valor negociado; enquanto a
- * migration `20261027150000` não roda, a gravação SEM negociado segue
- * funcionando — só quem tenta negociar recebe o aviso da migration.
+ * Recusa por coluna acessória ausente, dita com a migration que falta — o
+ * "migration pendente" genérico não diz a ninguém o que aplicar.
+ */
+function migrationDaColuna(mensagem: string): string | null {
+  if (!isSchemaMissing(mensagem)) return null;
+  const coluna = COLUNAS_OPCIONAIS.find((c) => mensagem.includes(c));
+  if (!coluna) return null;
+  return `Falta aplicar no banco a migration ${MIGRATION_DA_COLUNA[coluna]} para gravar ${
+    coluna === "multiplicador" ? "o multiplicador do salário mínimo" : "o valor negociado"
+  }.`;
+}
+
+/**
+ * Grava (insert/update) com as colunas acessórias; enquanto a migration de uma
+ * delas não roda, a gravação SEM ela segue funcionando — só quem tenta usá-la
+ * (negociar, multiplicar o salário mínimo) recebe o aviso da migration.
+ *
+ * Tira só a coluna que o erro NOMEIA, e só se ela estiver vazia: tirar uma
+ * coluna que existe de um UPDATE deixaria de limpar o valor dela (o negociado
+ * apagado na tela continuaria gravado).
  */
 async function gravarComNegociado<T>(
   patch: Record<string, unknown>,
   run: (p: Record<string, unknown>) => PromiseLike<{ data: T; error: { message: string } | null }>,
 ): Promise<{ data: T; error: { message: string } | null }> {
-  const res = await run(patch);
-  if (!res.error || !isSchemaMissing(res.error.message) || patch.valor_negociado != null) {
-    return res;
+  let atual = patch;
+  let res = await run(atual);
+  for (let i = 0; i < COLUNAS_OPCIONAIS.length; i += 1) {
+    if (!res.error || !isSchemaMissing(res.error.message)) return res;
+    const msg = res.error.message;
+    const coluna = COLUNAS_OPCIONAIS.find((c) => msg.includes(c) && c in atual);
+    if (!coluna || atual[coluna] != null) return res;
+    atual = { ...atual };
+    delete atual[coluna];
+    res = await run(atual);
   }
-  const semNegociado = { ...patch };
-  delete semNegociado.valor_negociado;
-  return run(semNegociado);
+  return res;
 }
 
 /**
@@ -399,6 +450,15 @@ export async function saveValorFixoContrato(
     indice_key: contrato.indiceKey,
     mes_reajuste: contrato.mesReajuste,
     valor_negociado: contrato.valorNegociado,
+    // Só faz sentido com o índice em R$ (salário mínimo). Trocar de índice
+    // limpa o multiplicador, para ele não reaparecer de surpresa depois. E 1× é
+    // gravado como nulo: é o padrão, e não exige a migration.
+    multiplicador:
+      INDICE_UNIT_DO_CONTRATO.get(contrato.indiceKey ?? "") === "brl" &&
+      contrato.multiplicador != null &&
+      contrato.multiplicador !== 1
+        ? contrato.multiplicador
+        : null,
     updated_by: admin.userId,
   };
 
@@ -437,6 +497,8 @@ export async function saveValorFixoContrato(
         .eq("company_id", companyId),
     );
     if (error) {
+      const faltando = migrationDaColuna(error.message);
+      if (faltando) return { error: faltando };
       if (isSchemaMissing(error.message)) return { needsMigration: true };
       return { error: error.message };
     }
@@ -485,6 +547,8 @@ export async function saveValorFixoContrato(
       .single(),
   );
   if (error) {
+    const faltando = migrationDaColuna(error.message);
+    if (faltando) return { error: faltando };
     if (isSchemaMissing(error.message)) return { needsMigration: true };
     return { error: error.message };
   }

@@ -19,7 +19,11 @@ import {
 } from "@/lib/dashboard/dre";
 import { normalizarMesesIncidencia, projetarMedia, serieMediaMensal } from "@/lib/orcamento/media-calc";
 import { combinarRealizados, fetchRealizados } from "@/lib/orcamento/media-realizado";
-import { projetarValorFixoSerie } from "@/lib/orcamento/valor-fixo-calc";
+import {
+  multiplicadorEfetivo,
+  projetarValorFixoSerie,
+  rotuloMultiplicador,
+} from "@/lib/orcamento/valor-fixo-calc";
 import {
   unificarGemeas,
   categoriaSerie,
@@ -261,6 +265,8 @@ interface ValorFixoSnapshotRow {
   mes_reajuste: number | string | null;
   /** Valor fechado em negociação — substitui o corrigido. Ausente sem a migration. */
   valor_negociado?: number | string | null;
+  /** Múltiplo do salário mínimo (índice em R$). Ausente sem a migration = 1×. */
+  multiplicador?: number | string | null;
   /** Rótulo do contrato — só preenchido quando a categoria tem 2+. */
   descricao: string | null;
 }
@@ -742,7 +748,14 @@ export async function getPreviaOrcamento(
           .select(cols)
           .eq("company_id", companyId)
           .eq("year", year);
-      let { data: vfRows, error: vfErr } = await lerVf(`${VF_COLS}, valor_negociado`);
+      // Com as colunas acessórias (negociado, multiplicador do salário mínimo);
+      // cada uma cai sozinha enquanto a migration dela não roda.
+      let { data: vfRows, error: vfErr } = await lerVf(
+        `${VF_COLS}, valor_negociado, multiplicador`,
+      );
+      if (vfErr && isSchemaMissing(vfErr.message)) {
+        ({ data: vfRows, error: vfErr } = await lerVf(`${VF_COLS}, valor_negociado`));
+      }
       if (vfErr && isSchemaMissing(vfErr.message)) {
         ({ data: vfRows, error: vfErr } = await lerVf(VF_COLS));
       }
@@ -773,17 +786,25 @@ export async function getPreviaOrcamento(
           // O salário mínimo corrige por valor absoluto (unit 'brl'); os demais, %.
           const unit = INDICE_UNIT.get(snap.indice_key ?? "") ?? "percent";
           const negociado = snap.valor_negociado == null ? null : Number(snap.valor_negociado);
+          const multiplicador =
+            unit === "brl" && snap.multiplicador != null ? Number(snap.multiplicador) : null;
           const serie = projetarValorFixoSerie(
             base,
             indicePercent(snap.indice_key ?? null),
             mes,
             unit,
             negociado,
+            multiplicador,
           );
           for (let m = 0; m < 12; m += 1) meses[m] += serie[m] ?? 0;
-          const indiceNome = snap.indice_key
+          const indiceRotulo = snap.indice_key
             ? INDICES.find((i) => i.key === snap.indice_key)?.label ?? snap.indice_key
             : null;
+          // "Salário mínimo × 1,5" — quem valida precisa ver que não é o mínimo.
+          const indiceNome =
+            indiceRotulo && multiplicadorEfetivo(multiplicador) !== 1
+              ? `${indiceRotulo} × ${rotuloMultiplicador(multiplicador).replace("×", "")}`
+              : indiceRotulo;
           // Quem valida precisa ver que o número NÃO é o do índice.
           const correcao =
             negociado != null

@@ -5,8 +5,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  corrigirValorFixo,
+  MULTIPLICADORES_SM,
+  multiplicadorEfetivo,
   negociadoDigitado,
   projetarValorFixoSerie,
+  rotuloMultiplicador,
   valorFixoCalculado,
 } from "./valor-fixo-calc";
 
@@ -50,4 +54,37 @@ test("digitar o próprio calculado (ou apagar) volta ao índice", () => {
   assert.equal(negociadoDigitado(1561.2, 1500 * 1.0408), null);
   assert.equal(negociadoDigitado(null, 1561.2), null);
   assert.equal(negociadoDigitado(1550, 1561.2), 1550);
+});
+
+test("salário mínimo × multiplicador: 1,5× o mínimo do ano a partir do reajuste", () => {
+  // Contrato de 1,5 salário mínimo: base 2.277 (1,5 × 1.518), SM 2027 = 1.630.
+  const serie = projetarValorFixoSerie(2277, 1630, 1, "brl", null, 1.5);
+  assert.equal(serie[0], 2445);
+  assert.equal(serie[11], 2445);
+  assert.equal(valorFixoCalculado(2277, 1630, 1, "brl", 1.5), 2445);
+});
+
+test("sem multiplicador (ou inválido) vale 1× — o comportamento de antes", () => {
+  for (const m of [null, undefined, 0, -2, Number.NaN]) {
+    assert.equal(corrigirValorFixo(1518, 1630, "brl", m as number | null), 1630, String(m));
+  }
+  assert.equal(multiplicadorEfetivo(2.5), 2.5);
+});
+
+test("o multiplicador não mexe nos índices percentuais", () => {
+  assert.equal(corrigirValorFixo(1000, 4, "percent", 3), corrigirValorFixo(1000, 4, "percent"));
+});
+
+test("o multiplicador arredonda no centavo e o negociado continua vencendo", () => {
+  assert.equal(corrigirValorFixo(0, 1630.33, "brl", 1.5), 2445.5);
+  const serie = projetarValorFixoSerie(2277, 1630, 1, "brl", 2500, 1.5);
+  assert.equal(serie[0], 2500);
+});
+
+test("a lista vai de 0,5× a 5× e o rótulo usa vírgula", () => {
+  assert.equal(MULTIPLICADORES_SM[0], 0.5);
+  assert.equal(MULTIPLICADORES_SM[MULTIPLICADORES_SM.length - 1], 5);
+  assert.ok(MULTIPLICADORES_SM.includes(1));
+  assert.equal(rotuloMultiplicador(1.5), "1,5×");
+  assert.equal(rotuloMultiplicador(null), "1×");
 });

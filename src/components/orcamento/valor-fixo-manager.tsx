@@ -21,8 +21,11 @@ import {
   type ValorFixoContrato,
 } from "@/lib/orcamento/actions/valor-fixo";
 import {
+  MULTIPLICADORES_SM,
+  multiplicadorEfetivo,
   projetarValorFixoSerie,
   negociadoDigitado,
+  rotuloMultiplicador,
   valorFixoCalculado,
 } from "@/lib/orcamento/valor-fixo-calc";
 import { formatBRL, numberToInput, parseBrNumber } from "@/lib/orcamento/format";
@@ -62,15 +65,26 @@ interface LocalContrato {
   mesReajuste: number | null;
   /** Valor fechado em negociação; null = segue o índice. */
   valorNegociado: number | null;
+  /** Múltiplo do salário mínimo (só com o índice em R$); null = 1×. */
+  multiplicador: number | null;
+}
+
+function contratoVazio(key: string): LocalContrato {
+  return {
+    key,
+    id: null,
+    descricao: "",
+    valorBase: null,
+    indiceKey: null,
+    mesReajuste: null,
+    valorNegociado: null,
+    multiplicador: null,
+  };
 }
 
 function seedContratos(item: ValorFixoItem): LocalContrato[] {
-  if (item.contratos.length === 0) {
-    // Categoria sem nada salvo: uma linha vazia (como a tela de hoje).
-    return [
-      { key: "tmp-0", id: null, descricao: "", valorBase: null, indiceKey: null, mesReajuste: null, valorNegociado: null },
-    ];
-  }
+  // Categoria sem nada salvo: uma linha vazia (como a tela de hoje).
+  if (item.contratos.length === 0) return [contratoVazio("tmp-0")];
   return item.contratos.map((c: ValorFixoContrato) => ({
     key: c.id,
     id: c.id,
@@ -79,6 +93,7 @@ function seedContratos(item: ValorFixoItem): LocalContrato[] {
     indiceKey: c.indiceKey,
     mesReajuste: c.mesReajuste,
     valorNegociado: c.valorNegociado,
+    multiplicador: c.multiplicador,
   }));
 }
 
@@ -91,6 +106,7 @@ function serieContrato(c: LocalContrato, indices: IndiceOption[]): number[] {
     c.mesReajuste,
     sel?.unit ?? "percent",
     c.valorNegociado,
+    c.multiplicador,
   );
 }
 
@@ -206,8 +222,17 @@ function ContratoRow({
   const indiceValue = indiceSel?.value ?? null;
   const indiceUnit = indiceSel?.unit ?? "percent";
   const indiceIndefinido = contrato.indiceKey != null && indiceValue == null;
+  // Salário mínimo (índice em R$): o contrato pode valer um MÚLTIPLO do mínimo.
+  const ehSalarioMinimo = indiceUnit === "brl";
+  const multiplicador = ehSalarioMinimo ? contrato.multiplicador : null;
   // O que o índice dá × o que vale de fato (o negociado, quando houver).
-  const calculado = valorFixoCalculado(contrato.valorBase, indiceValue, contrato.mesReajuste, indiceUnit);
+  const calculado = valorFixoCalculado(
+    contrato.valorBase,
+    indiceValue,
+    contrato.mesReajuste,
+    indiceUnit,
+    multiplicador,
+  );
   const negociado = contrato.valorBase == null ? null : contrato.valorNegociado;
   const efetivo = negociado ?? calculado;
   const serie = projetarValorFixoSerie(
@@ -216,6 +241,7 @@ function ContratoRow({
     contrato.mesReajuste,
     indiceUnit,
     negociado,
+    multiplicador,
   );
   const totalAno = serie.reduce((a, b) => a + b, 0);
   const faltaMes = contrato.valorBase != null && contrato.indiceKey != null && contrato.mesReajuste == null;
@@ -267,27 +293,57 @@ function ContratoRow({
 
       {/* Índice de correção */}
       <td className="px-3 py-2">
-        <select
-          value={contrato.indiceKey ?? ""}
-          onChange={(e) =>
-            onField({ indiceKey: e.target.value === "" ? null : (e.target.value as IndiceKey) })
-          }
-          disabled={!podeEditar}
-          className={cn(
-            INPUT_CLS,
-            "w-40 py-1.5",
-            contrato.indiceKey == null && "text-muted-foreground",
-            !podeEditar && "cursor-not-allowed opacity-60",
+        <div className="flex items-center gap-1.5">
+          <select
+            value={contrato.indiceKey ?? ""}
+            onChange={(e) => {
+              const proximo = e.target.value === "" ? null : (e.target.value as IndiceKey);
+              const emReais = indices.find((i) => i.key === proximo)?.unit === "brl";
+              // Sair do salário mínimo limpa o multiplicador: em índice
+              // percentual ele não significa nada (o servidor faz o mesmo).
+              onField(emReais ? { indiceKey: proximo } : { indiceKey: proximo, multiplicador: null });
+            }}
+            disabled={!podeEditar}
+            className={cn(
+              INPUT_CLS,
+              "w-40 py-1.5",
+              contrato.indiceKey == null && "text-muted-foreground",
+              !podeEditar && "cursor-not-allowed opacity-60",
+            )}
+          >
+            <option value="">— sem correção</option>
+            {indices.map((i) => (
+              <option key={i.key} value={i.key}>
+                {i.label}
+                {i.value != null ? ` — ${formatIndice(i.value, i.unit)}` : " — n/d"}
+              </option>
+            ))}
+          </select>
+          {/* Múltiplo do salário mínimo: "1,5×" o mínimo do ano. */}
+          {ehSalarioMinimo && (
+            <select
+              value={String(multiplicadorEfetivo(multiplicador))}
+              onChange={(e) => {
+                const m = Number(e.target.value);
+                onField({ multiplicador: m === 1 ? null : m });
+              }}
+              disabled={!podeEditar}
+              title="Multiplicador do salário mínimo"
+              aria-label="Multiplicador do salário mínimo"
+              className={cn(
+                INPUT_CLS,
+                "w-20 py-1.5",
+                !podeEditar && "cursor-not-allowed opacity-60",
+              )}
+            >
+              {MULTIPLICADORES_SM.map((m) => (
+                <option key={m} value={String(m)}>
+                  {rotuloMultiplicador(m)}
+                </option>
+              ))}
+            </select>
           )}
-        >
-          <option value="">— sem correção</option>
-          {indices.map((i) => (
-            <option key={i.key} value={i.key}>
-              {i.label}
-              {i.value != null ? ` — ${formatIndice(i.value, i.unit)}` : " — n/d"}
-            </option>
-          ))}
-        </select>
+        </div>
         {indiceIndefinido && (
           <div className="mt-1 flex items-center gap-1 text-[11px] text-amber-600 dark:text-amber-500">
             <TriangleAlert className="h-3 w-3" />
@@ -500,6 +556,7 @@ function ValorFixoCategoryGroup({
           indiceKey: contrato.indiceKey,
           mesReajuste: contrato.mesReajuste,
           valorNegociado: contrato.valorNegociado,
+          multiplicador: contrato.multiplicador,
         },
         requireDescricao,
         setorId,
@@ -535,10 +592,7 @@ function ValorFixoCategoryGroup({
 
   function addContrato() {
     const key = `tmp-${tmpSeq.current++}`;
-    setContratos((prev) => [
-      ...prev,
-      { key, id: null, descricao: "", valorBase: null, indiceKey: null, mesReajuste: null, valorNegociado: null },
-    ]);
+    setContratos((prev) => [...prev, contratoVazio(key)]);
     setExpanded(false);
   }
 

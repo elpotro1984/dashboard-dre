@@ -711,6 +711,14 @@ Sem "Orçar por setor", cada tela chama o Finalizar pela chave que a linha tem: 
 - `reabrirFatia` **desfaz as duas chaves**; `travaDeFinalizacao` **trava com qualquer das duas**; `finalizacaoDe(indice, alvo, porSetor)` **acha a finalização em qualquer das duas** — as telas de Média, Valor fixo, Planejamento, Pessoal e Viagens passam o `porSetor`. Sem isto a tela mostrava "Finalizar" numa categoria fechada e o Reabrir não tinha por onde aparecer.
 - As duas finalizações zeradas da Salvaterra Mall **não foram apagadas no banco**: depois do deploy a linha mostra "Reabrir", que as desfaz, e o Finalizar seguinte publica o valor certo.
 
+### Orçamento — Valor fixo: MULTIPLICADOR do salário mínimo (30/10/2026)
+
+Com o índice **Salário mínimo** (unit `brl`), a linha do contrato mostra ao lado da correção uma lista suspensa de **0,5× a 5×** (`MULTIPLICADORES_SM`): o valor reajustado passa a ser **mínimo do ano × multiplicador**, arredondado no centavo (pedido do dono do projeto: "1,5× o salário mínimo"). Coluna `orcamento_valor_fixo_categorias.multiplicador` (migration `20261030120000`, CHECK 0 < m ≤ 20).
+
+- **NULL = 1×**, e 1× é gravado como NULL: o padrão não exige a migration. Nos índices percentuais o multiplicador não significa nada — trocar de índice o limpa (na tela e no servidor) para não reaparecer de surpresa.
+- **A conta é uma só** (`corrigirValorFixo` / `projetarValorFixoSerie` / `valorFixoCalculado`, com `multiplicador` no fim e padrão 1×), usada pela tela e pela Prévia — logo também pelo Finalizar/Budget. O negociado continua vencendo o calculado. A Prévia escreve "Salário mínimo × 1,5" no detalhe do contrato.
+- **Degrada sem a migration**: a leitura cai em camadas (com negociado + multiplicador → só negociado → base), e a gravação tira só a coluna que o erro NOMEIA, e só se ela estiver vazia — tirar de um UPDATE uma coluna que existe deixaria de limpar o valor dela. Quem escolhe um multiplicador sem a migration recebe a recusa nomeando a migration que falta (`migrationDaColuna`), não o "migration pendente" genérico.
+
 ### Orçamento — quais TELAS aparecem em cada empresa (01/10/2026)
 
 Configurações gerais › **Telas por empresa**: uma linha por empresa, uma coluna por método, marcado = aparece. Pedido: nem toda unidade orça viagem, e oferecer as caixas todas em todas polui o hub e convida a preencher o que não se aplica.
