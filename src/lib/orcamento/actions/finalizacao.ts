@@ -188,7 +188,19 @@ export async function finalizarFatia(params: {
   setorId?: string | null;
   /** Só para a trilha: como a fatia se chama na tela. */
   rotulo?: string;
-}): Promise<{ ok?: true; data?: FinalizacaoResultado; error?: string; needsMigration?: boolean }> {
+  /**
+   * Fechar a fatia mesmo SEM nada orçado — a categoria fica com R$ 0 no ano e
+   * travada. Só depois de o usuário confirmar na tela (ver `vazio` no retorno).
+   */
+  permitirVazio?: boolean;
+}): Promise<{
+  ok?: true;
+  data?: FinalizacaoResultado;
+  error?: string;
+  needsMigration?: boolean;
+  /** Recusado só por estar vazia: a tela pergunta e reenvia com `permitirVazio`. */
+  vazio?: true;
+}> {
   const admin = await getOrcamentoAdmin();
   if (!admin) return { error: SEM_ACESSO_ADMIN };
   const { companyId, year } = params;
@@ -214,10 +226,18 @@ export async function finalizarFatia(params: {
   }
 
   const fatia = montarFatia(previa.data.linhas, alvo);
+  // VAZIA: nada orçado (a média sem realizado, a categoria sem despesa). Fechar
+  // assim é legítimo — é dizer "esta categoria fica com zero no ano" e travá-la
+  // (pedido do dono do projeto em 30/10/2026: sem isto a categoria vazia nunca
+  // fechava e o método nunca chegava a 100%). Mas só com confirmação: a mesma
+  // recusa também aparece quando a tela aponta para o setor errado, e aí fechar
+  // calado esconderia o defeito. Nada vai ao Budget; os deletes por `source`
+  // abaixo só limpam o que uma finalização anterior tenha deixado.
   if (!fatia.havia) {
-    return { error: "Não há nada orçado nesta categoria para este setor." };
-  }
-  if (fatia.itensPublicados === 0) {
+    if (!params.permitirVazio) {
+      return { error: "Não há nada orçado nesta categoria para este setor.", vazio: true };
+    }
+  } else if (fatia.itensPublicados === 0) {
     return {
       error: previa.data.resumo.aprovacaoDiretor
         ? "Nada foi aprovado pela diretoria nesta categoria — só o aprovado vai para o Budget. " +

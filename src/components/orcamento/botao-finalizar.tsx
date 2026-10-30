@@ -70,14 +70,31 @@ export function BotaoFinalizar({
     setOcupado(true);
     setErro(null);
     setAviso(null);
-    const res = await finalizarFatia({ companyId, year, metodo, categoryCode, setorId, rotulo });
+    const params = { companyId, year, metodo, categoryCode, setorId, rotulo };
+    let res = await finalizarFatia(params);
+    // Nada orçado: fechar com zero é legítimo (a categoria fica sem orçamento
+    // no ano), mas é uma decisão — pergunta antes, em vez de mostrar a recusa.
+    if (res.vazio) {
+      const fecharVazia = window.confirm(
+        `Não há nada orçado em "${rotulo}".\n\n` +
+          "Finalizar assim mesmo? Ela fica com R$ 0,00 no ano — nada vai para o Budget — " +
+          "e fechada para edição. Você pode reabrir depois.",
+      );
+      if (!fecharVazia) {
+        setOcupado(false);
+        return;
+      }
+      res = await finalizarFatia({ ...params, permitirVazio: true });
+    }
     setOcupado(false);
     if (res.error) {
       setErro(res.error);
       return;
     }
     const d = res.data;
-    if (d) {
+    if (d && d.itensPublicados === 0 && d.itensFora === 0) {
+      setAviso("Finalizada com R$ 0,00 — nada foi para o Budget.");
+    } else if (d) {
       // Nomeia o que ficou de fora: publicar menos sem dizer a diferença é o
       // tipo de número que leva à decisão errada no Financeiro.
       setAviso(

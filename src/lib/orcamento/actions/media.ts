@@ -516,9 +516,18 @@ export async function recalcularTodasMedias(
   // causa de uma fechada seria pior, e recalcular por cima publicaria número
   // diferente do que o Budget já recebeu.
   const fechadas = new Set(await chavesFinalizadas(companyId, year));
+  // Sem setor escolhido, a categoria SEM linha gravada é finalizada em setor
+  // nulo (é o setor que a tela tem para ela) — e o lote grava no balde. Olhar só
+  // o balde regravaria por cima de uma categoria fechada (a vazia, finalizada
+  // com R$ 0), e a linha nova a faria parecer aberta na tela.
+  const semSetorEscolhido = setorEspecifico(setorId) === null;
   const abertos = codes.filter(
     (code) =>
-      !fechadas.has(chaveFinalizacao({ metodo: "media", categoryCode: code, setorId: alvo.id })),
+      !fechadas.has(chaveFinalizacao({ metodo: "media", categoryCode: code, setorId: alvo.id })) &&
+      !(
+        semSetorEscolhido &&
+        fechadas.has(chaveFinalizacao({ metodo: "media", categoryCode: code, setorId: null }))
+      ),
   );
   const puladas = codes.length - abertos.length;
   if (abertos.length === 0) {
