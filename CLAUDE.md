@@ -692,6 +692,25 @@ O índice é a regra, mas o contrato pode fechar num valor diferente em negocia�
 - A Prévia diz "negociado R$ X" no detalhe do contrato em vez do índice: quem valida precisa ver que o número não é o do índice.
 - **Leitura e gravação degradam sem a migration**: o SELECT cai para as colunas antigas (42703 derrubaria a tela e a Prévia inteiras) e gravar sem negociado continua funcionando; só quem tenta negociar recebe o aviso de migration pendente.
 
+### Orçamento — Valor fixo: "Puxar fornecedores do ano-base" (30/10/2026)
+
+Botão na tela do Valor fixo (pedido do dono do projeto: "não quero adicionar manualmente"): lê quem recebeu em cada categoria no ano-base e cria **um contrato por fornecedor escolhido**. Regra pura e testada em `valor-fixo-fornecedores.ts`; actions em `actions/valor-fixo-fornecedores.ts`; janela em `valor-fixo-fornecedores-dialog.tsx`.
+
+- **O valor atual é o ÚLTIMO mês pago, não a média** — um reajuste no meio do ano deixaria a média abaixo do que se paga hoje. Só pagou no mês em curso → é esse valor.
+- **O mês vem da leitura que já existe**, sem migration nem segunda leitura de `financial_entries`: `orcamento_planejamento_realizado_itens` devolve o "total até o mês N"; chamada com N = 1..meses fechados, a diferença dá cada mês (empresa efetiva, departamentos e roteamento iguais aos do realizado). ~0,7 s por categoria.
+- **A janela é a conferência; nada grava antes do clique.** Vêm marcados os que pagaram em 2+ meses (cara de contrato fixo); o avulso aparece desmarcado. Índice e mês do reajuste opcionais, aplicados a todos. Fornecedor que já é contrato na categoria (casado pelo nome, sem acento/caixa) aparece travado; categoria finalizada é dita, não oferecida.
+- **Grava pela MESMA action da tela** (`saveValorFixoContrato`), um a um: valem as travas e a trilha, e a falha é POR ITEM, nomeada. A tela remonta as categorias depois (`versaoContratos` na `key`) — o rascunho local só nasce na montagem.
+- Empresa que orça por setor: entra no setor da tela, com todos os fornecedores da categoria (sem filtrar departamento) — a janela é onde se desmarca.
+
+### Orçamento — FINALIZAR em empresa SEM setor: a categoria é UMA fatia (30/10/2026)
+
+Sem "Orçar por setor", cada tela chama o Finalizar pela chave que a linha tem: **nulo** (Valor fixo, Pessoal, média sem linha gravada) ou o **balde "Não atribuído"** (Planejamento, média com linha). Média, Valor fixo, Planejamento e Viagens GRAVAM no balde. O Finalizar comparava o setor do item com o da tela, e então achava a categoria "vazia" com contratos dentro — e, com a finalização de categoria vazia do mesmo dia, ofereceu fechá-la com R$ 0. Aconteceu na Salvaterra Mall: **Pagamento de dívida previdenciária (R$ 30.476,83/mês) e IOF s/ Aplicação foram finalizados com R$ 0**, e 7 categorias vazias ficaram finalizadas duas vezes (nulo + balde). Correção:
+
+- `montarFatia` **ignora o setor do item** quando a empresa não orça por setor.
+- `finalizarFatia` **recusa uma 2ª finalização** da mesma categoria em outra chave (as duas `source` somariam no Budget).
+- `reabrirFatia` **desfaz as duas chaves**; `travaDeFinalizacao` **trava com qualquer das duas**; `finalizacaoDe(indice, alvo, porSetor)` **acha a finalização em qualquer das duas** — as telas de Média, Valor fixo, Planejamento, Pessoal e Viagens passam o `porSetor`. Sem isto a tela mostrava "Finalizar" numa categoria fechada e o Reabrir não tinha por onde aparecer.
+- As duas finalizações zeradas da Salvaterra Mall **não foram apagadas no banco**: depois do deploy a linha mostra "Reabrir", que as desfaz, e o Finalizar seguinte publica o valor certo.
+
 ### Orçamento — quais TELAS aparecem em cada empresa (01/10/2026)
 
 Configurações gerais › **Telas por empresa**: uma linha por empresa, uma coluna por método, marcado = aparece. Pedido: nem toda unidade orça viagem, e oferecer as caixas todas em todas polui o hub e convida a preencher o que não se aplica.

@@ -33,6 +33,7 @@ import { MoverSetorButton } from "@/components/orcamento/mover-setor-button";
 import { ValidacaoSetorPainel } from "@/components/orcamento/validacao-setor-painel";
 import { DecisaoLinha } from "@/components/orcamento/decisao-linha";
 import { BotaoFinalizar } from "@/components/orcamento/botao-finalizar";
+import { ValorFixoFornecedoresBotao } from "@/components/orcamento/valor-fixo-fornecedores-dialog";
 import { getFinalizacoes } from "@/lib/orcamento/actions/finalizacao";
 import { finalizacaoDe, indexarFinalizacoes, type Finalizacao } from "@/lib/orcamento/finalizacao";
 import type { DecisaoAplicada } from "@/lib/orcamento/previa-setor-decisao";
@@ -799,6 +800,10 @@ export function ValorFixoManager({
   const [decisao, setDecisao] = useState<(DecisaoAplicada & { seq: number }) | null>(null);
   const [finalizacoes, setFinalizacoes] = useState<Finalizacao[]>([]);
   const indiceFinalizacoes = indexarFinalizacoes(finalizacoes);
+  // Sobe a cada importação de fornecedores e entra na `key` de cada categoria:
+  // o rascunho local (`seedContratos`) só nasce na montagem, e sem remontar os
+  // contratos recém-criados não apareceriam até alguém recarregar a página.
+  const [versaoContratos, setVersaoContratos] = useState(0);
 
   /** Primeiro setor com contrato de valor fixo; senão, o primeiro da lista. */
   async function primeiroSetorComConteudo(ids: string[]): Promise<string | null> {
@@ -923,6 +928,21 @@ export function ValorFixoManager({
             />
           </div>
         </div>
+        {/* Os fornecedores do ano-base viram contratos — sem digitar um por um. */}
+        {podeEditar && items.length > 0 && (
+          <ValorFixoFornecedoresBotao
+            companyId={companyId}
+            year={year}
+            setorId={setorId}
+            indices={indices}
+            desabilitado={loading || (setores.length > 0 && setorEspecifico(setorId) === null)}
+            motivoDesabilitado="Escolha um setor: os contratos entram no setor da tela."
+            onImportou={() => {
+              setVersaoContratos((v) => v + 1);
+              void reload(companyId, year, setorId);
+            }}
+          />
+        )}
       </div>
 
       {/* Campo travado sem explicação é o mesmo silêncio das telas vazias: a
@@ -998,7 +1018,7 @@ export function ValorFixoManager({
               <tbody className="divide-y">
                 {filtered.map((item) => (
                   <ValorFixoCategoryGroup
-                    key={`${companyId}:${year}:${item.categoryCode}`}
+                    key={`${companyId}:${year}:${item.categoryCode}:${versaoContratos}`}
                     item={item}
                     indices={indices}
                     companyId={companyId}
@@ -1008,11 +1028,16 @@ export function ValorFixoManager({
                     podeEditar={podeEditar}
                     podeValidar={podeValidar}
                     isAdmin={isAdmin}
-                    finalizacao={finalizacaoDe(indiceFinalizacoes, {
-                      metodo: "valor_fixo",
-                      categoryCode: item.categoryCode,
-                      setorId: setorEspecifico(setorId),
-                    })}
+                    finalizacao={finalizacaoDe(
+                      indiceFinalizacoes,
+                      {
+                        metodo: "valor_fixo",
+                        categoryCode: item.categoryCode,
+                        setorId: setorEspecifico(setorId),
+                      },
+                      // Sem setor (lista vazia), a fatia pode estar no nulo ou no balde.
+                      setores.length > 0,
+                    )}
                     onFinalizou={() => void reload(companyId, year, setorId)}
                     onDecidiu={registrarDecisao}
                     onMoved={() => void reload(companyId, year, setorId)}

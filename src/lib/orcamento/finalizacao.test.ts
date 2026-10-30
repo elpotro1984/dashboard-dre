@@ -170,3 +170,17 @@ test("a source começa com `orc:` mesmo com categoria estranha", () => {
     assert.ok(cabeNoCheckDoBanco(s), code);
   }
 });
+
+test("empresa SEM setor: a tela acha a finalização gravada no nulo ou no balde", () => {
+  // A categoria é uma fatia só, mas cada linha chama o Finalizar pela chave
+  // que tem (nulo ou o balde "Não atribuído"). Sem isto a tela mostrava
+  // "Finalizar" numa categoria fechada (Salvaterra Mall, 30/10/2026).
+  const indice = indexarFinalizacoes([fin("media", "2.08.92", null)]);
+  assert.ok(finalizacaoDe(indice, alvo("media", "2.08.92", "balde"), false));
+  // Com setor, a chave continua exata: o setor de outro não fecha este.
+  assert.equal(finalizacaoDe(indice, alvo("media", "2.08.92", "balde"), true), null);
+  assert.equal(finalizacaoDe(indice, alvo("media", "2.08.92", "balde")), null);
+  // Outro método ou outra categoria nunca casam.
+  assert.equal(finalizacaoDe(indice, alvo("valor_fixo", "2.08.92", "balde"), false), null);
+  assert.equal(finalizacaoDe(indice, alvo("media", "2.04.05", "balde"), false), null);
+});

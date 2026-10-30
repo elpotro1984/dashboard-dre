@@ -565,11 +565,11 @@ export function DespesasPessoalManager({
                     categoryCode={CATEGORIA_METODO_INTEIRO}
                     setorId={setorAtual}
                     rotulo={`Despesas com pessoal — ${escopoLabel}`}
-                    finalizacao={finalizacaoDe(indexarFinalizacoes(finalizacoes), {
-                      metodo: "pessoal",
-                      categoryCode: CATEGORIA_METODO_INTEIRO,
-                      setorId: setorAtual,
-                    })}
+                    finalizacao={finalizacaoDe(
+                      indexarFinalizacoes(finalizacoes),
+                      { metodo: "pessoal", categoryCode: CATEGORIA_METODO_INTEIRO, setorId: setorAtual },
+                      setup.orcarPorSetor,
+                    )}
                     isAdmin={isAdmin}
                     onMudou={() => void loadColabs(companyId, year, setorId)}
                   />

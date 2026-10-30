@@ -14,6 +14,7 @@ import {
 } from "@/lib/orcamento/actions/previa-orcamento";
 import { rotuloDaConta } from "@/lib/orcamento/previa-budget-labels";
 import { SETOR_TODOS } from "@/lib/orcamento/setor-filtro";
+import { orcaPorSetor } from "@/lib/orcamento/setor-gravacao";
 import { entraNoNumero } from "@/lib/orcamento/validacao-diretoria";
 import { registrarAlteracao } from "@/lib/orcamento/actions/trilha";
 import {
@@ -126,7 +127,19 @@ interface FatiaCalculada {
  * `mesesAprovados` da fonte: aquele já vem somado de todos os setores do
  * escopo, e usá-lo publicaria o orçamento dos colegas junto.
  */
-function montarFatia(linhas: readonly PreviaDreLinha[], alvo: AlvoFinalizacao): FatiaCalculada {
+function montarFatia(
+  linhas: readonly PreviaDreLinha[],
+  alvo: AlvoFinalizacao,
+  /**
+   * A empresa orça por setor? Sem setor, a categoria é UMA fatia só e o setor
+   * gravado no item não decide nada: Média, Valor fixo, Planejamento e Viagens
+   * gravam no balde "Não atribuído", o Pessoal grava nulo, e cada tela passa
+   * ao Finalizar o setor que ela tem (nulo ou o balde). Comparar os dois
+   * deixava a fatia "vazia" com contratos dentro — e com a finalização de
+   * categoria vazia (30/10/2026), oferecia fechá-la com R$ 0.
+   */
+  porSetor: boolean,
+): FatiaCalculada {
   const porConta = new Map<string, { code: string; name: string; meses: number[] }>();
   const detalhe: FatiaCalculada["detalhe"] = [];
   let itensPublicados = 0;
@@ -142,7 +155,7 @@ function montarFatia(linhas: readonly PreviaDreLinha[], alvo: AlvoFinalizacao): 
       if (fonte.metodo !== alvo.metodo) continue;
       if (fonte.categoryCode !== alvo.categoryCode) continue;
       for (const item of fonte.itens) {
-        if ((item.setorId ?? null) !== alvo.setorId) continue;
+        if (porSetor && (item.setorId ?? null) !== alvo.setorId) continue;
         havia = true;
         // A Prévia já decidiu se o item entra (`noAprovado`, com a chave de
         // aprovação do diretor da empresa); o estado é só a reserva.
@@ -215,6 +228,25 @@ export async function finalizarFatia(params: {
   if (!alvo) return { error: "Método inválido para finalização." };
 
   const supabase = db() ?? (await createClient());
+  const porSetor = await orcaPorSetor(supabase, companyId, year);
+
+  // Sem setor, a categoria é UMA fatia — mas a tela pode chamá-la pelo setor
+  // nulo ou pelo balde, conforme a linha. Duas finalizações da mesma categoria
+  // (uma em cada chave) publicariam em duas `source` e o Budget SOMARIA as duas.
+  // Aconteceu em 30/10/2026 na Salvaterra Mall (zeradas, por sorte).
+  if (!porSetor) {
+    const { data: outra } = await supabase
+      .from("orcamento_finalizacoes")
+      .select("id")
+      .eq("company_id", companyId)
+      .eq("year", year)
+      .eq("metodo", alvo.metodo)
+      .eq("category_code", alvo.categoryCode)
+      .limit(1);
+    if ((outra ?? []).length > 0) {
+      return { error: "Esta categoria já está finalizada. Reabra-a antes de finalizar de novo." };
+    }
+  }
 
   // A Prévia do escopo INTEIRO: o recorte por setor é feito item a item logo
   // abaixo, e pedi-la já filtrada esconderia o setor nulo em empresa que orça
@@ -225,7 +257,7 @@ export async function finalizarFatia(params: {
     return { error: previa.error ?? "Não consegui calcular a prévia para publicar." };
   }
 
-  const fatia = montarFatia(previa.data.linhas, alvo);
+  const fatia = montarFatia(previa.data.linhas, alvo, porSetor);
   // VAZIA: nada orçado (a média sem realizado, a categoria sem despesa). Fechar
   // assim é legítimo — é dizer "esta categoria fica com zero no ano" e travá-la
   // (pedido do dono do projeto em 30/10/2026: sem isto a categoria vazia nunca
@@ -391,36 +423,59 @@ export async function reabrirFatia(params: {
   const supabase = db() ?? (await createClient());
   const source = sourceFinalizacao(alvo);
 
+  // Sem setor a categoria é UMA fatia, mas pode estar gravada no setor nulo ou
+  // no balde (a tela chama pela chave da linha). Reabrir desfaz as duas — senão
+  // a que a tela não enxerga continuaria travando e publicando.
+  const alvos: AlvoFinalizacao[] = [alvo];
+  if (!(await orcaPorSetor(supabase, companyId, year))) {
+    const { data: outras } = await supabase
+      .from("orcamento_finalizacoes")
+      .select("setor_id")
+      .eq("company_id", companyId)
+      .eq("year", year)
+      .eq("metodo", alvo.metodo)
+      .eq("category_code", alvo.categoryCode);
+    for (const r of (outras ?? []) as { setor_id: string | null }[]) {
+      const s = r.setor_id ?? null;
+      if (!alvos.some((a) => a.setorId === s)) alvos.push({ ...alvo, setorId: s });
+    }
+  }
+
   // A ORDEM importa: primeiro solta a trava, depois desfaz a publicação. Se o
   // processo morresse no meio da ordem inversa, a fatia ficaria travada com o
   // Budget já limpo — e o admin não teria como reabrir o que já está aberto.
-  const { error: delFim } = await supabase
-    .from("orcamento_finalizacoes")
-    .delete()
-    .eq("company_id", companyId)
-    .eq("year", year)
-    .eq("metodo", alvo.metodo)
-    .eq("category_code", alvo.categoryCode)
-    .filter("setor_id", alvo.setorId ? "eq" : "is", alvo.setorId ?? null);
-  if (delFim) {
-    if (isSchemaMissing(delFim.message)) return { error: "Finalização não encontrada." };
-    return { error: delFim.message };
+  for (const a of alvos) {
+    const { error: delFim } = await supabase
+      .from("orcamento_finalizacoes")
+      .delete()
+      .eq("company_id", companyId)
+      .eq("year", year)
+      .eq("metodo", a.metodo)
+      .eq("category_code", a.categoryCode)
+      .filter("setor_id", a.setorId ? "eq" : "is", a.setorId ?? null);
+    if (delFim) {
+      if (isSchemaMissing(delFim.message)) return { error: "Finalização não encontrada." };
+      return { error: delFim.message };
+    }
   }
 
-  const { error: delRaw } = await supabase
-    .from("budget_uploads_raw")
-    .delete()
-    .eq("company_id", companyId)
-    .eq("year", year)
-    .eq("source", source);
-  if (delRaw) return { error: delRaw.message };
+  for (const a of alvos) {
+    const src = sourceFinalizacao(a);
+    const { error: delRaw } = await supabase
+      .from("budget_uploads_raw")
+      .delete()
+      .eq("company_id", companyId)
+      .eq("year", year)
+      .eq("source", src);
+    if (delRaw) return { error: delRaw.message };
 
-  await supabase
-    .from("orcamento_budget_detalhe")
-    .delete()
-    .eq("company_id", companyId)
-    .eq("year", year)
-    .eq("source", source);
+    await supabase
+      .from("orcamento_budget_detalhe")
+      .delete()
+      .eq("company_id", companyId)
+      .eq("year", year)
+      .eq("source", src);
+  }
 
   await reprocessBudgetEntriesForCompany(supabase, companyId, { years: [year] });
 
@@ -477,11 +532,16 @@ export async function travaDeFinalizacao(params: {
     .eq("year", params.year)
     .eq("metodo", alvo.metodo)
     .eq("category_code", alvo.categoryCode);
-  // `.eq(col, null)` vira `eq.null` no PostgREST e não casa com nada.
-  q = alvo.setorId ? q.eq("setor_id", alvo.setorId) : q.is("setor_id", null);
+  // Sem setor a categoria é uma fatia só, gravada no nulo OU no balde: a trava
+  // vale com qualquer das duas — senão a escrita que chega pela outra chave
+  // passaria por cima de uma categoria fechada.
+  if (await orcaPorSetor(supabase, params.companyId, params.year)) {
+    // `.eq(col, null)` vira `eq.null` no PostgREST e não casa com nada.
+    q = alvo.setorId ? q.eq("setor_id", alvo.setorId) : q.is("setor_id", null);
+  }
 
-  const { data, error } = await q.maybeSingle();
-  if (error || !data) return null;
+  const { data, error } = await q.limit(1);
+  if (error || !data || data.length === 0) return null;
   return TRAVA_FINALIZADO;
 }
 

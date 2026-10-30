@@ -103,11 +103,11 @@ export function ViagensFinalizar({
                 categoryCode={code}
                 setorId={setorId}
                 rotulo={`${nome} · ${setorNome}`}
-                finalizacao={finalizacaoDe(indice, {
-                  metodo: "viagens",
-                  categoryCode: code,
-                  setorId,
-                })}
+                finalizacao={finalizacaoDe(
+                  indice,
+                  { metodo: "viagens", categoryCode: code, setorId },
+                  orcaPorSetor,
+                )}
                 isAdmin={isAdmin}
                 onMudou={() => {
                   void carregar();

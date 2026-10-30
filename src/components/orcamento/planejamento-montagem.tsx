@@ -210,11 +210,11 @@ export function PlanejamentoMontagem({
               categoryCode={categoryCode}
               setorId={detalhe.setorFinalizacao}
               rotulo={detalhe.categoryName}
-              finalizacao={finalizacaoDe(indexarFinalizacoes(finalizacoes), {
-                metodo: "planejamento_socios",
-                categoryCode,
-                setorId: detalhe.setorFinalizacao,
-              })}
+              finalizacao={finalizacaoDe(
+                indexarFinalizacoes(finalizacoes),
+                { metodo: "planejamento_socios", categoryCode, setorId: detalhe.setorFinalizacao },
+                detalhe.orcaPorSetor,
+              )}
               isAdmin={detalhe.isAdmin}
               onMudou={() => void recarregar()}
               onFinalizou={() => void aposFinalizar()}

@@ -838,11 +838,12 @@ export function MediaCorrecaoManager({
                     podeEditar={podeEditar}
                     podeValidar={podeValidar}
                     isAdmin={isAdmin}
-                    finalizacao={finalizacaoDe(indiceFinalizacoes, {
-                      metodo: "media",
-                      categoryCode: item.categoryCode,
-                      setorId: item.setorId,
-                    })}
+                    finalizacao={finalizacaoDe(
+                      indiceFinalizacoes,
+                      { metodo: "media", categoryCode: item.categoryCode, setorId: item.setorId },
+                      // Sem setor (lista vazia), a fatia pode estar no nulo ou no balde.
+                      setores.length > 0,
+                    )}
                     onFinalizou={() => void reload(companyId, year, setorId)}
                     onDecidiu={registrarDecisao}
                     onMoved={() => void reload(companyId, year, setorId)}

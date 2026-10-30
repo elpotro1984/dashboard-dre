@@ -95,8 +95,20 @@ export function indexarFinalizacoes(
 export function finalizacaoDe(
   indice: Map<string, Finalizacao>,
   alvo: AlvoFinalizacao,
+  /**
+   * A empresa orça por setor? Sem setor a categoria é UMA fatia, gravada no
+   * setor nulo ou no balde "Não atribuído" conforme a linha que a finalizou —
+   * e a tela precisa achá-la em qualquer das duas, senão mostra "Finalizar"
+   * numa categoria fechada. Ausente = sim (chave exata).
+   */
+  porSetor = true,
 ): Finalizacao | null {
-  return indice.get(chaveFinalizacao(alvo)) ?? null;
+  const exata = indice.get(chaveFinalizacao(alvo)) ?? null;
+  if (exata || porSetor) return exata;
+  for (const f of Array.from(indice.values())) {
+    if (f.metodo === alvo.metodo && f.categoryCode === alvo.categoryCode) return f;
+  }
+  return null;
 }
 
 export const TRAVA_FINALIZADO =
