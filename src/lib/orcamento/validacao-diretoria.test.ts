@@ -17,6 +17,7 @@ import {
   estadoDoItem,
   gestorPodeEditar,
   motivoDaTrava,
+  ofereceValidacao,
   podeDecidir,
 } from "./validacao-diretoria";
 
@@ -42,6 +43,18 @@ test("empresa SEM diretor: o pendente entra; reprovado e revisar continuam fora"
   assert.equal(entraNoNumero("aprovado", false), true);
   assert.equal(entraNoNumero("reprovado", false), false);
   assert.equal(entraNoNumero("revisar", false), false);
+});
+
+test("sem diretor a TELA não oferece validação a ninguém — nem ao admin", () => {
+  // A aprovação é dispensada (o pendente já está no número): a coluna ✓ ✗ 💬
+  // virava trabalho que não leva a nada (Salvaterra Mall, 30/10/2026).
+  for (const papel of ["admin", "validador", "construtor", "construtor_amplo"]) {
+    assert.equal(ofereceValidacao(papel, false), false, papel);
+  }
+  // Com diretor, quem decide é quem vê os botões — o gestor não.
+  assert.equal(ofereceValidacao("admin", true), true);
+  assert.equal(ofereceValidacao("validador", true), true);
+  assert.equal(ofereceValidacao("construtor", true), false);
 });
 
 test("sem informar a chave, vale a regra COM diretor (o lado seguro)", () => {

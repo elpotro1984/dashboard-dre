@@ -9,7 +9,7 @@ import { travaDaValidacao } from "@/lib/orcamento/actions/validacao-diretoria";
 import { chavesFinalizadas, travaDeFinalizacao } from "@/lib/orcamento/actions/finalizacao";
 import { chaveFinalizacao } from "@/lib/orcamento/finalizacao";
 import { estadoDaLinha, lerDecisoes } from "@/lib/orcamento/decisoes-linha";
-import { podeDecidir, type ValidacaoEstado } from "@/lib/orcamento/validacao-diretoria";
+import { ofereceValidacao, type ValidacaoEstado } from "@/lib/orcamento/validacao-diretoria";
 import { chaveMedia } from "@/lib/orcamento/validacao-diretoria";
 import {
   aprovacaoDoDiretor,
@@ -99,6 +99,11 @@ export interface MediaSetup {
   indices: IndiceOption[];
   /** Quem está vendo decide? A tela só mostra ✓ / ✗ / comentario quando sim. */
   podeValidar: boolean;
+  /**
+   * A empresa tem aprovação do diretor? Sem ela não há validação, e a coluna
+   * da linha (que segue tendo o Finalizar) muda de nome. Ausente = sim.
+   */
+  aprovacaoDiretor?: boolean;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -212,7 +217,8 @@ export async function getMediaCategorias(
   if (!auth.ok) return { error: auth.error };
   const baseYear = year - 1;
   const aprovacaoDiretor = await aprovacaoDoDiretor(supabase, companyId, year);
-  const podeValidar = podeDecidir(auth.user.papel, aprovacaoDiretor);
+  // Sem aprovação do diretor a validação não é oferecida (aprovação dispensada).
+  const podeValidar = ofereceValidacao(auth.user.papel, aprovacaoDiretor);
 
   // Índices percentuais do ano do orçamento (para o seletor de correção).
   const { data: indiceRowRaw } = await supabase
@@ -372,7 +378,7 @@ export async function getMediaCategorias(
       : items.filter((i) => i.setorId !== null && auth.setores!.includes(i.setorId));
 
   return {
-    setup: { items: visiveis, baseYear, indices, podeValidar },
+    setup: { items: visiveis, baseYear, indices, podeValidar, aprovacaoDiretor },
   };
 }
 

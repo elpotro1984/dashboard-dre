@@ -238,7 +238,12 @@ export function PlanejamentoPreviaSetor({
       )}
 
       {resumo && contagem.total > 0 && (
-        <FaixaContagem contagem={contagem} rotulo={rotulo} podeValidar={podeValidar} />
+        <FaixaContagem
+          contagem={contagem}
+          rotulo={rotulo}
+          podeValidar={podeValidar}
+          aprovacaoDiretor={resumo?.aprovacaoDiretor ?? true}
+        />
       )}
 
       {erro && (
@@ -370,15 +375,18 @@ function FaixaContagem({
   contagem,
   rotulo,
   podeValidar,
+  aprovacaoDiretor,
 }: {
   contagem: { pendentes: number; aprovados: number; reprovados: number; revisar: number };
   rotulo?: ContagemRotulo;
   podeValidar: boolean;
+  /** Sem diretor o pendente já está no número: não há fila a anunciar. */
+  aprovacaoDiretor: boolean;
 }) {
   const partes: { texto: string; classe: string }[] = [];
   const nome = rotulo ? ` ${rotulo.plural}` : "";
   const g = sufixo(rotulo);
-  if (contagem.pendentes > 0) {
+  if (contagem.pendentes > 0 && aprovacaoDiretor) {
     partes.push({
       texto: podeValidar
         ? `${contagem.pendentes}${nome} a verificar`

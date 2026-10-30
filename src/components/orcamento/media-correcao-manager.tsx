@@ -577,6 +577,7 @@ export function MediaCorrecaoManager({
   const [recalcAll, setRecalcAll] = useState(false);
   const [search, setSearch] = useState("");
   const [podeValidar, setPodeValidar] = useState(false);
+  const [aprovacaoDiretor, setAprovacaoDiretor] = useState(true);
   // Última decisão tomada NESTA tela, para a prévia abaixo antecipá-la. O
   // `seq` é o gatilho, não o conteúdo: aprovar, desfazer e aprovar de novo
   // produz decisões idênticas e as três precisam valer.
@@ -619,6 +620,7 @@ export function MediaCorrecaoManager({
     setIndices(res.setup.indices);
     setBaseYear(res.setup.baseYear);
     setPodeValidar(res.setup.podeValidar);
+    setAprovacaoDiretor(res.setup.aprovacaoDiretor ?? true);
     const fin = await getFinalizacoes(id, y);
     setFinalizacoes(fin.items);
   }
@@ -815,7 +817,11 @@ export function MediaCorrecaoManager({
                     Meses {year}
                   </th>
                   <th className="px-3 py-2.5 text-right font-medium">Projeção mensal {year}</th>
-                  <th className="px-3 py-2.5 text-right font-medium">Validação</th>
+                  {/* Sem aprovação do diretor não há validação: a coluna fica
+                      só com o Finalizar, e o nome diz isso. */}
+                  <th className="px-3 py-2.5 text-right font-medium">
+                    {aprovacaoDiretor ? "Validação" : "Finalização"}
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y">

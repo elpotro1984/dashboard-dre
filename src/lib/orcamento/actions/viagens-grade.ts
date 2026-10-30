@@ -358,12 +358,9 @@ export async function getGradeViagens(
     );
     const valores = valoresDaRow(r);
     const noSetor = podeEscreverNoSetor(escrita, sId);
-    // Sem aprovação do diretor, o gestor decide — só no que ele monta (mesma
-    // regra de `decidirItem`, que recusaria o clique fora disso).
-    const decideAqui =
-      podeValidarOrcamento(auth.user) ||
-      (podeValidarOrcamento(auth.user, aprovacaoDiretor) &&
-        (porSetor ? noSetor : escrita === null || escrita.length > 0));
+    // Sem aprovação do diretor a aprovação é DISPENSADA e a linha não oferece
+    // decisão (`ofereceValidacao`); com ela, decidem diretoria e admin.
+    const decideAqui = podeValidarOrcamento(auth.user, aprovacaoDiretor);
     const finalizado = fechadas.has(`${texto(r.category_code)}|${sId ?? "-"}`);
 
     // O gestor edita por escopo de SETOR + estado + decisão; o admin, pelo estado.

@@ -1,6 +1,6 @@
 import { getCurrentSessionContext } from "@/lib/auth/session";
 import type { OrcamentoPapel } from "@/lib/supabase/types";
-import { podeDecidir } from "@/lib/orcamento/validacao-diretoria";
+import { ofereceValidacao } from "@/lib/orcamento/validacao-diretoria";
 import { setoresDoAnoAtribuidos } from "@/lib/orcamento/setor-atribuicao";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -62,17 +62,19 @@ export interface OrcamentoUser {
 }
 
 /**
- * Este usuário decide (aprova/reprova) itens do orçamento?
+ * A tela mostra a este usuário os botões da validação (aprovar/reprovar)?
  *
- * Mesma regra de `podeDecidir` (o módulo puro da validação), aqui sobre o
- * usuário já carregado — para a página não ter de repetir `user?.papel`
- * espalhado pelas telas. `null` (fora do módulo) nunca decide.
+ * `ofereceValidacao` (o módulo puro da validação) sobre o usuário já carregado
+ * — para a página não ter de repetir `user?.papel` espalhado pelas telas.
+ * `null` (fora do módulo) nunca vê. Sem aprovação do diretor, ninguém vê.
  */
 export function podeValidarOrcamento(
   user: OrcamentoUser | null | undefined,
   aprovacaoDiretor = true,
 ): boolean {
-  return user != null && podeDecidir(user.papel, aprovacaoDiretor);
+  // Pergunta de TELA: sem aprovação do diretor não há validação a oferecer
+  // (`ofereceValidacao`). Quem decide de fato continua sendo `podeDecidir`.
+  return user != null && ofereceValidacao(user.papel, aprovacaoDiretor);
 }
 
 /**

@@ -148,6 +148,20 @@ export function podeDecidir(papel: string, aprovacaoDiretor = true): boolean {
   return !aprovacaoDiretor && (papel === "construtor" || papel === "construtor_amplo");
 }
 
+/**
+ * A TELA oferece a validação (os botões ✓ ✗ 💬, a faixa "a verificar", o
+ * rodapé do card)?
+ *
+ * Só com aprovação do diretor ligada. Desligada, a aprovação é DISPENSADA — o
+ * pendente já entra no número (`entraNoNumero`) —, e os botões viravam uma
+ * coluna de trabalho que não leva a nada (Salvaterra Mall, 30/10/2026). É
+ * pergunta de TELA, separada de `podeDecidir`: aquela continua governando a
+ * trava do gestor e o que o servidor aceita.
+ */
+export function ofereceValidacao(papel: string, aprovacaoDiretor: boolean): boolean {
+  return aprovacaoDiretor && podeDecidir(papel, true);
+}
+
 // ─── Contadores (os números do card de cada método) ──────────────────────────
 
 export interface ContagemValidacao {

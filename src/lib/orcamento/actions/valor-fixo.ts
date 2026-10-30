@@ -8,7 +8,7 @@ import { registrarAlteracao } from "@/lib/orcamento/actions/trilha";
 import { travaDaValidacao } from "@/lib/orcamento/actions/validacao-diretoria";
 import { travaDeFinalizacao } from "@/lib/orcamento/actions/finalizacao";
 import { estadoDaLinha, lerDecisoes } from "@/lib/orcamento/decisoes-linha";
-import { podeDecidir, type ValidacaoEstado } from "@/lib/orcamento/validacao-diretoria";
+import { ofereceValidacao, type ValidacaoEstado } from "@/lib/orcamento/validacao-diretoria";
 import { diffCampos } from "@/lib/orcamento/trilha";
 import {
   aprovacaoDoDiretor,
@@ -91,6 +91,11 @@ export interface ValorFixoSetup {
   indices: IndiceOption[];
   /** Quem está vendo decide? A tela só mostra os botões quando sim. */
   podeValidar: boolean;
+  /**
+   * A empresa tem aprovação do diretor? Sem ela não há validação, e a coluna
+   * da linha (que segue tendo o Finalizar) muda de nome. Ausente = sim.
+   */
+  aprovacaoDiretor?: boolean;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -200,7 +205,8 @@ export async function getValorFixoCategorias(
   const auth = await autorizarLeitura(supabase, companyId, year);
   if (!auth.ok) return { error: auth.error };
   const aprovacaoDiretor = await aprovacaoDoDiretor(supabase, companyId, year);
-  const podeValidar = podeDecidir(auth.user.papel, aprovacaoDiretor);
+  // Sem aprovação do diretor a validação não é oferecida (aprovação dispensada).
+  const podeValidar = ofereceValidacao(auth.user.papel, aprovacaoDiretor);
 
   // Índices do ano do orçamento (para o seletor de correção). Inclui o salário
   // mínimo, cujo valor cadastrado é o próprio orçado quando escolhido.
@@ -282,7 +288,7 @@ export async function getValorFixoCategorias(
 
   items.sort((a, b) => a.categoryName.localeCompare(b.categoryName, "pt-BR"));
 
-  return { setup: { items, indices, podeValidar } };
+  return { setup: { items, indices, podeValidar, aprovacaoDiretor } };
 }
 
 // ─── Edição ───────────────────────────────────────────────────────────────────

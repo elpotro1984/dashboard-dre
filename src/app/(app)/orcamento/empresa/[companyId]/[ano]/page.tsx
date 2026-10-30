@@ -41,7 +41,9 @@ export default async function OrcamentoEmpresaHubPage({
       year={year}
       status={statuses[params.companyId]}
       isAdmin={Boolean(user?.isAdmin)}
-      validacoes={validacoes.contagens ?? {}}
+      // Sem aprovação do diretor não há validação: o rodapé "N a verificar"
+      // contaria uma fila que não existe (o pendente já está no número).
+      validacoes={aprovacaoDiretor ? (validacoes.contagens ?? {}) : {}}
       podeValidar={podeValidarOrcamento(user, aprovacaoDiretor)}
       metodosOcultos={ocultos.ocultos}
       progresso={progresso}
