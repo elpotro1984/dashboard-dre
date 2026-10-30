@@ -4,6 +4,7 @@ import { contarValidacoesPorMetodo } from "@/lib/orcamento/actions/validacao-dir
 import { getOrcamentoUser, podeValidarOrcamento } from "@/lib/orcamento/auth";
 import { getMetodosOcultos } from "@/lib/orcamento/actions/metodos-empresa";
 import { getAprovacaoDiretor } from "@/lib/orcamento/actions/config";
+import { getProgressoPorMetodo } from "@/lib/orcamento/actions/progresso";
 
 export const dynamic = "force-dynamic";
 
@@ -21,15 +22,18 @@ export default async function OrcamentoEmpresaHubPage({
   // a action): o gerente vê o número do setor dele, a diretoria e o admin veem
   // o da empresa. É por isso que o mesmo card diz coisas diferentes para cada
   // um — e é o comportamento pedido.
-  const [{ statuses }, user, validacoes, ocultos, aprovacaoDiretor] = await Promise.all([
-    getOrcamentoStatus(year),
-    getOrcamentoUser(),
-    contarValidacoesPorMetodo(params.companyId, year),
-    // Quais telas esta empresa oferece (Configurações gerais › Telas por
-    // empresa). Lista de exclusões: vazia = tudo aparece.
-    getMetodosOcultos(params.companyId),
-    getAprovacaoDiretor(params.companyId, year),
-  ]);
+  const [{ statuses }, user, validacoes, ocultos, aprovacaoDiretor, { progresso }] =
+    await Promise.all([
+      getOrcamentoStatus(year),
+      getOrcamentoUser(),
+      contarValidacoesPorMetodo(params.companyId, year),
+      // Quais telas esta empresa oferece (Configurações gerais › Telas por
+      // empresa). Lista de exclusões: vazia = tudo aparece.
+      getMetodosOcultos(params.companyId),
+      getAprovacaoDiretor(params.companyId, year),
+      // "10/30 categorias finalizadas · 5 em andamento" em cada card.
+      getProgressoPorMetodo(params.companyId, year),
+    ]);
 
   return (
     <CompanyHub
@@ -40,6 +44,7 @@ export default async function OrcamentoEmpresaHubPage({
       validacoes={validacoes.contagens ?? {}}
       podeValidar={podeValidarOrcamento(user, aprovacaoDiretor)}
       metodosOcultos={ocultos.ocultos}
+      progresso={progresso}
     />
   );
 }

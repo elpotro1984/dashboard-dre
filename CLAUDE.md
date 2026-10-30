@@ -369,6 +369,15 @@ Reabrir é o caminho de volta, e também é só do admin: desfaz a publicação 
   - Os grupos saem do maior para o menor, e o rodapé conta despesas **e** setores. `totalDoDetalhe` é a soma dos grupos: o total é sempre o do que está na tela, mesmo invariante do Caixa.
 - A rota do drilldown lê com o **admin client** depois do gate do Financeiro (`resolveAllowedCompanyIds`), porque quem abre o Budget pode não ter o módulo Orçamento; a RLS da tabela (que exige o módulo) fica como segunda linha de defesa.
 
+### Orçamento — andamento de cada método no hub (30/10/2026)
+
+Cada card de "Módulos do orçamento" ganhou a tag **"10/30 categorias finalizadas · 5 em andamento"** (pedido do dono do projeto). Regra pura e testada em `progresso.ts`; leitura em `actions/progresso.ts` (`getProgressoPorMetodo`); tag em `company-hub.tsx`.
+
+- **"Feito" é FINALIZADO** (o botão Finalizar), não "preenchido": é o único fim que o módulo tem. A tag diz "finalizadas", não "realizadas" — no orçamento "realizado" é o gasto do ano anterior.
+- **A unidade é a do fecho de cada método**: categoria em Média, Valor fixo e Planejamento; setor no Pessoal (ou "Quadro …" quando a empresa não orça por setor — um só, então o texto diz o estado em vez de "0/1"); viagem em Viagens. **Em andamento** = tem dado e não fechou (categoria: linha gravada, despesa ou o gestor já escreveu na entrevista; viagem: saiu do rascunho; pessoal: tem colaborador). Orçando por setor, a categoria só conta como finalizada quando TODOS os setores dela fecham (os atribuídos e os que têm dado).
+- **`fatiaFechada` é a regra única de "a fatia está fechada"**, e aceita o balde "Não atribuído" **ou** o setor nulo para quem não orça por setor: Média, Valor fixo, Planejamento e Viagens gravam no balde; o Pessoal grava nulo. O card verde do Planejamento (`planejamento-finalizadas.ts`) delega a ela.
+- Recortada no **escopo** de quem vê (como os contadores da validação). É acessória: leitura que falhar conta como vazia e o card fica sem a tag, nunca derruba o hub.
+
 ### Orçamento — VIAGENS, o 5º método (01/10/2026)
 
 O **dono do custo de viagem no sistema**. O solicitante monta o ROTEIRO; o custo sai de um motor determinístico, nunca da IA. Depois ele envia, e a diretoria aprova a **viagem inteira** olhando a abertura por grupo. Reaproveita o slot `viagens_ve`, que era placeholder sem tela (zero linhas em produção, então a chave virou `viagens` e saiu do grupo VE).

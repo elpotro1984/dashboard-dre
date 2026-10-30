@@ -5,6 +5,7 @@ import {
   Coins,
   Handshake,
   LineChart,
+  Lock,
   Plane,
   SlidersHorizontal,
   TrendingUp,
@@ -23,7 +24,10 @@ import {
 import { statusGeral, type OrcamentoStatusRaw } from "@/lib/orcamento/status";
 import type { ContagemPorMetodo } from "@/lib/orcamento/actions/validacao-diretoria";
 import type { ContagemValidacao } from "@/lib/orcamento/validacao-diretoria";
+import type { ProgressoPorMetodo } from "@/lib/orcamento/actions/progresso";
+import { textoProgresso, type ProgressoMetodo } from "@/lib/orcamento/progresso";
 import { StatusBadge } from "@/components/orcamento/status-badge";
+import { cn } from "@/lib/utils";
 
 // Ícone + descrição por método (os rótulos vêm de METODOS, fonte única).
 const METODO_UI: Record<OrcamentoMetodo, { icon: LucideIcon; desc: string }> = {
@@ -52,9 +56,11 @@ interface TileProps {
   comingSoon?: boolean;
   /** Rodapé do card: o andamento da validação neste método. */
   rodape?: React.ReactNode;
+  /** Quanto do método já foi finalizado — a tag abaixo da descrição. */
+  progresso?: React.ReactNode;
 }
 
-function Tile({ icon: Icon, title, desc, href, comingSoon, rodape }: TileProps) {
+function Tile({ icon: Icon, title, desc, href, comingSoon, rodape, progresso }: TileProps) {
   const inner = (
     <>
       <div className="flex items-start justify-between">
@@ -74,6 +80,7 @@ function Tile({ icon: Icon, title, desc, href, comingSoon, rodape }: TileProps) 
         <div className="font-semibold">{title}</div>
         <p className="mt-1 text-sm text-muted-foreground">{desc}</p>
       </div>
+      {progresso}
       {rodape}
     </>
   );
@@ -114,10 +121,13 @@ export function CompanyHub({
   validacoes = {},
   podeValidar = false,
   metodosOcultos = [],
+  progresso = {},
 }: {
   companyId: string;
   year: number;
   status?: OrcamentoStatusRaw;
+  /** Andamento por método (finalizadas / em andamento), no escopo de quem vê. */
+  progresso?: ProgressoPorMetodo;
   /** Andamento da validação por método, já recortado no setor de quem vê. */
   validacoes?: ContagemPorMetodo;
   /** Quem vê é quem decide? Muda o texto do rodapé, não o número. */
@@ -204,6 +214,7 @@ export function CompanyHub({
               desc={ui.desc}
               href={built ? workspaceTabHref(companyId, year, m.key) : undefined}
               comingSoon={!built}
+              progresso={built ? <TagProgresso progresso={progresso[m.key]} /> : undefined}
               rodape={
                 built ? (
                   <RodapeValidacao contagem={validacoes[m.key]} podeValidar={podeValidar} />
@@ -228,6 +239,37 @@ export function CompanyHub({
           />
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Quanto do método já foi FINALIZADO e quanto está em andamento. Verde quando
+ * tudo fechou; o texto (e a concordância) vem de `textoProgresso`, e a regra de
+ * contagem de `progresso.ts`.
+ */
+function TagProgresso({ progresso }: { progresso?: ProgressoMetodo }) {
+  const texto = textoProgresso(progresso);
+  if (!texto) return null;
+  return (
+    <div
+      className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px]"
+      title="Finalizada = o orçamento daquela parte foi fechado e enviado ao Budget. Em andamento = já tem algo preenchido, ainda sem finalizar."
+    >
+      <span
+        className={cn(
+          "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 font-semibold tabular-nums",
+          texto.completo
+            ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+            : "bg-muted/50 text-foreground",
+        )}
+      >
+        {texto.completo && <Lock className="h-3 w-3" />}
+        {texto.principal}
+      </span>
+      {texto.secundario && (
+        <span className="font-medium text-amber-700 dark:text-amber-500">{texto.secundario}</span>
+      )}
     </div>
   );
 }

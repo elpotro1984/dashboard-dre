@@ -16,6 +16,7 @@
 // =============================================================================
 
 import { chaveFinalizacao } from "@/lib/orcamento/finalizacao";
+import { fatiaFechada } from "@/lib/orcamento/progresso";
 
 const METODO = "planejamento_socios" as const;
 
@@ -38,9 +39,8 @@ export function fatiaFinalizada(
   porSetor: boolean,
   baldeId: string | null,
 ): boolean {
-  if (porSetor) return fechadas.has(chaveFatiaPlanejamento(categoryCode, setorId));
-  if (baldeId && fechadas.has(chaveFatiaPlanejamento(categoryCode, baldeId))) return true;
-  return fechadas.has(chaveFatiaPlanejamento(categoryCode, null));
+  // A regra é a dos cards do hub (`progresso.ts`): uma só para os dois.
+  return fatiaFechada(fechadas, METODO, categoryCode, setorId, porSetor, baldeId);
 }
 
 /** Uma fatia como a lista a mostra: categoria × setor, já com o estado. */
